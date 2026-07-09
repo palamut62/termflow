@@ -21,6 +21,7 @@ export type ShellKind =
   | 'codex'
   | 'opencode'
   | 'ollama'
+  | 'ssh'
   | 'custom'
 
 export type NodeType = 'terminal' | 'agent' | 'service' | 'database' | 'test' | 'custom'
@@ -28,6 +29,23 @@ export type AgentType = 'claude' | 'codex' | 'opencode' | 'ollama' | 'custom'
 
 export type TerminalStatus = 'running' | 'stopped' | 'error' | 'exited'
 export type NodeStatus = 'idle' | 'running' | 'waiting' | 'error' | 'completed' | 'stopped'
+
+// ---- Pane Tree (Split-Pane feature) ----
+export interface LeafPane {
+  type: 'leaf'
+  terminalId: string
+  title: string
+}
+
+export interface SplitPane {
+  type: 'split'
+  dir: 'horizontal' | 'vertical'
+  ratio: number // 0..1, proportion allocated to child 'a'
+  a: PaneNode
+  b: PaneNode
+}
+
+export type PaneNode = LeafPane | SplitPane
 
 export interface TerminalProfile {
   id: string
@@ -74,7 +92,9 @@ export interface TerminalSession {
 export interface CanvasNode {
   id: string
   workspaceId: string
-  terminalId: string
+  terminalId?: string // legacy single-terminal; use panes for multi-pane
+  panes?: PaneNode // pane tree for split-pane / tabbed terminals
+  activePaneId?: string // which leaf terminalId is focused within the node
   title: string
   nodeType: NodeType
   agentType?: AgentType
@@ -97,28 +117,6 @@ export interface ProcStats {
 
 export type ThemeMode = 'dark' | 'light' | 'system'
 
-export interface AppSettings {
-  theme: ThemeMode
-  activeBorderColor: string
-  scrollback: number
-  passiveThrottleMs: number
-  webgl: boolean
-  snapToGrid: boolean
-  agentAutoApprove: boolean
-  minimap: boolean
-}
-
-export const DEFAULT_SETTINGS: AppSettings = {
-  theme: 'dark',
-  activeBorderColor: '#f5e642',
-  scrollback: 10000,
-  passiveThrottleMs: 250,
-  webgl: true,
-  snapToGrid: false,
-  agentAutoApprove: true,
-  minimap: false
-}
-
 export type ConnectionType =
   | 'control'
   | 'data'
@@ -138,6 +136,119 @@ export interface AgentConnection {
   label?: string
   isActive: boolean
   status: 'idle' | 'active' | 'error' | 'disabled'
+  // Agent-to-agent routing (P1-5)
+  triggerPattern?: string
+  transform?: string
+  routeBehavior?: 'marker' | 'continuous' | 'disabled'
+}
+
+// ---- Snippets (P0-2) ----
+export interface Snippet {
+  id: string
+  workspaceId: string | null // null = global
+  name: string
+  command: string
+  params: string[] // extracted {{param}} names
+  targetKind?: ShellKind
+  cwd?: string
+  scope: 'workspace' | 'global'
+  createdAt: string
+  updatedAt: string
+}
+
+// ---- Highlight Rules (P1-8) ----
+export interface HighlightRule {
+  id: string
+  workspaceId: string | null
+  pattern: string
+  flags: string
+  color: string
+  label?: string
+  notifyOnMatch?: boolean
+}
+
+// ---- SSH Profiles (P1-7) ----
+export interface SshProfile {
+  id: string
+  workspaceId: string
+  name: string
+  host: string
+  port: number
+  user: string
+  authType: 'key' | 'agent' | 'password'
+  keyPath?: string
+  jumpHost?: string
+  createdAt: string
+}
+
+// ---- Env Vars (P2-11) ----
+export interface EnvEntry {
+  id: string
+  workspaceId: string
+  key: string
+  value: string // encrypted via safeStorage
+  masked: boolean
+}
+
+// ---- Git Status (P2-9) ----
+export interface GitStatus {
+  branch: string
+  dirty: boolean
+}
+
+// ---- Workspace Export (P0-3) ----
+export interface WorkspaceExport {
+  schemaVersion: number
+  exportedAt: string
+  termflowVersion?: string
+  workspace: {
+    name: string
+    description?: string
+    defaultLayoutMode: LayoutMode
+  }
+  nodes: CanvasNode[]
+  connections: AgentConnection[]
+  viewport: { zoom: number; x: number; y: number }
+  profiles?: TerminalProfile[]
+  snippets?: Snippet[]
+}
+
+// ---- AppSettings extended (P2-12) ----
+export interface AppSettings {
+  theme: ThemeMode
+  activeBorderColor: string
+  scrollback: number
+  passiveThrottleMs: number
+  webgl: boolean
+  snapToGrid: boolean
+  agentAutoApprove: boolean
+  minimap: boolean
+  // Theme & Font (P2-12)
+  fontFamily: string
+  fontSize: number
+  lineHeight: number
+  cursorStyle: 'block' | 'underline' | 'bar'
+  cursorBlink: boolean
+  terminalTheme: string
+  ligatures: boolean
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'dark',
+  activeBorderColor: '#f5e642',
+  scrollback: 10000,
+  passiveThrottleMs: 250,
+  webgl: true,
+  snapToGrid: false,
+  agentAutoApprove: true,
+  minimap: false,
+  fontFamily: "'Cascadia Mono', 'JetBrains Mono', Consolas, monospace",
+  fontSize: 13,
+  lineHeight: 1.1,
+  cursorStyle: 'block',
+  cursorBlink: true,
+  terminalTheme: 'TermFlow Dark',
+  ligatures: true
 }
 
 export interface CanvasViewport {
@@ -190,16 +301,48 @@ export const IPC = {
   WINDOW_OVERLAY: 'window:overlay', // renderer -> main: set titlebar overlay colors
   // dialog
   DIALOG_OPEN_DIR: 'dialog:openDir',
+  DIALOG_CHECK_FILE: 'dialog:checkFile',
   // workspaces
   WS_LIST: 'ws:list',
   WS_CREATE: 'ws:create',
   WS_UPDATE: 'ws:update',
   WS_DELETE: 'ws:delete',
+  WS_EXPORT: 'ws:export',
+  WS_IMPORT: 'ws:import',
+  WS_CHECK_MANIFEST: 'ws:checkManifest',
   // layout
   LAYOUT_GET: 'layout:get',
   LAYOUT_SAVE: 'layout:save',
   // terminals persistence
   TERM_LIST: 'term:list',
   TERM_UPSERT: 'term:upsert',
-  TERM_DELETE: 'term:delete'
+  TERM_DELETE: 'term:delete',
+  // snippets
+  SNIPPET_LIST: 'snippet:list',
+  SNIPPET_CREATE: 'snippet:create',
+  SNIPPET_UPDATE: 'snippet:update',
+  SNIPPET_DELETE: 'snippet:delete',
+  // highlight rules
+  HL_RULE_LIST: 'hl:list',
+  HL_RULE_CREATE: 'hl:create',
+  HL_RULE_UPDATE: 'hl:update',
+  HL_RULE_DELETE: 'hl:delete',
+  // SSH profiles
+  SSH_PROFILE_LIST: 'ssh:list',
+  SSH_PROFILE_CREATE: 'ssh:create',
+  SSH_PROFILE_UPDATE: 'ssh:update',
+  SSH_PROFILE_DELETE: 'ssh:delete',
+  // git
+  GIT_STATUS: 'git:status',
+  // env vars
+  ENV_LIST: 'env:list',
+  ENV_CREATE: 'env:create',
+  ENV_UPDATE: 'env:update',
+  ENV_DELETE: 'env:delete',
+  // recording
+  REC_START: 'rec:start',
+  REC_STOP: 'rec:stop',
+  REC_SAVE: 'rec:save',
+  // agent routing
+  AGENT_SET_ROUTING: 'agent:setRouting'
 } as const

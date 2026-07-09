@@ -9,7 +9,12 @@ import type {
   CanvasNode,
   AgentConnection,
   LayoutMode,
-  AppSettings
+  AppSettings,
+  Snippet,
+  HighlightRule,
+  SshProfile,
+  EnvEntry,
+  PaneNode
 } from '../../shared/types'
 import { DEFAULT_SETTINGS } from '../../shared/types'
 
@@ -28,13 +33,21 @@ interface StoreShape {
   connections: AgentConnection[]
   viewports: Record<string, { layoutMode: LayoutMode; zoom: number; x: number; y: number }>
   settings: AppSettings
+  snippets: Snippet[]
+  highlightRules: HighlightRule[]
+  sshProfiles: SshProfile[]
+  envVars: EnvEntry[]
 }
 
 let store: StoreShape
 let filePath: string
 
 function empty(): StoreShape {
-  return { workspaces: [], terminals: [], nodes: [], connections: [], viewports: {}, settings: { ...DEFAULT_SETTINGS } }
+  return {
+    workspaces: [], terminals: [], nodes: [], connections: [],
+    viewports: {}, settings: { ...DEFAULT_SETTINGS },
+    snippets: [], highlightRules: [], sshProfiles: [], envVars: []
+  }
 }
 
 // ---- Settings ----
@@ -153,10 +166,22 @@ export function deleteTerminal(id: string): void {
   persist()
 }
 
+// ---- Node migration: convert legacy single-terminal nodes to pane-tree ----
+function migrateNode(node: CanvasNode): CanvasNode {
+  if (!node.panes && node.terminalId) {
+    return {
+      ...node,
+      panes: { type: 'leaf', terminalId: node.terminalId, title: node.title },
+      activePaneId: node.terminalId
+    }
+  }
+  return node
+}
+
 // ---- Layout ----
 
 export function getLayout(workspaceId: string): WorkspaceLayout {
-  const nodes = store.nodes.filter((n) => n.workspaceId === workspaceId)
+  const nodes = store.nodes.filter((n) => n.workspaceId === workspaceId).map(migrateNode)
   const connections = store.connections.filter((c) => c.workspaceId === workspaceId)
   const vp = store.viewports[workspaceId] ?? { layoutMode: 'manual' as LayoutMode, zoom: 1, x: 0, y: 0 }
   return {
@@ -166,6 +191,138 @@ export function getLayout(workspaceId: string): WorkspaceLayout {
     layoutMode: vp.layoutMode,
     viewport: { zoom: vp.zoom, x: vp.x, y: vp.y }
   }
+}
+
+// ---- Snippets ----
+
+export function listSnippets(workspaceId?: string): Snippet[] {
+  return store.snippets.filter((s) => !workspaceId || s.workspaceId === workspaceId || s.scope === 'global')
+}
+
+export function createSnippet(input: Omit<Snippet, 'id' | 'createdAt' | 'updatedAt'>): Snippet {
+  const ts = now()
+  const s: Snippet = { id: nanoid(), ...input, createdAt: ts, updatedAt: ts }
+  store.snippets.push(s)
+  persist()
+  return s
+}
+
+export function updateSnippet(id: string, patch: Partial<Snippet>): void {
+  const idx = store.snippets.findIndex((s) => s.id === id)
+  if (idx < 0) return
+  store.snippets[idx] = { ...store.snippets[idx], ...patch, updatedAt: now() }
+  persist()
+}
+
+export function deleteSnippet(id: string): void {
+  store.snippets = store.snippets.filter((s) => s.id !== id)
+  persist()
+}
+
+// ---- Highlight Rules ----
+
+export function listHighlightRules(workspaceId?: string): HighlightRule[] {
+  return store.highlightRules.filter((r) => !workspaceId || !r.workspaceId || r.workspaceId === workspaceId)
+}
+
+export function createHighlightRule(input: Omit<HighlightRule, 'id'>): HighlightRule {
+  const r: HighlightRule = { id: nanoid(), ...input }
+  store.highlightRules.push(r)
+  persist()
+  return r
+}
+
+export function updateHighlightRule(id: string, patch: Partial<HighlightRule>): void {
+  const idx = store.highlightRules.findIndex((r) => r.id === id)
+  if (idx < 0) return
+  store.highlightRules[idx] = { ...store.highlightRules[idx], ...patch }
+  persist()
+}
+
+export function deleteHighlightRule(id: string): void {
+  store.highlightRules = store.highlightRules.filter((r) => r.id !== id)
+  persist()
+}
+
+// ---- SSH Profiles ----
+
+export function listSshProfiles(workspaceId: string): SshProfile[] {
+  return store.sshProfiles.filter((p) => p.workspaceId === workspaceId)
+}
+
+export function createSshProfile(input: Omit<SshProfile, 'id' | 'createdAt'>): SshProfile {
+  const p: SshProfile = { id: nanoid(), ...input, createdAt: now() }
+  store.sshProfiles.push(p)
+  persist()
+  return p
+}
+
+export function updateSshProfile(id: string, patch: Partial<SshProfile>): void {
+  const idx = store.sshProfiles.findIndex((p) => p.id === id)
+  if (idx < 0) return
+  store.sshProfiles[idx] = { ...store.sshProfiles[idx], ...patch }
+  persist()
+}
+
+export function deleteSshProfile(id: string): void {
+  store.sshProfiles = store.sshProfiles.filter((p) => p.id !== id)
+  persist()
+}
+
+// ---- Env Vars ----
+
+export function listEnvVars(workspaceId: string): EnvEntry[] {
+  return store.envVars.filter((e) => e.workspaceId === workspaceId)
+}
+
+export function createEnvVar(input: Omit<EnvEntry, 'id'>): EnvEntry {
+  const e: EnvEntry = { id: nanoid(), ...input }
+  store.envVars.push(e)
+  persist()
+  return e
+}
+
+export function updateEnvVar(id: string, patch: Partial<EnvEntry>): void {
+  const idx = store.envVars.findIndex((e) => e.id === id)
+  if (idx < 0) return
+  store.envVars[idx] = { ...store.envVars[idx], ...patch }
+  persist()
+}
+
+export function deleteEnvVar(id: string): void {
+  store.envVars = store.envVars.filter((e) => e.id !== id)
+  persist()
+}
+
+// ---- Workspace Export/Import ----
+
+export function exportWorkspaceData(workspaceId: string): {
+  nodes: CanvasNode[]
+  connections: AgentConnection[]
+  snippets: Snippet[]
+  viewport: { zoom: number; x: number; y: number } | null
+} {
+  const ws = store.workspaces.find((w) => w.id === workspaceId)
+  return {
+    nodes: store.nodes.filter((n) => n.workspaceId === workspaceId),
+    connections: store.connections.filter((c) => c.workspaceId === workspaceId),
+    snippets: store.snippets.filter((s) => s.workspaceId === workspaceId),
+    viewport: store.viewports[workspaceId] ?? null
+  }
+}
+
+export function importWorkspaceData(
+  workspaceId: string,
+  nodes: CanvasNode[],
+  connections: AgentConnection[],
+  snippets: Snippet[],
+  viewport: { zoom: number; x: number; y: number }
+): void {
+  store.nodes = store.nodes.filter((n) => n.workspaceId !== workspaceId).concat(nodes)
+  store.connections = store.connections.filter((c) => c.workspaceId !== workspaceId).concat(connections)
+  store.snippets = store.snippets.filter((s) => s.workspaceId !== workspaceId).concat(snippets)
+  store.viewports[workspaceId] = { layoutMode: 'manual' as LayoutMode, ...viewport }
+  persist()
 }
 
 export function saveLayout(layout: WorkspaceLayout): void {

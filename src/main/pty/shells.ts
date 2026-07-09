@@ -103,6 +103,8 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
       return { shell: wsl, args: input.args ?? [], cwd, env }
     case 'gitbash':
       return { shell: gitBash ?? psPath, args: gitBash ? ['--login', '-i'] : ['-NoLogo'], cwd, env }
+    case 'ssh':
+      return host()
     case 'claude':
     case 'codex':
     case 'opencode':
@@ -115,4 +117,4 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
 
 /** The set of shell kinds whose startup command must be typed into an
  *  interactive host shell rather than passed as a spawn argument. */
-export const AGENT_KINDS = ['claude', 'codex', 'opencode', 'ollama'] as const
+export const AGENT_KINDS = ['claude', 'codex', 'opencode', 'ollama', 'ssh'] as const

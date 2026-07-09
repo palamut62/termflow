@@ -13,9 +13,8 @@ import {
   type NodeProps
 } from '@xyflow/react'
 import TerminalNode from './TerminalNode'
-import ConnectionModal from '../components/ConnectionModal'
+import ConnectionModal, { type ConnectionFormResult } from '../components/ConnectionModal'
 import { useAppStore } from '../store/appStore'
-import type { ConnectionType } from '../../../shared/types'
 
 const nodeTypes: NodeTypes = { terminal: TerminalNode as unknown as React.ComponentType<NodeProps> }
 
@@ -148,8 +147,12 @@ export default function CanvasFlow(): React.JSX.Element {
       {pending && (
         <ConnectionModal
           onClose={() => setPending(null)}
-          onSubmit={(type: ConnectionType, label) => {
-            addConnection(pending.source, pending.target, type, label)
+          onSubmit={(result: ConnectionFormResult) => {
+            addConnection(pending.source, pending.target, result.type, result.label, {
+              triggerPattern: result.triggerPattern,
+              transform: result.transform,
+              routeBehavior: result.routeBehavior
+            })
             setPending(null)
           }}
         />

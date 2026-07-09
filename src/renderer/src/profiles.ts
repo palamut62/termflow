@@ -57,7 +57,8 @@ export const PROFILES: ProfileDef[] = [
     color: '#b48ead',
     group: 'agent'
   },
-  { kind: 'custom', label: 'Custom Command', nodeType: 'custom', color: '#a0a7b4', group: 'shell' }
+  { kind: 'custom', label: 'Custom Command', nodeType: 'custom', color: '#a0a7b4', group: 'shell' },
+  { kind: 'ssh', label: 'SSH Connection', nodeType: 'terminal', color: '#7b68ee', group: 'shell' }
 ]
 
 export function profileFor(kind: ShellKind): ProfileDef {

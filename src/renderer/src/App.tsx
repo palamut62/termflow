@@ -6,9 +6,11 @@ import Toolbar from './components/Toolbar'
 import StatusBar from './components/StatusBar'
 import WorkspaceModal from './components/WorkspaceModal'
 import SettingsModal from './components/SettingsModal'
+import SnippetModal from './components/SnippetModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
 import CanvasFlow from './canvas/CanvasFlow'
 import { useAppStore } from './store/appStore'
+import { getActiveTerminalId } from './paneUtils'
 
 function ConnectionInspector(): React.JSX.Element | null {
   const id = useAppStore((s) => s.selectedConnectionId)
@@ -61,13 +63,20 @@ export default function App(): React.JSX.Element {
   const [showWsModal, setShowWsModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
+  const [showSnippetModal, setShowSnippetModal] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  const loadSnippets = useAppStore((s) => s.loadSnippets)
+  const startGitPolling = useAppStore((s) => s.startGitPolling)
 
   useEffect(() => {
     loadSettings()
     startRuntimeListeners()
-    loadWorkspaces()
-  }, [loadSettings, startRuntimeListeners, loadWorkspaces])
+    loadWorkspaces().then(() => {
+      loadSnippets()
+      startGitPolling()
+    })
+  }, [loadSettings, startRuntimeListeners, loadWorkspaces, loadSnippets, startGitPolling])
 
   const canvasSize = useCallback(() => {
     const el = canvasRef.current
@@ -87,7 +96,7 @@ export default function App(): React.JSX.Element {
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const s = useAppStore.getState
-    return [
+    const cmds: PaletteCommand[] = [
       { id: 'new-ps', title: 'New Terminal: PowerShell', run: () => s().addTerminal('powershell') },
       { id: 'new-cmd', title: 'New Terminal: CMD', run: () => s().addTerminal('cmd') },
       { id: 'new-wsl', title: 'New Terminal: WSL', run: () => s().addTerminal('wsl') },
@@ -114,9 +123,55 @@ export default function App(): React.JSX.Element {
             s().nodes.slice().forEach((n) => s().closeNode(n.id, 'terminate'))
         }
       },
+      { id: 'toggle-broadcast', title: 'Toggle Broadcast Mode', run: () => s().toggleBroadcast() },
+      {
+        id: 'split-h',
+        title: 'Split Active Node Horizontally',
+        run: () => {
+          const a = s().activeNodeId
+          if (a) s().splitNode(a, 'horizontal')
+        }
+      },
+      {
+        id: 'split-v',
+        title: 'Split Active Node Vertically',
+        run: () => {
+          const a = s().activeNodeId
+          if (a) s().splitNode(a, 'vertical')
+        }
+      },
+      // Add snippets
+      ...s().snippets.map((sn) => ({
+        id: `snippet:${sn.id}`,
+        title: `Snippet: ${sn.name}`,
+        run: () => {
+          // Quick-run snippet: write to active terminal
+          const activeNodeId = s().activeNodeId
+          if (!activeNodeId) return
+          const node = s().nodes.find((n) => n.id === activeNodeId)
+          if (!node) return
+          const tid = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
+          if (tid) {
+            if (sn.params.length > 0) {
+              // Ask for params via simple prompt
+              let cmd = sn.command
+              for (const p of sn.params) {
+                const val = window.prompt(`Enter value for "${p}":`)
+                if (!val) return
+                cmd = cmd.replace(new RegExp(`\\{\\{${p}\\}\\}`, 'g'), val)
+              }
+              window.termflow.pty.write(tid, cmd + '\r')
+            } else {
+              window.termflow.pty.write(tid, sn.command + '\r')
+            }
+          }
+        }
+      })),
+      { id: 'new-snippet', title: 'Create New Snippet', run: () => setShowSnippetModal(true) },
       { id: 'settings', title: 'Open Settings', run: () => setShowSettings(true) },
       { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
     ]
+    return cmds
   }, [canvasSize])
 
   // Keyboard shortcuts (PRD §21). Ctrl+Alt combos avoid clashing with terminal input.
@@ -126,6 +181,15 @@ export default function App(): React.JSX.Element {
       if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setShowPalette((v) => !v)
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        if (s.activeNodeId) s.splitNode(s.activeNodeId, 'vertical')
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault()
+        if (s.activeNodeId) s.splitNode(s.activeNodeId, 'horizontal')
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        s.toggleBroadcast()
       } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         s.setLayoutMode('auto_fit', canvasSize())
@@ -177,6 +241,7 @@ export default function App(): React.JSX.Element {
       <StatusBar />
       {showWsModal && <WorkspaceModal onClose={() => setShowWsModal(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
     </div>
   )

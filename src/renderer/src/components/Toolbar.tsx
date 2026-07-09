@@ -10,7 +10,8 @@ import {
   Share2,
   Settings,
   Search,
-  ChevronDown
+  ChevronDown,
+  Radio
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
@@ -50,6 +51,8 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
   const setLayoutMode = useAppStore((s) => s.setLayoutMode)
   const layoutMode = useAppStore((s) => s.layoutMode)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
+  const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
+  const toggleBroadcast = useAppStore((s) => s.toggleBroadcast)
 
   const [termMenu, setTermMenu] = useState(false)
   const [agentMenu, setAgentMenu] = useState(false)
@@ -175,6 +178,15 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
 
       <button className="tb-btn" disabled={disabled} onClick={() => setLayoutMode('auto_fit', canvasSize())}>
         <Maximize2 size={15} /> Auto Fit
+      </button>
+
+      <button
+        className={`tb-btn ${broadcastEnabled ? 'active' : ''}`}
+        disabled={disabled}
+        title="Broadcast input to all terminals in group"
+        onClick={toggleBroadcast}
+      >
+        <Radio size={15} /> Broadcast
       </button>
 
       <div className="spacer" />

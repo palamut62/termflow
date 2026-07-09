@@ -10,17 +10,25 @@ import {
   PanelRightOpen,
   Bot,
   TerminalSquare,
-  AlertTriangle
+  AlertTriangle,
+  GitBranch
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
 import { useAppStore } from '../store/appStore'
 import { profileFor } from '../profiles'
+import type { PaneNode } from '../../../shared/types'
+import { getLeafTerminalIds, countLeaves, setPaneRatio } from '../paneUtils'
+
+function activeTermId(node: { activePaneId?: string; panes?: PaneNode; terminalId?: string }): string | undefined {
+  return node.activePaneId || (node.panes ? getLeafTerminalIds(node.panes)[0] : node.terminalId)
+}
 
 function InfoArea({ nodeId }: { nodeId: string }): React.JSX.Element | null {
   const node = useAppStore((s) => s.nodes.find((n) => n.id === nodeId))
-  const terminal = useAppStore((s) => (node ? s.terminals[node.terminalId] : undefined))
-  const stats = useAppStore((s) => (node ? s.procStats[node.terminalId] : undefined))
+  const termId = node ? activeTermId(node) : undefined
+  const terminal = useAppStore((s) => (termId ? s.terminals[termId] : undefined))
+  const stats = useAppStore((s) => (termId ? s.procStats[termId] : undefined))
   const connCount = useAppStore(
     (s) => s.connections.filter((c) => c.sourceNodeId === nodeId || c.targetNodeId === nodeId).length
   )
@@ -188,10 +196,70 @@ function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
   )
 }
 
+function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; path: number[] }): React.JSX.Element {
+  const activeNodeId = useAppStore(s => s.activeNodeId)
+  const active = activeNodeId === nodeId
+  const updateNode = useAppStore(s => s.updateNode)
+
+  if (pane.type === 'leaf') {
+    const epoch = useAppStore(s => s.termEpoch[pane.terminalId] ?? 0)
+    return (
+      <div className="pane-leaf" key={pane.terminalId}>
+        <TerminalView key={`${pane.terminalId}:${epoch}`}
+          terminalId={pane.terminalId} active={active} />
+      </div>
+    )
+  }
+
+  // Split pane
+  const isHorizontal = pane.dir === 'horizontal'
+  const sizeA = `${Math.round(pane.ratio * 100)}%`
+  const sizeB = `${Math.round((1 - pane.ratio) * 100)}%`
+
+  const onSplitterDrag = (e: React.PointerEvent): void => {
+    e.stopPropagation()
+    e.preventDefault()
+    const el = e.currentTarget as HTMLDivElement
+    el.setPointerCapture(e.pointerId)
+    const container = el.parentElement!
+    const startPos = isHorizontal ? e.clientX : e.clientY
+    const totalSize = isHorizontal ? container.clientWidth : container.clientHeight
+
+    const onMove = (ev: PointerEvent): void => {
+      const delta = (isHorizontal ? ev.clientX : ev.clientY) - startPos
+      const newRatio = pane.ratio + delta / totalSize
+      const n = useAppStore.getState().nodes.find(n => n.id === nodeId)
+      if (n && n.panes) {
+        updateNode(nodeId, { panes: setPaneRatio(n.panes, path, newRatio) })
+      }
+    }
+    const onUp = (ev: PointerEvent): void => {
+      try { el.releasePointerCapture(ev.pointerId) } catch { /* ignore */ }
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }
+
+  return (
+    <div className={`pane-split ${isHorizontal ? 'horizontal' : 'vertical'}`}>
+      <div style={{ [isHorizontal ? 'width' : 'height']: sizeA, overflow: 'hidden' }}>
+        <PaneRenderer nodeId={nodeId} pane={pane.a} path={[...path, 0]} />
+      </div>
+      <div className={`pane-splitter nodrag nowheel ${isHorizontal ? 'h' : 'v'}`} onPointerDown={onSplitterDrag} />
+      <div style={{ [isHorizontal ? 'width' : 'height']: sizeB, overflow: 'hidden' }}>
+        <PaneRenderer nodeId={nodeId} pane={pane.b} path={[...path, 1]} />
+      </div>
+    </div>
+  )
+}
+
 function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const node = useAppStore((s) => s.nodes.find((n) => n.id === id))
-  const terminal = useAppStore((s) => (node ? s.terminals[node.terminalId] : undefined))
-  const epoch = useAppStore((s) => (node ? s.termEpoch[node.terminalId] ?? 0 : 0))
+  const termId = node ? activeTermId(node) : undefined
+  const terminal = useAppStore((s) => (termId ? s.terminals[termId] : undefined))
+  const terminals = useAppStore((s) => s.terminals)
   const activeNodeId = useAppStore((s) => s.activeNodeId)
   const toggleMinimize = useAppStore((s) => s.toggleMinimize)
   const toggleMaximize = useAppStore((s) => s.toggleMaximize)
@@ -200,6 +268,11 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const closeNode = useAppStore((s) => s.closeNode)
   const renameNode = useAppStore((s) => s.renameNode)
   const updateNode = useAppStore((s) => s.updateNode)
+  const closePaneInNode = useAppStore((s) => s.closePaneInNode)
+  const setActivePane = useAppStore((s) => s.setActivePane)
+  const gitStatus = useAppStore((s) => s.gitStatus)
+  const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
+  const broadcastGroup = useAppStore((s) => s.broadcastGroup)
 
   const [editing, setEditing] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -210,10 +283,11 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const showInfo = node.showInfo && node.size.width > 640 && !node.isMinimized
   const isAgent = node.nodeType === 'agent'
   const hasError = node.status === 'error'
+  const isBroadcasting = broadcastEnabled && termId !== undefined && broadcastGroup.includes(termId)
 
   return (
     <div className="tnode-wrap">
-      <div className={`tnode ${active ? 'active' : ''} ${node.isMinimized ? 'minimized' : ''} ${hasError ? 'errored' : ''}`}>
+      <div className={`tnode ${active ? 'active' : ''} ${node.isMinimized ? 'minimized' : ''} ${hasError ? 'errored' : ''} ${isBroadcasting ? 'broadcasting' : ''}`}>
       <Handle type="target" position={Position.Left} />
       <div className="tnode-header">
         {hasError ? (
@@ -252,6 +326,13 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         )}
         {node.agentRole && <span className="kind-tag">{node.agentRole}</span>}
         <span className="kind-tag">{terminal.kind}</span>
+        {terminal.cwd && gitStatus[termId] && (
+          <span className="git-badge" title={`${gitStatus[termId]!.branch}${gitStatus[termId]!.dirty ? ' (dirty)' : ''}`}>
+            <GitBranch size={11} />
+            {gitStatus[termId]!.branch}
+            {gitStatus[termId]!.dirty && <span className="git-dirty">&#9679;</span>}
+          </span>
+        )}
         <div className="hactions nodrag">
           <button className="hbtn" title="Info" onClick={() => toggleInfo(id)}>
             {node.showInfo ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
@@ -269,13 +350,27 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
             <X size={15} />
           </button>
         </div>
+      {node.panes && countLeaves(node.panes) > 1 && (
+        <div className="tnode-tabs nodrag">
+          {getLeafTerminalIds(node.panes).map(tid => {
+            const t = terminals[tid]
+            const isActive = (node.activePaneId ?? getLeafTerminalIds(node.panes!)[0]) === tid
+            return (
+              <div key={tid} className={`tnode-tab ${isActive ? 'active' : ''}`}
+                onClick={() => setActivePane(id, tid)}>
+                <span>{t?.name || tid.slice(0, 8)}</span>
+                {getLeafTerminalIds(node.panes!).length > 1 && (
+                  <button className="tab-close" onClick={(e) => { e.stopPropagation(); closePaneInNode(id, tid) }}>&times;</button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
       </div>
       {!node.isMinimized && (
         <div className="tnode-body">
-          <div className="tnode-term nodrag nowheel">
-            {/* key includes epoch so restart fully remounts xterm (clean screen, Bug #4) */}
-            <TerminalView key={`${node.terminalId}:${epoch}`} terminalId={node.terminalId} active={active} />
-          </div>
+          <PaneRenderer nodeId={id} pane={node.panes || { type: 'leaf', terminalId: node.terminalId!, title: node.title }} path={[]} />
           {showInfo && <InfoArea nodeId={id} />}
         </div>
       )}

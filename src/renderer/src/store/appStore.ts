@@ -10,11 +10,16 @@ import type {
   ShellKind,
   CanvasViewport,
   AppSettings,
-  ProcStats
+  ProcStats,
+  Snippet,
+  HighlightRule,
+  GitStatus,
+  PaneNode
 } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/types'
 import { profileFor } from '../profiles'
 import { computeLayout } from '../autolayout'
+import { getLeafTerminalIds, getActiveTerminalId, splitPane, closePane, countLeaves } from '../paneUtils'
 
 const DEFAULT_SIZE = { width: 900, height: 520 } // PRD §10.3.4
 
@@ -62,13 +67,45 @@ interface AppState {
   toggleInfo: (nodeId: string) => void
   renameNode: (nodeId: string, title: string) => void
 
-  addConnection: (source: string, target: string, type: ConnectionType, label?: string) => void
+  addConnection: (source: string, target: string, type: ConnectionType, label?: string, routeOpts?: { triggerPattern?: string; transform?: string; routeBehavior?: 'marker' | 'continuous' }) => void
   removeConnection: (id: string) => void
 
   setLayoutMode: (mode: LayoutMode, vp?: { width: number; height: number }) => void
   applyAutoLayout: (vp: { width: number; height: number }) => void
   resolveCollisions: (anchorId: string) => void
   setViewport: (vp: CanvasViewport) => void
+
+  // Broadcast (P0-4)
+  broadcastEnabled: boolean
+  broadcastGroup: string[]
+  toggleBroadcast: () => void
+  addToBroadcastGroup: (terminalId: string) => void
+  removeFromBroadcastGroup: (terminalId: string) => void
+
+  // Snippets (P0-2)
+  snippets: Snippet[]
+  loadSnippets: () => Promise<void>
+  createSnippet: (input: Omit<Snippet, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Snippet>
+  updateSnippet: (id: string, patch: Partial<Snippet>) => Promise<void>
+  deleteSnippet: (id: string) => Promise<void>
+
+  // Pane operations (P0-1)
+  splitNode: (nodeId: string, dir: 'horizontal' | 'vertical') => Promise<void>
+  closePaneInNode: (nodeId: string, terminalId: string) => Promise<void>
+  setActivePane: (nodeId: string, terminalId: string) => void
+
+  // Highlight rules (P1-8)
+  highlightRules: HighlightRule[]
+  loadHighlightRules: () => Promise<void>
+
+  // Git status (P2-9)
+  gitStatus: Record<string, { branch: string; dirty: boolean } | null>
+  startGitPolling: () => void
+
+  // Recording (P2-10)
+  startRecording: (terminalId: string) => void
+  stopRecording: (terminalId: string) => Promise<unknown[]>
+  saveRecording: (terminalId: string) => Promise<void>
 
   startRuntimeListeners: () => void
   refreshStats: () => Promise<void>
@@ -116,6 +153,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   termEpoch: {},
   zCounter: 1,
   canvasSize: { width: 1200, height: 800 },
+
+  // Broadcast
+  broadcastEnabled: false,
+  broadcastGroup: [],
+
+  // Snippets
+  snippets: [],
+
+  // Highlight rules
+  highlightRules: [],
+
+  // Git status
+  gitStatus: {},
+
   setCanvasSize: (size) => set({ canvasSize: size }),
 
   loadSettings: async () => {
@@ -152,9 +203,45 @@ export const useAppStore = create<AppState>((set, get) => ({
     const terminals: Record<string, TerminalSession> = {}
     for (const t of terms) terminals[t.id] = t
 
+    // Collect all terminalIds from pane trees
+    const termIds = new Set<string>()
     for (const node of layout.nodes) {
-      const t = terminals[node.terminalId]
-      if (!t) continue
+      if (node.panes) {
+        getLeafTerminalIds(node.panes).forEach((tid) => termIds.add(tid))
+      } else if (node.terminalId) {
+        termIds.add(node.terminalId)
+      }
+    }
+
+    for (const tid of termIds) {
+      const t = terminals[tid]
+      if (!t) {
+        // Create a terminal session for this pane if it doesn't exist
+        const termSession: TerminalSession = {
+          id: tid,
+          workspaceId: id,
+          name: `Terminal`,
+          kind: 'powershell',
+          shell: 'powershell.exe',
+          args: [],
+          cwd: '',
+          status: 'stopped',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        try {
+          const { pid } = await window.termflow.pty.create(tid, {
+            workspaceId: id,
+            name: termSession.name,
+            kind: termSession.kind,
+            cwd: termSession.cwd
+          })
+          terminals[tid] = { ...termSession, pid, status: 'running' }
+        } catch {
+          terminals[tid] = { ...termSession, status: 'error' }
+        }
+        continue
+      }
       try {
         const { pid } = await window.termflow.pty.create(t.id, {
           workspaceId: id,
@@ -246,6 +333,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: nodeId,
       workspaceId: wsId,
       terminalId: termId,
+      panes: { type: 'leaf', terminalId: termId, title: name },
+      activePaneId: termId,
       title: name,
       nodeType: opts?.agentRole ? 'agent' : profile.nodeType,
       agentType: profile.agentType,
@@ -322,15 +411,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     const st = get()
     const node = st.nodes.find((n) => n.id === nodeId)
     if (!node) return
+
+    // If node has multiple panes with panes tree, close just the active pane
+    if (node.panes && countLeaves(node.panes) > 1) {
+      const activeTermId = node.activePaneId || getLeafTerminalIds(node.panes)[0]
+      if (activeTermId) {
+        return get().closePaneInNode(nodeId, activeTermId)
+      }
+    }
+
+    // Collect all terminalIds from pane tree
+    const termIds = node.panes ? getLeafTerminalIds(node.panes) : (node.terminalId ? [node.terminalId] : [])
     if (mode === 'terminate') {
-      window.termflow.pty.kill(node.terminalId)
-      await window.termflow.terminals.remove(node.terminalId)
+      for (const tid of termIds) {
+        window.termflow.pty.kill(tid)
+        await window.termflow.terminals.remove(tid)
+      }
     } else {
-      // detach: leave the process running, just remove the canvas node + record
-      await window.termflow.terminals.remove(node.terminalId)
+      for (const tid of termIds) {
+        await window.termflow.terminals.remove(tid)
+      }
     }
     const terminals = { ...st.terminals }
-    delete terminals[node.terminalId]
+    for (const tid of termIds) delete terminals[tid]
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== nodeId),
       connections: s.connections.filter((c) => c.sourceNodeId !== nodeId && c.targetNodeId !== nodeId),
@@ -344,15 +447,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const st = get()
     const node = st.nodes.find((n) => n.id === nodeId)
     if (!node) return
-    const res = await window.termflow.pty.restart(node.terminalId)
+    const termId = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
+    if (!termId) return
+    const res = await window.termflow.pty.restart(termId)
     if (res) {
       set((s) => ({
         terminals: {
           ...s.terminals,
-          [node.terminalId]: { ...s.terminals[node.terminalId], pid: res.pid, status: 'running' }
+          [termId]: { ...s.terminals[termId], pid: res.pid, status: 'running' }
         },
         nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, status: 'running' } : n)),
-        termEpoch: { ...s.termEpoch, [node.terminalId]: (s.termEpoch[node.terminalId] ?? 0) + 1 }
+        termEpoch: { ...s.termEpoch, [termId]: (s.termEpoch[termId] ?? 0) + 1 }
       }))
     }
   },
@@ -407,7 +512,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
-  addConnection: (source, target, type, label) => {
+  addConnection: (source, target, type, label, routeOpts) => {
     if (source === target) return
     const st = get()
     if (!st.activeWorkspaceId) return
@@ -422,8 +527,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       connectionType: type,
       label,
       isActive: true,
-      status: 'idle'
+      status: 'idle',
+      triggerPattern: routeOpts?.triggerPattern,
+      transform: routeOpts?.transform,
+      routeBehavior: routeOpts?.routeBehavior || 'disabled'
     }
+
+    // Set up routing if route behavior is configured
+    if (routeOpts?.routeBehavior && routeOpts.routeBehavior !== 'disabled') {
+      const srcNode = st.nodes.find((n) => n.id === source)
+      const tgtNode = st.nodes.find((n) => n.id === target)
+      if (srcNode && tgtNode) {
+        const srcTermId = getActiveTerminalId(srcNode.activePaneId, srcNode.panes, srcNode.terminalId)
+        const tgtTermIds = tgtNode.panes ? getLeafTerminalIds(tgtNode.panes) : (tgtNode.terminalId ? [tgtNode.terminalId] : [])
+        if (srcTermId && tgtTermIds.length) {
+          window.termflow.agent.setRouting(srcTermId, [{
+            connectionId: conn.id,
+            targetTerminalIds: tgtTermIds,
+            triggerPattern: routeOpts.triggerPattern || '@@HANDOFF@@([\\s\\S]*?)@@END@@',
+            transform: routeOpts.transform,
+            routeBehavior: routeOpts.routeBehavior
+          }])
+        }
+      }
+    }
+
     set((s) => ({ connections: [...s.connections, conn], selectedConnectionId: conn.id }))
     get().persist()
   },
@@ -506,18 +634,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => {
         const t = s.terminals[id]
         if (!t) return {}
+        // Check if this terminalId belongs to any node (pane-tree aware)
+        const nodeWithTerm = s.nodes.find((n) => {
+          if (n.terminalId === id) return true
+          if (n.panes) return getLeafTerminalIds(n.panes).includes(id)
+          return false
+        })
         return {
           terminals: { ...s.terminals, [id]: { ...t, status: 'exited', pid: undefined } },
-          nodes: s.nodes.map((n) => (n.terminalId === id ? { ...n, status: 'stopped' } : n))
+          nodes: s.nodes.map((n) => (n === nodeWithTerm ? { ...n, status: 'stopped' } : n))
         }
       })
     })
     window.termflow.pty.onActivity((id, error) => {
       if (!error) return
       set((s) => ({
-        nodes: s.nodes.map((n) =>
-          n.terminalId === id && n.id !== s.activeNodeId ? { ...n, status: 'error' } : n
-        )
+        nodes: s.nodes.map((n) => {
+          const isMatch = n.terminalId === id || (n.panes ? getLeafTerminalIds(n.panes).includes(id) : false)
+          return isMatch && n.id !== s.activeNodeId ? { ...n, status: 'error' } : n
+        })
       }))
     })
     // Poll process CPU/RAM every 2s.
@@ -536,6 +671,163 @@ export const useAppStore = create<AppState>((set, get) => ({
       /* ignore */
     }
   },
+
+  // ---- Broadcast ----
+  toggleBroadcast: () => set((s) => ({ broadcastEnabled: !s.broadcastEnabled })),
+  addToBroadcastGroup: (terminalId) =>
+    set((s) => ({ broadcastGroup: s.broadcastGroup.includes(terminalId) ? s.broadcastGroup : [...s.broadcastGroup, terminalId] })),
+  removeFromBroadcastGroup: (terminalId) =>
+    set((s) => ({ broadcastGroup: s.broadcastGroup.filter((tid) => tid !== terminalId) })),
+
+  // ---- Snippets ----
+  loadSnippets: async () => {
+    const wsId = get().activeWorkspaceId
+    const snippets = await window.termflow.snippets.list(wsId || undefined)
+    set({ snippets })
+  },
+
+  createSnippet: async (input) => {
+    const snippet = await window.termflow.snippets.create(input)
+    set((s) => ({ snippets: [...s.snippets, snippet] }))
+    return snippet
+  },
+
+  updateSnippet: async (id, patch) => {
+    await window.termflow.snippets.update(id, patch)
+    set((s) => ({ snippets: s.snippets.map((sn) => (sn.id === id ? { ...sn, ...patch, updatedAt: new Date().toISOString() } : sn)) }))
+  },
+
+  deleteSnippet: async (id) => {
+    await window.termflow.snippets.remove(id)
+    set((s) => ({ snippets: s.snippets.filter((sn) => sn.id !== id) }))
+  },
+
+  // ---- Pane Operations ----
+  splitNode: async (nodeId, dir) => {
+    const st = get()
+    const node = st.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+
+    const activeTermId = node.activePaneId || (node.panes ? getLeafTerminalIds(node.panes)[0] : node.terminalId)
+    if (!activeTermId) return
+
+    // Create new terminal
+    const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)!
+    const profile = profileFor('powershell')
+    const newTermId = nanoid()
+    const newName = `Terminal ${st.nodes.length + 2}`
+    const cwd = ws.path
+    const ts = new Date().toISOString()
+
+    const session: TerminalSession = {
+      id: newTermId,
+      workspaceId: st.activeWorkspaceId!,
+      name: newName,
+      kind: 'powershell',
+      shell: 'powershell.exe',
+      args: [],
+      cwd,
+      status: 'stopped',
+      createdAt: ts,
+      updatedAt: ts
+    }
+
+    try {
+      const res = await window.termflow.pty.create(newTermId, { workspaceId: st.activeWorkspaceId!, name: newName, kind: 'powershell', cwd })
+      session.pid = res.pid
+      session.status = 'running'
+    } catch {
+      session.status = 'error'
+    }
+    await window.termflow.terminals.upsert(session)
+
+    const currentPane = node.panes || { type: 'leaf' as const, terminalId: node.terminalId!, title: node.title }
+    const existingTitle = getLeafTerminalIds(currentPane).includes(activeTermId) ? (get().terminals[activeTermId]?.name || node.title) : node.title
+    const newPane = splitPane(currentPane, activeTermId, dir === 'vertical' ? 'horizontal' : 'vertical', existingTitle, newTermId, newName)
+
+    set((s) => ({
+      terminals: { ...s.terminals, [newTermId]: session },
+      nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, panes: newPane, activePaneId: newTermId } : n)
+    }))
+    get().persist()
+  },
+
+  closePaneInNode: async (nodeId, terminalId) => {
+    const st = get()
+    const node = st.nodes.find((n) => n.id === nodeId)
+    if (!node?.panes) return
+
+    window.termflow.pty.kill(terminalId)
+    await window.termflow.terminals.remove(terminalId)
+
+    const newPane = closePane(node.panes, terminalId)
+    const terminals = { ...st.terminals }
+    delete terminals[terminalId]
+
+    if (!newPane) {
+      // All panes closed — remove node
+      set((s) => ({
+        nodes: s.nodes.filter((n) => n.id !== nodeId),
+        connections: s.connections.filter((c) => c.sourceNodeId !== nodeId && c.targetNodeId !== nodeId),
+        terminals,
+        activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
+      }))
+    } else {
+      const remainingLeaves = getLeafTerminalIds(newPane)
+      set((s) => ({
+        terminals,
+        nodes: s.nodes.map((n) => n.id === nodeId ? {
+          ...n,
+          panes: newPane,
+          activePaneId: remainingLeaves.includes(node.activePaneId || '') ? node.activePaneId : remainingLeaves[0],
+          terminalId: newPane.type === 'leaf' ? newPane.terminalId : n.terminalId
+        } : n)
+      }))
+    }
+    get().persist()
+  },
+
+  setActivePane: (nodeId, terminalId) => {
+    set((s) => ({ nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, activePaneId: terminalId } : n) }))
+    get().persist()
+  },
+
+  // ---- Highlight Rules ----
+  loadHighlightRules: async () => {
+    const wsId = get().activeWorkspaceId
+    const highlightRules = await window.termflow.highlightRules.list(wsId || undefined)
+    set({ highlightRules })
+  },
+
+  // ---- Git Status ----
+  startGitPolling: () => {
+    const poll = async (): Promise<void> => {
+      const st = get()
+      if (!st.activeWorkspaceId) return
+      const seen = new Set<string>()
+      for (const node of st.nodes) {
+        const termIds = node.panes ? getLeafTerminalIds(node.panes) : (node.terminalId ? [node.terminalId] : [])
+        for (const tid of termIds) {
+          if (seen.has(tid)) continue
+          seen.add(tid)
+          const t = st.terminals[tid]
+          if (t?.cwd) {
+            try {
+              const status = await window.termflow.git.status(t.cwd)
+              if (status) set((s) => ({ gitStatus: { ...s.gitStatus, [tid]: status } }))
+            } catch { /* ignore */ }
+          }
+        }
+      }
+    }
+    poll()
+    setInterval(poll, 10000)
+  },
+
+  // ---- Recording ----
+  startRecording: (terminalId) => window.termflow.recording.start(terminalId),
+  stopRecording: (terminalId) => window.termflow.recording.stop(terminalId),
+  saveRecording: (terminalId) => window.termflow.recording.save(terminalId),
 
   persist: () => {
     const st = get()

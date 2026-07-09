@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import type { ConnectionType } from '../../../shared/types'
 
+export interface ConnectionFormResult {
+  type: ConnectionType
+  label?: string
+  routeBehavior?: 'marker' | 'continuous' | 'disabled'
+  triggerPattern?: string
+  transform?: string
+}
+
 interface Props {
-  onSubmit: (type: ConnectionType, label?: string) => void
+  onSubmit: (result: ConnectionFormResult) => void
   onClose: () => void
 }
 
@@ -20,13 +28,16 @@ const TYPES: { value: ConnectionType; label: string }[] = [
 export default function ConnectionModal({ onSubmit, onClose }: Props): React.JSX.Element {
   const [type, setType] = useState<ConnectionType>('control')
   const [label, setLabel] = useState('')
+  const [routeBehavior, setRouteBehavior] = useState<'marker' | 'continuous' | 'disabled'>('disabled')
+  const [triggerPattern, setTriggerPattern] = useState('@@HANDOFF@@([\\s\\S]*?)@@END@@')
+  const [transform, setTransform] = useState('')
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Bağlantı Oluştur</h3>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ maxHeight: '85vh', overflow: 'auto' }}>
+        <h3>Create Connection</h3>
         <div className="field">
-          <label>Bağlantı tipi</label>
+          <label>Connection type</label>
           <select value={type} onChange={(e) => setType(e.target.value as ConnectionType)}>
             {TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -36,16 +47,51 @@ export default function ConnectionModal({ onSubmit, onClose }: Props): React.JSX
           </select>
         </div>
         <div className="field">
-          <label>Etiket (opsiyonel)</label>
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="ör. TASK_READY" autoFocus />
+          <label>Label (optional)</label>
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. TASK_READY" autoFocus />
         </div>
+
+        <div className="field">
+          <label>Route Behavior (Agent-to-Agent)</label>
+          <select value={routeBehavior} onChange={(e) => setRouteBehavior(e.target.value as 'marker' | 'continuous' | 'disabled')}>
+            <option value="disabled">Disabled</option>
+            <option value="marker">Marker-based (@@HANDOFF@@)</option>
+            <option value="continuous">Continuous (all output)</option>
+          </select>
+        </div>
+
+        {routeBehavior === 'marker' && (
+          <>
+            <div className="field">
+              <label>Trigger Pattern (regex)</label>
+              <input value={triggerPattern}
+                onChange={(e) => setTriggerPattern(e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} />
+              <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                Match groups captured and available for transform ($1, $2, ...)
+              </p>
+            </div>
+            <div className="field">
+              <label>Output Transform (optional)</label>
+              <input value={transform}
+                onChange={(e) => setTransform(e.target.value)}
+                placeholder="e.g. echo $1"
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} />
+              <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                Use $1, $2 for capture groups. Leave empty to forward raw match.
+              </p>
+            </div>
+          </>
+        )}
+
         <div className="modal-actions">
-          <button className="btn" onClick={onClose}>
-            İptal
-          </button>
-          <button className="btn primary" onClick={() => onSubmit(type, label || undefined)}>
-            Bağla
-          </button>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={() => onSubmit({
+            type, label: label || undefined,
+            routeBehavior,
+            triggerPattern: routeBehavior === 'marker' ? triggerPattern : undefined,
+            transform: routeBehavior === 'marker' ? transform || undefined : undefined
+          })}>Connect</button>
         </div>
       </div>
     </div>

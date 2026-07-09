@@ -1,5 +1,9 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
+import { execSync } from 'child_process'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { nanoid } from 'nanoid'
 import {
   IPC,
   type CreateTerminalInput,
@@ -7,9 +11,15 @@ import {
   type TerminalSession,
   type RenderMode,
   type AppSettings,
-  type ProcStats
+  type ProcStats,
+  type Snippet,
+  type HighlightRule,
+  type SshProfile,
+  type EnvEntry,
+  type WorkspaceExport,
+  type GitStatus
 } from '../../shared/types'
-import { PtyManager } from '../pty/PtyManager'
+import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
 import * as dbApi from '../db/database'
 
@@ -101,6 +111,174 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   // ---- Layout ----
   ipcMain.handle(IPC.LAYOUT_GET, (_e, workspaceId: string) => dbApi.getLayout(workspaceId))
   ipcMain.handle(IPC.LAYOUT_SAVE, (_e, layout: WorkspaceLayout) => dbApi.saveLayout(layout))
+
+  // ---- Snippets ----
+  ipcMain.handle(IPC.SNIPPET_LIST, (_e, workspaceId?: string) => dbApi.listSnippets(workspaceId))
+  ipcMain.handle(IPC.SNIPPET_CREATE, (_e, input: Omit<Snippet, 'id' | 'createdAt' | 'updatedAt'>) => dbApi.createSnippet(input))
+  ipcMain.handle(IPC.SNIPPET_UPDATE, (_e, id: string, patch: Partial<Snippet>) => dbApi.updateSnippet(id, patch))
+  ipcMain.handle(IPC.SNIPPET_DELETE, (_e, id: string) => dbApi.deleteSnippet(id))
+
+  // ---- Highlight Rules ----
+  ipcMain.handle(IPC.HL_RULE_LIST, (_e, workspaceId?: string) => dbApi.listHighlightRules(workspaceId))
+  ipcMain.handle(IPC.HL_RULE_CREATE, (_e, input: Omit<HighlightRule, 'id'>) => dbApi.createHighlightRule(input))
+  ipcMain.handle(IPC.HL_RULE_UPDATE, (_e, id: string, patch: Partial<HighlightRule>) => dbApi.updateHighlightRule(id, patch))
+  ipcMain.handle(IPC.HL_RULE_DELETE, (_e, id: string) => dbApi.deleteHighlightRule(id))
+
+  // ---- SSH Profiles ----
+  ipcMain.handle(IPC.SSH_PROFILE_LIST, (_e, workspaceId: string) => dbApi.listSshProfiles(workspaceId))
+  ipcMain.handle(IPC.SSH_PROFILE_CREATE, (_e, input: Omit<SshProfile, 'id' | 'createdAt'>) => dbApi.createSshProfile(input))
+  ipcMain.handle(IPC.SSH_PROFILE_UPDATE, (_e, id: string, patch: Partial<SshProfile>) => dbApi.updateSshProfile(id, patch))
+  ipcMain.handle(IPC.SSH_PROFILE_DELETE, (_e, id: string) => dbApi.deleteSshProfile(id))
+
+  // ---- Env Vars ----
+  ipcMain.handle(IPC.ENV_LIST, (_e, workspaceId: string) => {
+    const vars = dbApi.listEnvVars(workspaceId)
+    // Return masked values (don't send secrets to renderer in plaintext)
+    return vars.map((v) => ({ ...v, value: v.masked ? '••••••••' : v.value }))
+  })
+  ipcMain.handle(IPC.ENV_CREATE, (_e, input: { workspaceId: string; key: string; value: string; masked: boolean }) => {
+    const encrypted = input.masked && safeStorage.isEncryptionAvailable()
+      ? safeStorage.encryptString(input.value).toString('base64')
+      : input.value
+    return dbApi.createEnvVar({ workspaceId: input.workspaceId, key: input.key, value: encrypted, masked: input.masked && safeStorage.isEncryptionAvailable() })
+  })
+  ipcMain.handle(IPC.ENV_UPDATE, (_e, id: string, patch: Partial<EnvEntry>) => {
+    if (patch.value && safeStorage.isEncryptionAvailable()) {
+      const existing = dbApi.listEnvVars('').find((e) => e.id === id) || dbApi.listEnvVars(patch.workspaceId || '').find((e) => e.id === id)
+      if (existing?.masked) patch.value = safeStorage.encryptString(patch.value).toString('base64')
+    }
+    dbApi.updateEnvVar(id, patch)
+  })
+  ipcMain.handle(IPC.ENV_DELETE, (_e, id: string) => dbApi.deleteEnvVar(id))
+
+  // ---- Workspace Export/Import ----
+  ipcMain.handle(IPC.WS_EXPORT, async (_e, workspaceId: string) => {
+    const ws = dbApi.listWorkspaces().find((w) => w.id === workspaceId)
+    if (!ws) return
+    const data = dbApi.exportWorkspaceData(workspaceId)
+    const exp: WorkspaceExport = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      workspace: { name: ws.name, description: ws.description, defaultLayoutMode: ws.defaultLayoutMode },
+      nodes: data.nodes,
+      connections: data.connections,
+      viewport: data.viewport ?? { zoom: 1, x: 0, y: 0 },
+      snippets: data.snippets
+    }
+    const win = getWindow()
+    const res = await dialog.showSaveDialog(win!, {
+      title: 'Export Workspace',
+      defaultPath: `${ws.name.replace(/\s+/g, '_')}.termflow.json`,
+      filters: [{ name: 'TermFlow Workspace', extensions: ['termflow.json'] }]
+    })
+    if (!res.canceled && res.filePath) {
+      writeFileSync(res.filePath, JSON.stringify(exp, null, 2), 'utf-8')
+    }
+  })
+
+  ipcMain.handle(IPC.WS_IMPORT, async () => {
+    const win = getWindow()
+    const res = await dialog.showOpenDialog(win!, {
+      title: 'Import Workspace',
+      filters: [{ name: 'TermFlow Workspace', extensions: ['termflow.json'] }],
+      properties: ['openFile']
+    })
+    if (res.canceled || !res.filePaths[0]) return null
+    try {
+      const raw = JSON.parse(readFileSync(res.filePaths[0], 'utf-8'))
+      if (!raw.schemaVersion || !raw.workspace) throw new Error('Invalid format')
+
+      // Generate new IDs via remap
+      const idMap = new Map<string, string>()
+      const remap = (oldId: string): string => {
+        if (!idMap.has(oldId)) idMap.set(oldId, nanoid())
+        return idMap.get(oldId)!
+      }
+
+      const newNodes = (raw.nodes || []).map((n: any) => {
+        const newId = remap(n.id)
+        const newTermId = remap(n.terminalId || (n.panes?.terminalId || ''))
+        return { ...n, id: newId, terminalId: n.terminalId ? newTermId : undefined, workspaceId: '' }
+      })
+      const newConns = (raw.connections || []).map((c: any) => ({
+        ...c, id: remap(c.id),
+        sourceNodeId: remap(c.sourceNodeId),
+        targetNodeId: remap(c.targetNodeId),
+        workspaceId: ''
+      }))
+
+      const ws = dbApi.createWorkspace({
+        name: raw.workspace.name || 'Imported',
+        path: raw.workspace.path || process.env.USERPROFILE || '',
+        description: raw.workspace.description,
+        defaultLayoutMode: raw.workspace.defaultLayoutMode
+      })
+
+      const wsNodes = newNodes.map((n: any) => ({ ...n, workspaceId: ws.id }))
+      const wsConns = newConns.map((c: any) => ({ ...c, workspaceId: ws.id }))
+      const wsSnippets = (raw.snippets || []).map((s: any) => ({
+        ...s, id: remap(s.id), workspaceId: ws.id, scope: 'workspace' as const
+      }))
+
+      dbApi.importWorkspaceData(ws.id, wsNodes, wsConns, wsSnippets, raw.viewport || { zoom: 1, x: 0, y: 0 })
+      return ws.id
+    } catch (err) {
+      console.error('Import failed:', err)
+      return null
+    }
+  })
+
+  // ---- Project Manifest (.termflow.json) ----
+  ipcMain.handle(IPC.WS_CHECK_MANIFEST, async (_e, cwd: string) => {
+    const manifestPath = join(cwd, '.termflow.json')
+    if (!existsSync(manifestPath)) return null
+    try {
+      return JSON.parse(readFileSync(manifestPath, 'utf-8'))
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle(IPC.DIALOG_CHECK_FILE, async (_e, path: string) => existsSync(path))
+
+  // ---- Git Status ----
+  ipcMain.handle(IPC.GIT_STATUS, async (_e, cwd: string): Promise<GitStatus | null> => {
+    try {
+      const branch = execSync('git branch --show-current', { cwd, encoding: 'utf-8', timeout: 3000 }).trim()
+      const status = execSync('git status --porcelain', { cwd, encoding: 'utf-8', timeout: 3000 })
+      return { branch, dirty: status.length > 0 }
+    } catch {
+      return null
+    }
+  })
+
+  // ---- Agent Routing ----
+  ipcMain.on(IPC.AGENT_SET_ROUTING, (_e, terminalId: string, rules: RoutingRule[]) => {
+    pty.setRouting(terminalId, rules)
+  })
+
+  // ---- Recording ----
+  ipcMain.on(IPC.REC_START, (_e, id: string) => pty.startRecording(id))
+  ipcMain.handle(IPC.REC_STOP, (_e, id: string): RecordingEntry[] => pty.stopRecording(id))
+  ipcMain.handle(IPC.REC_SAVE, async (_e, id: string) => {
+    const chunks = pty.getRecording(id)
+    if (!chunks.length) return
+    // Convert to asciinema v2 format
+    const header = { version: 2, width: 120, height: 30 }
+    const lines = [JSON.stringify(header)]
+    for (const c of chunks) {
+      lines.push(JSON.stringify([c.ts / 1000, 'o', c.data]))
+    }
+    const win = getWindow()
+    const res = await dialog.showSaveDialog(win!, {
+      title: 'Save Recording',
+      defaultPath: `termflow-recording-${Date.now()}.cast`,
+      filters: [{ name: 'Asciinema Cast', extensions: ['cast'] }]
+    })
+    if (!res.canceled && res.filePath) {
+      writeFileSync(res.filePath, lines.join('\n') + '\n', 'utf-8')
+    }
+  })
 
   return pty
 }

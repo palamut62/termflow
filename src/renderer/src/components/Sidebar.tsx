@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Search, Plus, Folder, Bot, TerminalSquare, Trash2, X, Github } from 'lucide-react'
+import { Search, Plus, Folder, Bot, TerminalSquare, Trash2, X, Github, Download, Upload } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+import { getActiveTerminalId } from '../paneUtils'
 
 const XIcon = ({ size = 13 }: { size?: number }): React.JSX.Element => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -38,9 +39,27 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
 
       <div className="side-section-title">
         <span>Workspaces</span>
-        <button title="New workspace" onClick={onNewWorkspace}>
-          <Plus size={14} />
-        </button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button title="Import workspace" onClick={async () => {
+            const wsId = await window.termflow.workspaces.import()
+            if (wsId) {
+              const workspaces = await window.termflow.workspaces.list()
+              useAppStore.setState({ workspaces })
+              await openWorkspace(wsId)
+            }
+          }}>
+            <Upload size={14} />
+          </button>
+          <button title="Export active workspace" onClick={async () => {
+            const wsId = useAppStore.getState().activeWorkspaceId
+            if (wsId) await window.termflow.workspaces.export(wsId)
+          }}>
+            <Download size={14} />
+          </button>
+          <button title="New workspace" onClick={onNewWorkspace}>
+            <Plus size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="ws-list">
@@ -114,7 +133,8 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
               {isActive && nodes.length > 0 && (
                 <div className="term-sublist">
                   {nodes.map((n) => {
-                    const t = terminals[n.terminalId]
+                    const activeId = getActiveTerminalId(n.activePaneId, n.panes, n.terminalId)
+                    const t = activeId ? terminals[activeId] : undefined
                     return (
                       <div
                         key={n.id}

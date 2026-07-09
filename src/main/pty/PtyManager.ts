@@ -10,6 +10,19 @@ const DEFAULT_SCROLLBACK_LINES = 10000 // PRD §10.9.1
 // Error/activity detection patterns (PRD §10.9.5)
 const ERROR_RE = /\b(error|exception|failed|fatal|traceback|npm ERR|ModuleNotFound|SyntaxError|TypeError|Permission denied)\b/i
 
+export interface RoutingRule {
+  connectionId: string
+  targetTerminalIds: string[]
+  triggerPattern: string // regex source
+  transform?: string
+  routeBehavior: 'marker' | 'continuous'
+}
+
+export interface RecordingEntry {
+  ts: number // ms since start
+  data: string
+}
+
 interface ManagedPty {
   id: string
   proc: pty.IPty
@@ -22,6 +35,11 @@ interface ManagedPty {
   exitCode?: number
   mode: RenderMode
   errorSignalled: boolean
+  routingRules?: RoutingRule[]
+  // Recording
+  recording: boolean
+  recordingStart: number
+  recordedChunks: RecordingEntry[]
 }
 
 /**
@@ -63,7 +81,10 @@ export class PtyManager {
       flushTimer: null,
       exited: false,
       mode: 'active',
-      errorSignalled: false
+      errorSignalled: false,
+      recording: false,
+      recordingStart: 0,
+      recordedChunks: []
     }
     this.terminals.set(id, managed)
 
@@ -100,10 +121,38 @@ export class PtyManager {
       managed.bufferLines -= this.countNewlines(removed)
     }
 
+    // Recording
+    if (managed.recording) {
+      managed.recordedChunks.push({ ts: Date.now() - managed.recordingStart, data })
+    }
+
     // Error/activity detection — signal once until cleared. PRD §10.9.5
     if (!managed.errorSignalled && ERROR_RE.test(data)) {
       managed.errorSignalled = true
       this.getSender()?.send(IPC.PTY_ACTIVITY, { id: managed.id, error: true })
+    }
+
+    // Agent-to-agent routing (opt-in)
+    if (managed.routingRules?.length) {
+      for (const rule of managed.routingRules) {
+        if (rule.routeBehavior === 'continuous') {
+          for (const tid of rule.targetTerminalIds) this.write(tid, data)
+        } else {
+          try {
+            const re = new RegExp(rule.triggerPattern, 'gs')
+            let match: RegExpExecArray | null
+            while ((match = re.exec(data)) !== null) {
+              let output = match[0]
+              if (rule.transform) {
+                output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
+              }
+              for (const tid of rule.targetTerminalIds) this.write(tid, output + '\r')
+            }
+          } catch {
+            /* invalid regex */
+          }
+        }
+      }
     }
 
     if (managed.mode === 'buffer') return // no streaming while offscreen/minimized
@@ -192,5 +241,33 @@ export class PtyManager {
 
   setPassiveInterval(ms: number): void {
     this.passiveIntervalMs = ms
+  }
+
+  // ---- Routing ----
+  setRouting(id: string, rules: RoutingRule[]): void {
+    const t = this.terminals.get(id)
+    if (t) t.routingRules = rules.length ? rules : undefined
+  }
+
+  // ---- Recording ----
+  startRecording(id: string): void {
+    const t = this.terminals.get(id)
+    if (t && !t.recording) {
+      t.recording = true
+      t.recordingStart = Date.now()
+      t.recordedChunks = []
+    }
+  }
+
+  stopRecording(id: string): RecordingEntry[] {
+    const t = this.terminals.get(id)
+    if (!t) return []
+    t.recording = false
+    return [...t.recordedChunks]
+  }
+
+  getRecording(id: string): RecordingEntry[] {
+    const t = this.terminals.get(id)
+    return t ? [...t.recordedChunks] : []
   }
 }

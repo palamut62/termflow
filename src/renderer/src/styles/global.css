@@ -855,3 +855,197 @@ input {
 .react-flow__edge-text {
   fill: var(--text-primary);
 }
+
+/* ---- Pane (split-pane) ---- */
+.pane-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-split.horizontal {
+  flex-direction: row;
+}
+.pane-split.vertical {
+  flex-direction: column;
+}
+.pane-leaf {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-terminal);
+}
+.pane-splitter {
+  flex: none;
+  background: var(--border-soft);
+  transition: background 0.12s;
+  z-index: 5;
+}
+.pane-splitter:hover {
+  background: var(--accent);
+}
+.pane-splitter.h {
+  width: 5px;
+  cursor: col-resize;
+}
+.pane-splitter.v {
+  height: 5px;
+  cursor: row-resize;
+}
+
+/* ---- Tab bar for multi-pane nodes ---- */
+.tnode-tabs {
+  display: flex;
+  height: 28px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-soft);
+  overflow-x: auto;
+  flex: none;
+}
+.tnode-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+.tnode-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+.tnode-tab:hover {
+  background: var(--bg-panel-2);
+  color: var(--text-primary);
+}
+.tnode-tab.active {
+  background: var(--bg-terminal);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--accent);
+}
+.tnode-tab .tab-close {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.tnode-tab .tab-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ---- Broadcast visual indicator ---- */
+.tnode.broadcasting {
+  border-color: var(--active-border) !important;
+  border-style: dashed !important;
+}
+.tnode.broadcasting.active {
+  box-shadow: 0 0 0 1px var(--active-border), 0 0 20px rgba(245, 230, 66, 0.2);
+}
+
+/* ---- Git badge in node header ---- */
+.git-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-panel-2);
+  padding: 1px 6px;
+  border-radius: 5px;
+  cursor: default;
+}
+.git-badge .git-dirty {
+  color: var(--warning);
+  font-size: 8px;
+  margin-left: 1px;
+}
+
+/* ---- Search overlay inside terminal ---- */
+.search-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  margin: 4px;
+}
+.search-overlay input {
+  width: 160px;
+  height: 26px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  color: var(--text-primary);
+  padding: 0 8px;
+  font-size: 12px;
+  outline: none;
+}
+.search-overlay input:focus {
+  border-color: var(--accent);
+}
+.search-overlay button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.search-overlay button:hover {
+  background: var(--bg-panel-2);
+  color: var(--text-primary);
+}
+.search-overlay .search-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 40px;
+  text-align: center;
+}
+
+/* ---- Highlight rules modal ---- */
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid var(--border-soft);
+  cursor: pointer;
+}
+.color-picker-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.color-picker-row .swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+.color-picker-row .swatch.selected {
+  border-color: var(--text-primary);
+}
