@@ -259,7 +259,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   }, [searchVisible])
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }} className="nodrag nowheel">
       <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
       {searchVisible && (
         <div

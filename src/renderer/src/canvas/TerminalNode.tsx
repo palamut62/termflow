@@ -204,7 +204,7 @@ function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; 
   if (pane.type === 'leaf') {
     const epoch = useAppStore(s => s.termEpoch[pane.terminalId] ?? 0)
     return (
-      <div className="pane-leaf" key={pane.terminalId}>
+      <div className="pane-leaf nodrag nowheel" key={pane.terminalId}>
         <TerminalView key={`${pane.terminalId}:${epoch}`}
           terminalId={pane.terminalId} active={active} />
       </div>
@@ -244,11 +244,11 @@ function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; 
 
   return (
     <div className={`pane-split ${isHorizontal ? 'horizontal' : 'vertical'}`}>
-      <div style={{ [isHorizontal ? 'width' : 'height']: sizeA, overflow: 'hidden' }}>
+      <div className="nodrag nowheel" style={{ [isHorizontal ? 'width' : 'height']: sizeA, overflow: 'hidden' }}>
         <PaneRenderer nodeId={nodeId} pane={pane.a} path={[...path, 0]} />
       </div>
       <div className={`pane-splitter nodrag nowheel ${isHorizontal ? 'h' : 'v'}`} onPointerDown={onSplitterDrag} />
-      <div style={{ [isHorizontal ? 'width' : 'height']: sizeB, overflow: 'hidden' }}>
+      <div className="nodrag nowheel" style={{ [isHorizontal ? 'width' : 'height']: sizeB, overflow: 'hidden' }}>
         <PaneRenderer nodeId={nodeId} pane={pane.b} path={[...path, 1]} />
       </div>
     </div>
