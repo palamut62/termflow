@@ -1,0 +1,145 @@
+import { useState } from 'react'
+import { Search, Plus, Folder, Bot, TerminalSquare, Trash2 } from 'lucide-react'
+import { useAppStore } from '../store/appStore'
+
+interface Props {
+  onNewWorkspace: () => void
+}
+
+export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
+  const workspaces = useAppStore((s) => s.workspaces)
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
+  const nodes = useAppStore((s) => s.nodes)
+  const terminals = useAppStore((s) => s.terminals)
+  const activeNodeId = useAppStore((s) => s.activeNodeId)
+  const openWorkspace = useAppStore((s) => s.openWorkspace)
+  const deleteWorkspace = useAppStore((s) => s.deleteWorkspace)
+  const renameWorkspace = useAppStore((s) => s.renameWorkspace)
+  const setActiveNode = useAppStore((s) => s.setActiveNode)
+  const [filter, setFilter] = useState('')
+  const [editingWs, setEditingWs] = useState<string | null>(null)
+
+  const filtered = workspaces.filter((w) => w.name.toLowerCase().includes(filter.toLowerCase()))
+  const runningCount = Object.values(terminals).filter((t) => t.status === 'running').length
+
+  return (
+    <div className="sidebar">
+      <div className="titlebar-pad" />
+      <div className="filter">
+        <Search size={14} />
+        <input placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      </div>
+
+      <div className="side-section-title">
+        <span>Workspaces</span>
+        <button title="New workspace" onClick={onNewWorkspace}>
+          <Plus size={14} />
+        </button>
+      </div>
+
+      <div className="ws-list">
+        {filtered.map((ws) => {
+          const isActive = ws.id === activeWorkspaceId
+          return (
+            <div key={ws.id}>
+              <div
+                className={`ws-item ${isActive ? 'active' : ''}`}
+                onClick={() => !isActive && openWorkspace(ws.id)}
+              >
+                <span className="ico">
+                  <Folder size={15} />
+                </span>
+                {editingWs === ws.id ? (
+                  <input
+                    autoFocus
+                    defaultValue={ws.name}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim()
+                      if (v) renameWorkspace(ws.id, v)
+                      setEditingWs(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                      if (e.key === 'Escape') setEditingWs(null)
+                    }}
+                    style={{
+                      background: 'var(--bg-main)',
+                      border: '1px solid var(--accent)',
+                      borderRadius: 5,
+                      color: 'var(--text-primary)',
+                      fontSize: 12.5,
+                      padding: '2px 6px',
+                      outline: 'none',
+                      width: '70%'
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      setEditingWs(ws.id)
+                    }}
+                  >
+                    {ws.name}
+                  </span>
+                )}
+                {isActive && nodes.length > 0 && <span className="count">{nodes.length}</span>}
+                <button
+                  title="Delete"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (window.confirm(`"${ws.name}" silinsin mi? Çalışan terminaller kapatılır.`))
+                      deleteWorkspace(ws.id)
+                  }}
+                  style={{
+                    marginLeft: isActive && nodes.length ? 6 : 'auto',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    display: 'inline-flex'
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+
+              {isActive && nodes.length > 0 && (
+                <div className="term-sublist">
+                  {nodes.map((n) => {
+                    const t = terminals[n.terminalId]
+                    return (
+                      <div
+                        key={n.id}
+                        className={`term-subitem ${activeNodeId === n.id ? 'active' : ''}`}
+                        onClick={() => setActiveNode(n.id)}
+                      >
+                        <span className={`dot ${t?.status ?? 'stopped'}`} />
+                        {n.nodeType === 'agent' ? <Bot size={13} /> : <TerminalSquare size={13} />}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {n.title}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <div
+        style={{
+          padding: '8px 14px',
+          fontSize: 11,
+          color: 'var(--text-muted)',
+          borderTop: '1px solid var(--border-soft)'
+        }}
+      >
+        {runningCount} çalışan terminal
+      </div>
+    </div>
+  )
+}

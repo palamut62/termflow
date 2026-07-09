@@ -1,0 +1,29 @@
+appId: com.termflow.app
+productName: TermFlow
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - '!**/*.map'
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - 'icon.ico'
+      - 'icon.png'
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+  - '**/node_modules/better-sqlite3/**'
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+    - zip
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico

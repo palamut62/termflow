@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Electron-builder artifacts
+release/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Snapshots / screenshots
+*.png
+*.jpg
+*.jpeg
+*.gif
+!resources/**/*.png
+!resources/**/*.ico

@@ -1,0 +1,183 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactFlowProvider } from '@xyflow/react'
+import { TerminalSquare, X } from 'lucide-react'
+import Sidebar from './components/Sidebar'
+import Toolbar from './components/Toolbar'
+import StatusBar from './components/StatusBar'
+import WorkspaceModal from './components/WorkspaceModal'
+import SettingsModal from './components/SettingsModal'
+import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
+import CanvasFlow from './canvas/CanvasFlow'
+import { useAppStore } from './store/appStore'
+
+function ConnectionInspector(): React.JSX.Element | null {
+  const id = useAppStore((s) => s.selectedConnectionId)
+  const conn = useAppStore((s) => s.connections.find((c) => c.id === id))
+  const nodes = useAppStore((s) => s.nodes)
+  const remove = useAppStore((s) => s.removeConnection)
+  const select = useAppStore((s) => s.selectConnection)
+  if (!conn) return null
+  const src = nodes.find((n) => n.id === conn.sourceNodeId)?.title ?? '—'
+  const tgt = nodes.find((n) => n.id === conn.targetNodeId)?.title ?? '—'
+  return (
+    <div className="conn-inspector">
+      <div className="ci-head">
+        <span>Bağlantı</span>
+        <button onClick={() => select(null)}>
+          <X size={14} />
+        </button>
+      </div>
+      <div className="info-row">
+        <span>Kaynak</span>
+        <span className="v">{src}</span>
+      </div>
+      <div className="info-row">
+        <span>Hedef</span>
+        <span className="v">{tgt}</span>
+      </div>
+      <div className="info-row">
+        <span>Tip</span>
+        <span className="v">{conn.connectionType}</span>
+      </div>
+      <div className="info-row">
+        <span>Etiket</span>
+        <span className="v">{conn.label || '—'}</span>
+      </div>
+      <button className="btn" style={{ marginTop: 10, width: '100%' }} onClick={() => remove(conn.id)}>
+        Bağlantıyı Sil
+      </button>
+    </div>
+  )
+}
+
+export default function App(): React.JSX.Element {
+  const loadWorkspaces = useAppStore((s) => s.loadWorkspaces)
+  const loadSettings = useAppStore((s) => s.loadSettings)
+  const startRuntimeListeners = useAppStore((s) => s.startRuntimeListeners)
+  const setCanvasSize = useAppStore((s) => s.setCanvasSize)
+  const nodes = useAppStore((s) => s.nodes)
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
+
+  const [showWsModal, setShowWsModal] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showPalette, setShowPalette] = useState(false)
+  const canvasRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    loadSettings()
+    startRuntimeListeners()
+    loadWorkspaces()
+  }, [loadSettings, startRuntimeListeners, loadWorkspaces])
+
+  const canvasSize = useCallback(() => {
+    const el = canvasRef.current
+    return { width: el?.clientWidth ?? 1200, height: el?.clientHeight ?? 800 }
+  }, [])
+
+  // Keep the store's canvas size current so auto-arrangement fits the viewport.
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el) return
+    const update = (): void => setCanvasSize({ width: el.clientWidth, height: el.clientHeight })
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [setCanvasSize])
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const s = useAppStore.getState
+    return [
+      { id: 'new-ps', title: 'New Terminal: PowerShell', run: () => s().addTerminal('powershell') },
+      { id: 'new-cmd', title: 'New Terminal: CMD', run: () => s().addTerminal('cmd') },
+      { id: 'new-wsl', title: 'New Terminal: WSL', run: () => s().addTerminal('wsl') },
+      { id: 'new-claude', title: 'Open Claude Code', run: () => s().addTerminal('claude') },
+      { id: 'new-codex', title: 'Open Codex', run: () => s().addTerminal('codex') },
+      { id: 'new-opencode', title: 'Open OpenCode', run: () => s().addTerminal('opencode') },
+      { id: 'autofit', title: 'Auto Fit Terminals', run: () => s().setLayoutMode('auto_fit', canvasSize()) },
+      { id: 'grid', title: 'Layout: Grid', run: () => s().setLayoutMode('grid', canvasSize()) },
+      { id: 'focus', title: 'Layout: Focus + Mini', run: () => s().setLayoutMode('focus', canvasSize()) },
+      { id: 'agent-graph', title: 'Switch to Agent Graph Layout', run: () => s().setLayoutMode('agent_graph', canvasSize()) },
+      {
+        id: 'restart',
+        title: 'Restart Active Terminal',
+        run: () => {
+          const a = s().activeNodeId
+          if (a) s().restartNode(a)
+        }
+      },
+      {
+        id: 'kill-all',
+        title: 'Kill All Terminals',
+        run: () => {
+          if (window.confirm('Tüm terminaller kapatılsın mı?'))
+            s().nodes.slice().forEach((n) => s().closeNode(n.id, 'terminate'))
+        }
+      },
+      { id: 'settings', title: 'Open Settings', run: () => setShowSettings(true) },
+      { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
+    ]
+  }, [canvasSize])
+
+  // Keyboard shortcuts (PRD §21). Ctrl+Alt combos avoid clashing with terminal input.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const s = useAppStore.getState()
+      if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setShowPalette((v) => !v)
+      } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        s.setLayoutMode('auto_fit', canvasSize())
+      } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        s.setLayoutMode('agent_graph', canvasSize())
+      } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 't') {
+        e.preventDefault()
+        s.addTerminal('powershell')
+      } else if (e.key === 'F11') {
+        e.preventDefault()
+        if (s.activeNodeId) s.toggleMaximize(s.activeNodeId)
+      } else if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault()
+        const list = s.nodes
+        if (list.length) {
+          const i = list.findIndex((n) => n.id === s.activeNodeId)
+          s.setActiveNode(list[(i + 1) % list.length].id)
+        }
+      } else if (e.key === 'Escape') {
+        setShowPalette(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [canvasSize])
+
+  return (
+    <div className="app">
+      <Sidebar onNewWorkspace={() => setShowWsModal(true)} />
+      <Toolbar
+        canvasSize={canvasSize}
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenPalette={() => setShowPalette(true)}
+      />
+      <div className="canvas-wrap" ref={canvasRef}>
+        <ReactFlowProvider>
+          <CanvasFlow />
+        </ReactFlowProvider>
+        <ConnectionInspector />
+        {nodes.length === 0 && (
+          <div className="empty-canvas">
+            <TerminalSquare size={40} strokeWidth={1.3} />
+            <div className="big">{activeWorkspaceId ? 'Boş canvas' : 'Workspace seçin veya oluşturun'}</div>
+            <div>{activeWorkspaceId ? '"New Terminal" ile terminal ekleyin' : ''}</div>
+          </div>
+        )}
+      </div>
+      <StatusBar />
+      {showWsModal && <WorkspaceModal onClose={() => setShowWsModal(false)} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
+    </div>
+  )
+}
