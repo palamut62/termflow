@@ -31,7 +31,7 @@ interface StoreShape {
   terminals: TerminalSession[]
   nodes: CanvasNode[]
   connections: AgentConnection[]
-  viewports: Record<string, { layoutMode: LayoutMode; zoom: number; x: number; y: number }>
+  viewports: Record<string, { layoutMode: LayoutMode; zoom: number; x: number; y: number; activeNodeId?: string }>
   settings: AppSettings
   snippets: Snippet[]
   highlightRules: HighlightRule[]
@@ -189,7 +189,8 @@ export function getLayout(workspaceId: string): WorkspaceLayout {
     nodes,
     connections,
     layoutMode: vp.layoutMode,
-    viewport: { zoom: vp.zoom, x: vp.x, y: vp.y }
+    viewport: { zoom: vp.zoom, x: vp.x, y: vp.y },
+    activeNodeId: vp.activeNodeId
   }
 }
 
@@ -334,7 +335,8 @@ export function saveLayout(layout: WorkspaceLayout): void {
     layoutMode: layout.layoutMode,
     zoom: layout.viewport.zoom,
     x: layout.viewport.x,
-    y: layout.viewport.y
+    y: layout.viewport.y,
+    activeNodeId: layout.activeNodeId
   }
   persist()
 }

@@ -110,6 +110,7 @@ interface AppState {
   startRuntimeListeners: () => void
   refreshStats: () => Promise<void>
   persist: () => void
+  flushPersist: () => void
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -266,7 +267,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       layoutMode: layout.layoutMode,
       viewport: layout.viewport,
       terminals,
-      activeNodeId: layout.nodes[0]?.id ?? null,
+      activeNodeId: layout.activeNodeId && layout.nodes.some((n) => n.id === layout.activeNodeId)
+        ? layout.activeNodeId
+        : layout.nodes[0]?.id ?? null,
       selectedConnectionId: null,
       zCounter: layout.nodes.length + 1
     })
@@ -833,16 +836,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     const st = get()
     if (!st.activeWorkspaceId) return
     if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      const s = get()
-      if (!s.activeWorkspaceId) return
-      window.termflow.layout.save({
-        workspaceId: s.activeWorkspaceId,
-        nodes: s.nodes,
-        connections: s.connections,
-        layoutMode: s.layoutMode,
-        viewport: s.viewport
-      })
-    }, 400)
+    saveTimer = setTimeout(() => get().flushPersist(), 400)
+  },
+
+  flushPersist: () => {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    const s = get()
+    if (!s.activeWorkspaceId) return
+    window.termflow.layout.save({
+      workspaceId: s.activeWorkspaceId,
+      nodes: s.nodes,
+      connections: s.connections,
+      layoutMode: s.layoutMode,
+      viewport: s.viewport,
+      activeNodeId: s.activeNodeId || undefined
+    })
   }
 }))

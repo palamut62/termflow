@@ -263,6 +263,7 @@ export interface WorkspaceLayout {
   connections: AgentConnection[]
   layoutMode: LayoutMode
   viewport: CanvasViewport
+  activeNodeId?: string
 }
 
 export interface CreateTerminalInput {

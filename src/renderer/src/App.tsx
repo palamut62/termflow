@@ -57,6 +57,7 @@ export default function App(): React.JSX.Element {
   const loadSettings = useAppStore((s) => s.loadSettings)
   const startRuntimeListeners = useAppStore((s) => s.startRuntimeListeners)
   const setCanvasSize = useAppStore((s) => s.setCanvasSize)
+  const flushPersist = useAppStore((s) => s.flushPersist)
   const nodes = useAppStore((s) => s.nodes)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
 
@@ -68,6 +69,13 @@ export default function App(): React.JSX.Element {
 
   const loadSnippets = useAppStore((s) => s.loadSnippets)
   const startGitPolling = useAppStore((s) => s.startGitPolling)
+
+  // Save layout immediately when window closes (before PTYs are killed).
+  useEffect(() => {
+    const onBeforeUnload = (): void => { flushPersist() }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [flushPersist])
 
   useEffect(() => {
     loadSettings()
