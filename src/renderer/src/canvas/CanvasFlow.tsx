@@ -5,7 +5,6 @@ import {
   BackgroundVariant,
   Controls,
   MiniMap,
-  useViewport,
   type Node,
   type Edge,
   type NodeTypes,
@@ -44,38 +43,21 @@ export default function CanvasFlow(): React.JSX.Element {
   const removeConnection = useAppStore((s) => s.removeConnection)
   const setViewport = useAppStore((s) => s.setViewport)
   const wrapRef = useRef<HTMLDivElement>(null)
-  const { x: vpX, y: vpY, zoom } = useViewport()
+  const activeNodeId = useAppStore((s) => s.activeNodeId)
   const [pending, setPending] = useState<{ source: string; target: string } | null>(null)
 
-  const hasMaximized = nodes.some((n) => n.isMaximized)
-
   const rfNodes: Node[] = useMemo(() => {
-    const w = wrapRef.current?.clientWidth ?? 1200
-    const h = wrapRef.current?.clientHeight ?? 800
-    return nodes.map((n) => {
-      let position = n.position
-      let width = n.size.width
-      let height = n.isMinimized ? 32 : n.size.height
-      if (n.isMaximized) {
-        // Fill the visible viewport in flow coordinates. (PRD §10.3.6)
-        position = { x: -vpX / zoom, y: -vpY / zoom }
-        width = w / zoom
-        height = h / zoom
-      }
-      return {
-        id: n.id,
-        type: 'terminal',
-        position,
-        data: {},
-        width,
-        height,
-        style: { width, height },
-        zIndex: n.isMaximized ? 100000 : n.zIndex,
-        draggable: !n.isMaximized,
-        selected: n.id === useAppStore.getState().activeNodeId
-      }
-    })
-  }, [nodes, vpX, vpY, zoom])
+    return nodes.map((n) => ({
+      id: n.id,
+      type: 'terminal',
+      position: n.position,
+      data: {},
+      width: n.size.width,
+      height: n.isMinimized ? 32 : n.size.height,
+      zIndex: n.zIndex,
+      selected: n.id === activeNodeId
+    }))
+  }, [nodes, activeNodeId])
 
   const rfEdges: Edge[] = useMemo(
     () =>
@@ -104,6 +86,8 @@ export default function CanvasFlow(): React.JSX.Element {
       for (const ch of changes) {
         if (ch.type === 'position' && ch.position) {
           updateNode(ch.id, { position: ch.position })
+          // On drop, slide neighbours out so panels never overlap.
+          if (ch.dragging === false) useAppStore.getState().resolveCollisions(ch.id)
         } else if (ch.type === 'dimensions' && (ch as any).dimensions) {
           const d = (ch as any).dimensions
           updateNode(ch.id, { size: { width: d.width, height: d.height } })
@@ -142,7 +126,7 @@ export default function CanvasFlow(): React.JSX.Element {
         maxZoom={2}
         snapToGrid={snapToGrid}
         snapGrid={[22, 22]}
-        onlyRenderVisibleElements={!hasMaximized}
+        onlyRenderVisibleElements
         proOptions={{ hideAttribution: true }}
         defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
         deleteKeyCode={null}
@@ -150,13 +134,15 @@ export default function CanvasFlow(): React.JSX.Element {
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="#2a2f3a" />
         <Controls showInteractive={false} />
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor="#2f80ff"
-          maskColor="rgba(17,19,24,0.7)"
-          style={{ background: '#1a1b20', border: '1px solid #2f3440' }}
-        />
+        {showMinimap && (
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor="#2f80ff"
+            maskColor="rgba(17,19,24,0.7)"
+            style={{ background: '#1a1b20', border: '1px solid #2f3440' }}
+          />
+        )}
       </ReactFlow>
 
       {pending && (

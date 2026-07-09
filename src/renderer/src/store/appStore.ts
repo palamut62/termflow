@@ -67,6 +67,7 @@ interface AppState {
 
   setLayoutMode: (mode: LayoutMode, vp?: { width: number; height: number }) => void
   applyAutoLayout: (vp: { width: number; height: number }) => void
+  resolveCollisions: (anchorId: string) => void
   setViewport: (vp: CanvasViewport) => void
 
   startRuntimeListeners: () => void
@@ -76,6 +77,29 @@ interface AppState {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let listenersStarted = false
+let systemThemeMql: MediaQueryList | null = null
+
+// Apply light/dark/system theme by toggling the root data-theme attribute.
+function applyTheme(theme: 'dark' | 'light' | 'system'): void {
+  const root = document.documentElement
+  const systemDark = (): boolean =>
+    window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : true
+  const resolve = (): void => {
+    const isLight = theme === 'light' || (theme === 'system' && !systemDark())
+    if (isLight) root.setAttribute('data-theme', 'light')
+    else root.removeAttribute('data-theme')
+    // Keep the native Windows titlebar overlay (min/max/close) in sync.
+    if (isLight) window.termflow.window.setOverlay('#eaedf3', '#4a5162')
+    else window.termflow.window.setOverlay('#20242c', '#a0a7b4')
+  }
+  if (!systemThemeMql && window.matchMedia) {
+    systemThemeMql = window.matchMedia('(prefers-color-scheme: dark)')
+    systemThemeMql.addEventListener('change', () => {
+      if (useAppStore.getState().settings.theme === 'system') resolve()
+    })
+  }
+  resolve()
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
   workspaces: [],
@@ -98,6 +122,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const settings = await window.termflow.settings.get()
     set({ settings })
     document.documentElement.style.setProperty('--active-border', settings.activeBorderColor)
+    applyTheme(settings.theme)
   },
 
   updateSettings: async (patch) => {
@@ -105,6 +130,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ settings })
     if (patch.activeBorderColor)
       document.documentElement.style.setProperty('--active-border', settings.activeBorderColor)
+    if (patch.theme) applyTheme(settings.theme)
   },
 
   loadWorkspaces: async () => {
@@ -339,16 +365,36 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   toggleMaximize: (nodeId) => {
-    const z = get().zCounter + 1
-    set((s) => ({
-      zCounter: z,
-      activeNodeId: nodeId,
-      nodes: s.nodes.map((n) =>
-        n.id === nodeId
-          ? { ...n, isMaximized: !n.isMaximized, isMinimized: false, zIndex: z }
-          : { ...n, isMaximized: false }
-      )
-    }))
+    const st = get()
+    const node = st.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    const z = st.zCounter + 1
+    if (!node.isMaximized) {
+      // "Maximize" = focus layout centered on this node: it becomes large while
+      // the others scale down into a mini-panel strip. (user request #5)
+      const ordered = [node, ...st.nodes.filter((n) => n.id !== nodeId && !n.isMinimized)]
+      const computed = computeLayout('focus', ordered, st.canvasSize, st.connections)
+      set((s) => ({
+        zCounter: z,
+        activeNodeId: nodeId,
+        layoutMode: 'focus',
+        nodes: s.nodes.map((n) => ({
+          ...n,
+          isMaximized: n.id === nodeId,
+          isMinimized: n.id === nodeId ? false : n.isMinimized,
+          zIndex: n.id === nodeId ? z : n.zIndex,
+          ...(computed[n.id] || {})
+        }))
+      }))
+    } else {
+      // Restore: re-tile everything as a proportional grid.
+      const computed = computeLayout('grid', st.nodes, st.canvasSize, st.connections)
+      set((s) => ({
+        layoutMode: 'grid',
+        nodes: s.nodes.map((n) => ({ ...n, isMaximized: false, ...(computed[n.id] || {}) }))
+      }))
+    }
+    get().persist()
   },
 
   toggleInfo: (nodeId) => {
@@ -404,6 +450,51 @@ export const useAppStore = create<AppState>((set, get) => ({
       nodes: s.nodes.map((n) => (computed[n.id] ? { ...n, ...computed[n.id], isMaximized: false } : n))
     }))
     get().persist()
+  },
+
+  // Push neighbours out of the way so a resized/dragged node never overlaps
+  // another; the anchor stays put and everything else slides to fit. (user)
+  resolveCollisions: (anchorId) => {
+    const GAP = 16
+    const nodes = get().nodes.map((n) => ({
+      ...n,
+      position: { ...n.position },
+      size: { ...n.size }
+    }))
+    const anchor = nodes.find((n) => n.id === anchorId)
+    if (!anchor) return
+    const overlaps = (a: CanvasNode, b: CanvasNode): boolean =>
+      a.position.x < b.position.x + b.size.width + GAP &&
+      a.position.x + a.size.width + GAP > b.position.x &&
+      a.position.y < b.position.y + b.size.height + GAP &&
+      a.position.y + a.size.height + GAP > b.position.y
+
+    // Only push nodes that overlap the anchor, away from the anchor, once.
+    // Direction follows each node's current side (by centre) so nothing jumps
+    // across the anchor; clamp to >= 0 so panels never fly off-canvas.
+    const acx = anchor.position.x + anchor.size.width / 2
+    const acy = anchor.position.y + anchor.size.height / 2
+    let changed = false
+    for (const other of nodes) {
+      if (other.id === anchorId || other.isMinimized || other.isMaximized) continue
+      if (!overlaps(anchor, other)) continue
+      const dx = other.position.x + other.size.width / 2 - acx
+      const dy = other.position.y + other.size.height / 2 - acy
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        other.position.x =
+          dx >= 0 ? anchor.position.x + anchor.size.width + GAP : anchor.position.x - other.size.width - GAP
+      } else {
+        other.position.y =
+          dy >= 0 ? anchor.position.y + anchor.size.height + GAP : anchor.position.y - other.size.height - GAP
+      }
+      other.position.x = Math.max(0, other.position.x)
+      other.position.y = Math.max(0, other.position.y)
+      changed = true
+    }
+    if (changed) {
+      set({ nodes })
+      get().persist()
+    }
   },
 
   setViewport: (vp) => set({ viewport: vp }),

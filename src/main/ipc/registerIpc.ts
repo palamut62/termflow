@@ -15,7 +15,12 @@ import * as dbApi from '../db/database'
 
 export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   const pty = new PtyManager(() => {
-    const wc = getWindow()?.webContents
+    // A destroyed BrowserWindow throws on `.webContents` access, so guard the
+    // window itself before touching webContents (fixes "Object has been
+    // destroyed" when a PTY flushes during/after window close).
+    const win = getWindow()
+    if (!win || win.isDestroyed()) return null
+    const wc = win.webContents
     return wc && !wc.isDestroyed() ? wc : null
   })
 
@@ -49,6 +54,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       })
     )
     return out
+  })
+
+  // ---- Window (titlebar overlay follows the app theme) ----
+  ipcMain.on(IPC.WINDOW_OVERLAY, (_e, color: string, symbolColor: string) => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      try {
+        win.setTitleBarOverlay({ color, symbolColor, height: 44 })
+      } catch {
+        /* platform without overlay support */
+      }
+    }
   })
 
   // ---- Shells ----

@@ -9,7 +9,7 @@ import {
   Focus,
   Share2,
   Settings,
-  Command,
+  Search,
   ChevronDown
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
@@ -71,10 +71,37 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
 
   return (
     <div className="toolbar">
+      <div className="brand">
+        <svg className="logo" viewBox="0 0 512 512" aria-hidden>
+          <rect x="24" y="24" width="464" height="464" rx="104" fill="#20242c" stroke="#2f3440" strokeWidth="6" />
+          <path d="M136 176l60 60l-60 60" fill="none" stroke="#2f80ff" strokeWidth="34" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M256 316h96" fill="none" stroke="#f5e642" strokeWidth="34" strokeLinecap="round" />
+        </svg>
+        <span>TermFlow</span>
+      </div>
+
       <div className="tb-group" ref={termRef} style={{ position: 'relative' }}>
-        <button className="tb-btn primary" disabled={disabled} onClick={() => setTermMenu((v) => !v)}>
-          <Plus size={15} /> New Terminal <ChevronDown size={13} />
-        </button>
+        <div className="split-btn">
+          <button
+            className="tb-btn primary split-main"
+            disabled={disabled}
+            title="Yeni terminal (PowerShell)"
+            onClick={() => {
+              setTermMenu(false)
+              addTerminal('powershell')
+            }}
+          >
+            <Plus size={15} /> New Terminal
+          </button>
+          <button
+            className="tb-btn primary split-caret"
+            disabled={disabled}
+            title="Terminal tipi seç"
+            onClick={() => setTermMenu((v) => !v)}
+          >
+            <ChevronDown size={13} />
+          </button>
+        </div>
         {termMenu && (
           <div className="menu" style={{ top: 36, left: 0 }}>
             <div className="menu-label">Shells</div>
@@ -153,7 +180,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
       <div className="spacer" />
 
       <button className="tb-btn" title="Command Palette (Ctrl+K)" onClick={onOpenPalette}>
-        <Command size={15} />
+        <Search size={15} />
       </button>
       <button className="tb-btn" title="Settings" onClick={onOpenSettings}>
         <Settings size={15} />

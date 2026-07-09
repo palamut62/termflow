@@ -18,6 +18,21 @@
   --font-ui: -apple-system, 'Segoe UI', system-ui, sans-serif;
 }
 
+:root[data-theme='light'] {
+  --bg-main: #f4f6fa;
+  --bg-sidebar: #eaedf3;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #e6e9f0;
+  --bg-terminal: #ffffff;
+  --border-soft: #d3d8e2;
+  --accent: #2f80ff;
+  --accent-soft: rgba(47, 128, 255, 0.15);
+  --active-border: #eab308;
+  --text-primary: #1a1d24;
+  --text-secondary: #4a5162;
+  --text-muted: #8b93a3;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -69,10 +84,28 @@ input {
   grid-template-columns: var(--sidebar-w, 240px) 1fr;
   grid-template-rows: 44px 1fr 26px;
   grid-template-areas:
-    'sidebar toolbar'
+    'toolbar toolbar'
     'sidebar canvas'
     'sidebar status';
   height: 100%;
+}
+
+/* Brand mark at the very top-left of the full-width header */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(var(--sidebar-w, 240px) - 10px);
+  flex: none;
+  -webkit-app-region: drag;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.brand .logo {
+  width: 22px;
+  height: 22px;
+  flex: none;
 }
 
 /* ---- Toolbar ---- */
@@ -89,6 +122,12 @@ input {
 .toolbar .tb-group {
   display: flex;
   gap: 2px;
+  -webkit-app-region: no-drag;
+}
+/* All interactive toolbar elements must escape the drag region, otherwise the
+   window-drag swallows their clicks (e.g. Settings/Search wouldn't open). */
+.toolbar button,
+.toolbar input {
   -webkit-app-region: no-drag;
 }
 .toolbar .spacer {
@@ -117,6 +156,21 @@ input {
 }
 .tb-btn.primary:hover {
   background: #4c93ff;
+}
+.split-btn {
+  display: inline-flex;
+  align-items: center;
+}
+.split-btn .split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.split-btn .split-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding: 0 7px;
+  margin-left: 1px;
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
 }
 .tb-btn.active {
   background: var(--accent-soft);
@@ -236,6 +290,62 @@ input {
 }
 .term-subitem.active {
   color: var(--text-primary);
+}
+.term-subitem .term-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  opacity: 0;
+  border-radius: 4px;
+}
+.term-subitem:hover .term-close {
+  opacity: 1;
+}
+.term-subitem .term-close:hover {
+  color: var(--danger);
+  background: var(--bg-panel-2);
+}
+
+/* Sidebar social/designer footer + running-count bar (aligned with status bar) */
+.side-social {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.side-social .designer {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.side-social .social-links {
+  display: flex;
+  gap: 4px;
+}
+.side-social .social-links button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  border-radius: 7px;
+}
+.side-social .social-links button:hover {
+  color: var(--text-primary);
+  background: var(--bg-panel-2);
+}
+.side-runcount {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-soft);
 }
 .dot {
   width: 7px;
@@ -532,6 +642,95 @@ input {
 }
 .btn:hover {
   filter: brightness(1.12);
+}
+
+/* ---- Terminal node wrapper (lets resize handles sit outside the card) ---- */
+.tnode-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.react-flow__node-terminal,
+.react-flow__node {
+  overflow: visible;
+}
+
+/* ---- Custom resize handles (clean dots sitting just outside the border) ---- */
+.rz {
+  position: absolute;
+  z-index: 30;
+}
+.rz-n {
+  top: -4px;
+  left: 16px;
+  right: 16px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.rz-s {
+  bottom: -4px;
+  left: 16px;
+  right: 16px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.rz-e {
+  right: -4px;
+  top: 16px;
+  bottom: 16px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.rz-w {
+  left: -4px;
+  top: 16px;
+  bottom: 16px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.rz-nw,
+.rz-ne,
+.rz-sw,
+.rz-se {
+  width: 18px;
+  height: 18px;
+}
+.rz-nw {
+  top: -9px;
+  left: -9px;
+  cursor: nwse-resize;
+}
+.rz-ne {
+  top: -9px;
+  right: -9px;
+  cursor: nesw-resize;
+}
+.rz-sw {
+  bottom: -9px;
+  left: -9px;
+  cursor: nesw-resize;
+}
+.rz-se {
+  bottom: -9px;
+  right: -9px;
+  cursor: nwse-resize;
+}
+/* clean round grab dots centered on each corner, outside the card */
+.rz-nw::after,
+.rz-ne::after,
+.rz-sw::after,
+.rz-se::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-main);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .tnode.errored {

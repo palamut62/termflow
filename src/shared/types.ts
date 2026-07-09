@@ -95,7 +95,10 @@ export interface ProcStats {
   memory: number
 }
 
+export type ThemeMode = 'dark' | 'light' | 'system'
+
 export interface AppSettings {
+  theme: ThemeMode
   activeBorderColor: string
   scrollback: number
   passiveThrottleMs: number
@@ -106,6 +109,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'dark',
   activeBorderColor: '#f5e642',
   scrollback: 10000,
   passiveThrottleMs: 250,
@@ -182,6 +186,8 @@ export const IPC = {
   // settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  // window
+  WINDOW_OVERLAY: 'window:overlay', // renderer -> main: set titlebar overlay colors
   // dialog
   DIALOG_OPEN_DIR: 'dialog:openDir',
   // workspaces

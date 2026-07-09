@@ -45,6 +45,12 @@ function createWindow(): void {
   mainWindow.webContents.once('did-finish-load', reveal)
   setTimeout(reveal, 3000)
 
+  // Stop PTYs first, then drop the reference so nothing sends to a dead window.
+  mainWindow.on('closed', () => {
+    ptyManager?.killAll()
+    mainWindow = null
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }

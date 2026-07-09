@@ -1,6 +1,12 @@
 import { useState } from 'react'
-import { Search, Plus, Folder, Bot, TerminalSquare, Trash2 } from 'lucide-react'
+import { Search, Plus, Folder, Bot, TerminalSquare, Trash2, X, Github } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+
+const XIcon = ({ size = 13 }: { size?: number }): React.JSX.Element => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <path d="M18.9 2H22l-7.5 8.6L23 22h-6.8l-5.3-7-6.1 7H1.7l8-9.2L1 2h7l4.8 6.4L18.9 2Zm-2.4 18h1.9L7.6 4H5.6l10.9 16Z" />
+  </svg>
+)
 
 interface Props {
   onNewWorkspace: () => void
@@ -16,6 +22,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
   const deleteWorkspace = useAppStore((s) => s.deleteWorkspace)
   const renameWorkspace = useAppStore((s) => s.renameWorkspace)
   const setActiveNode = useAppStore((s) => s.setActiveNode)
+  const closeNode = useAppStore((s) => s.closeNode)
   const [filter, setFilter] = useState('')
   const [editingWs, setEditingWs] = useState<string | null>(null)
 
@@ -24,7 +31,6 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
 
   return (
     <div className="sidebar">
-      <div className="titlebar-pad" />
       <div className="filter">
         <Search size={14} />
         <input placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -117,9 +123,23 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                       >
                         <span className={`dot ${t?.status ?? 'stopped'}`} />
                         {n.nodeType === 'agent' ? <Bot size={13} /> : <TerminalSquare size={13} />}
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span
+                          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
+                        >
                           {n.title}
                         </span>
+                        <button
+                          className="term-close"
+                          title="Kapat"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const running = t?.status === 'running'
+                            if (!running || window.confirm(`"${n.title}" kapatılsın mı?`))
+                              closeNode(n.id, 'terminate')
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
                       </div>
                     )
                   })}
@@ -130,16 +150,22 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
         })}
       </div>
 
-      <div
-        style={{
-          padding: '8px 14px',
-          fontSize: 11,
-          color: 'var(--text-muted)',
-          borderTop: '1px solid var(--border-soft)'
-        }}
-      >
-        {runningCount} çalışan terminal
+      <div className="side-social">
+        <span className="designer">palamut62</span>
+        <div className="social-links">
+          <button
+            title="GitHub"
+            onClick={() => window.open('https://github.com/palamut62', '_blank')}
+          >
+            <Github size={15} />
+          </button>
+          <button title="X" onClick={() => window.open('https://x.com/palamut62', '_blank')}>
+            <XIcon size={13} />
+          </button>
+        </div>
       </div>
+
+      <div className="side-runcount">{runningCount} çalışan terminal</div>
     </div>
   )
 }

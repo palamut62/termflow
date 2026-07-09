@@ -47,6 +47,10 @@ const api = {
     get: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_GET),
     set: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_SET, patch)
   },
+  window: {
+    setOverlay: (color: string, symbolColor: string): void =>
+      ipcRenderer.send(IPC.WINDOW_OVERLAY, color, symbolColor)
+  },
   shells: {
     discover: () => ipcRenderer.invoke(IPC.SHELLS_DISCOVER)
   },

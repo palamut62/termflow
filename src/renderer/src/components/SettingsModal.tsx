@@ -25,6 +25,15 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
         <h3>Ayarlar</h3>
 
         <div className="field">
+          <label>Tema</label>
+          <select value={settings.theme} onChange={(e) => update({ theme: e.target.value as 'dark' | 'light' | 'system' })}>
+            <option value="dark">Koyu</option>
+            <option value="light">Açık</option>
+            <option value="system">Sistem</option>
+          </select>
+        </div>
+
+        <div className="field">
           <label>Aktif terminal border rengi</label>
           <div style={{ display: 'flex', gap: 8 }}>
             {BORDER_COLORS.map((c) => (
@@ -90,6 +99,15 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
               onChange={(e) => update({ snapToGrid: e.target.checked })}
             />
             Snap to grid
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={settings.minimap}
+              style={{ width: 'auto' }}
+              onChange={(e) => update({ minimap: e.target.checked })}
+            />
+            Mini-map (önizleme)
           </label>
         </div>
 

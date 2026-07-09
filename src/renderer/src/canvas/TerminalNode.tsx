@@ -1,5 +1,5 @@
-import { memo, useState } from 'react'
-import { Handle, Position, NodeResizer, type NodeProps } from '@xyflow/react'
+import { memo, useCallback, useState } from 'react'
+import { Handle, Position, type NodeProps } from '@xyflow/react'
 import {
   Minus,
   Maximize2,
@@ -96,6 +96,98 @@ function statusColor(status: string): string {
   return 'var(--text-secondary)'
 }
 
+const MINW = 420
+const MINH = 200
+
+// [class suffix, dirX, dirY] — dir ∈ {-1: top/left edge, 0: none, 1: bottom/right edge}
+const HANDLES: [string, number, number][] = [
+  ['nw', -1, -1],
+  ['n', 0, -1],
+  ['ne', 1, -1],
+  ['w', -1, 0],
+  ['e', 1, 0],
+  ['sw', -1, 1],
+  ['s', 0, 1],
+  ['se', 1, 1]
+]
+
+/**
+ * Custom resize handles. Uses pointer capture on the handle element so a drag
+ * is tracked reliably (independent of React Flow's d3-drag), converting screen
+ * deltas to flow coordinates via the current zoom. (user: corner resize)
+ */
+function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
+  const updateNode = useAppStore((s) => s.updateNode)
+
+  const start = useCallback(
+    (dirX: number, dirY: number) => (e: React.PointerEvent) => {
+      e.stopPropagation()
+      e.preventDefault()
+      const el = e.currentTarget as HTMLDivElement
+      el.setPointerCapture(e.pointerId)
+      const st = useAppStore.getState()
+      const node = st.nodes.find((n) => n.id === nodeId)
+      if (!node) return
+      const zoom = st.viewport.zoom || 1
+      const startX = e.clientX
+      const startY = e.clientY
+      const p0 = { ...node.position }
+      const s0 = { ...node.size }
+
+      const onMove = (ev: PointerEvent): void => {
+        const dx = (ev.clientX - startX) / zoom
+        const dy = (ev.clientY - startY) / zoom
+        let x = p0.x
+        let y = p0.y
+        let width = s0.width
+        let height = s0.height
+        if (dirX === 1) width = s0.width + dx
+        else if (dirX === -1) {
+          width = s0.width - dx
+          x = p0.x + dx
+        }
+        if (dirY === 1) height = s0.height + dy
+        else if (dirY === -1) {
+          height = s0.height - dy
+          y = p0.y + dy
+        }
+        // clamp to minimums, adjusting x/y when dragging top/left edges
+        if (width < MINW) {
+          if (dirX === -1) x -= MINW - width
+          width = MINW
+        }
+        if (height < MINH) {
+          if (dirY === -1) y -= MINH - height
+          height = MINH
+        }
+        updateNode(nodeId, { position: { x, y }, size: { width: Math.round(width), height: Math.round(height) } })
+      }
+      const onUp = (ev: PointerEvent): void => {
+        try {
+          el.releasePointerCapture(ev.pointerId)
+        } catch {
+          /* ignore */
+        }
+        el.removeEventListener('pointermove', onMove)
+        el.removeEventListener('pointerup', onUp)
+        // Resolve collisions once, on release — stable, single pass (no drift).
+        useAppStore.getState().resolveCollisions(nodeId)
+      }
+      el.addEventListener('pointermove', onMove)
+      el.addEventListener('pointerup', onUp)
+    },
+    [nodeId, updateNode]
+  )
+
+  return (
+    <>
+      {HANDLES.map(([dir, dx, dy]) => (
+        <div key={dir} className={`rz rz-${dir} nodrag nowheel`} onPointerDown={start(dx, dy)} />
+      ))}
+    </>
+  )
+}
+
 function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const node = useAppStore((s) => s.nodes.find((n) => n.id === id))
   const terminal = useAppStore((s) => (node ? s.terminals[node.terminalId] : undefined))
@@ -120,12 +212,8 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const hasError = node.status === 'error'
 
   return (
-    <div className={`tnode ${active ? 'active' : ''} ${node.isMinimized ? 'minimized' : ''} ${hasError ? 'errored' : ''}`}>
-      <NodeResizer
-        isVisible={selected && !node.isMinimized && !node.isMaximized}
-        minWidth={420}
-        minHeight={260}
-      />
+    <div className="tnode-wrap">
+      <div className={`tnode ${active ? 'active' : ''} ${node.isMinimized ? 'minimized' : ''} ${hasError ? 'errored' : ''}`}>
       <Handle type="target" position={Position.Left} />
       <div className="tnode-header">
         {hasError ? (
@@ -221,6 +309,8 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           }}
         />
       )}
+      </div>
+      {active && !node.isMinimized && !node.isMaximized && <ResizeHandles nodeId={id} />}
     </div>
   )
 }
