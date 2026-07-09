@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { TERMINAL_THEMES } from '../themes'
-import type { HighlightRule } from '../../../shared/types'
+import type { EnvEntry, HighlightRule, SshProfile } from '../../../shared/types'
+import PromptModal, { type PromptField } from './PromptModal'
 
 interface Props {
   onClose: () => void
@@ -31,12 +32,37 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const update = useAppStore((s) => s.updateSettings)
   const highlightRules = useAppStore((s) => s.highlightRules)
-  const [activeTab, setActiveTab] = useState<'general' | 'terminal' | 'highlights'>('general')
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
+  const [activeTab, setActiveTab] = useState<'general' | 'terminal' | 'highlights' | 'developer'>('general')
+  const [rulePrompt, setRulePrompt] = useState<{ fields: PromptField[] } | null>(null)
+  const [envVars, setEnvVars] = useState<EnvEntry[]>([])
+  const [sshProfiles, setSshProfiles] = useState<SshProfile[]>([])
+  const [envKey, setEnvKey] = useState('')
+  const [envValue, setEnvValue] = useState('')
+  const [sshName, setSshName] = useState('')
+  const [sshHost, setSshHost] = useState('')
+  const [sshUser, setSshUser] = useState('')
+
+  const reloadDeveloper = async (): Promise<void> => {
+    if (!activeWorkspaceId) return
+    const [nextEnv, nextSsh] = await Promise.all([
+      window.termflow.envVars.list(activeWorkspaceId),
+      window.termflow.sshProfiles.list(activeWorkspaceId)
+    ])
+    setEnvVars(nextEnv)
+    setSshProfiles(nextSsh)
+  }
+
+  useEffect(() => {
+    if (activeTab === 'developer') reloadDeveloper()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, activeWorkspaceId])
 
   const tabs = [
     { key: 'general' as const, label: 'General' },
     { key: 'terminal' as const, label: 'Terminal' },
-    { key: 'highlights' as const, label: 'Highlights' }
+    { key: 'highlights' as const, label: 'Highlights' },
+    { key: 'developer' as const, label: 'Developer' }
   ]
 
   return (
@@ -185,19 +211,19 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
           <>
             <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Highlight Rules</span>
-              <button className="btn primary" onClick={async () => {
-                const pattern = window.prompt('Regex pattern:')
-                if (!pattern) return
-                const label = window.prompt('Label (optional):') || pattern
-                const wsId = useAppStore.getState().activeWorkspaceId
-                await window.termflow.highlightRules.create({
-                  pattern, flags: 'gi', color: HIGHLIGHT_COLORS[0],
-                  label, workspaceId: wsId, notifyOnMatch: false
-                })
-                // Reload
-                const rules = await window.termflow.highlightRules.list(wsId || undefined)
-                useAppStore.setState({ highlightRules: rules })
-              }}>Add Rule</button>
+              <button
+                className="btn primary"
+                onClick={() =>
+                  setRulePrompt({
+                    fields: [
+                      { key: 'pattern', label: 'Regex pattern', required: true, placeholder: 'error|failed|TODO' },
+                      { key: 'label', label: 'Label', placeholder: 'Build errors' }
+                    ]
+                  })
+                }
+              >
+                Add Rule
+              </button>
             </div>
 
             {highlightRules.map((rule) => (
@@ -226,6 +252,90 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
           </>
         )}
 
+        {activeTab === 'developer' && (
+          <>
+            <div className="field">
+              <label>Workspace Environment</label>
+              <div className="path-pick">
+                <input value={envKey} onChange={(e) => setEnvKey(e.target.value)} placeholder="KEY" />
+                <input value={envValue} onChange={(e) => setEnvValue(e.target.value)} placeholder="value" />
+                <button
+                  className="btn"
+                  disabled={!activeWorkspaceId || !envKey.trim()}
+                  onClick={async () => {
+                    if (!activeWorkspaceId || !envKey.trim()) return
+                    await window.termflow.envVars.create({
+                      workspaceId: activeWorkspaceId,
+                      key: envKey.trim(),
+                      value: envValue,
+                      masked: true
+                    })
+                    setEnvKey('')
+                    setEnvValue('')
+                    await reloadDeveloper()
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+              <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                {envVars.map((entry) => (
+                  <div key={entry.id} className="info-row">
+                    <span>{entry.key}</span>
+                    <span className="v">{entry.value}</span>
+                    <button className="hbtn" title="Delete" onClick={async () => {
+                      await window.termflow.envVars.remove(entry.id)
+                      await reloadDeveloper()
+                    }}>x</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>SSH Profiles</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8 }}>
+                <input value={sshName} onChange={(e) => setSshName(e.target.value)} placeholder="Name" />
+                <input value={sshHost} onChange={(e) => setSshHost(e.target.value)} placeholder="Host" />
+                <input value={sshUser} onChange={(e) => setSshUser(e.target.value)} placeholder="User" />
+                <button
+                  className="btn"
+                  disabled={!activeWorkspaceId || !sshName.trim() || !sshHost.trim() || !sshUser.trim()}
+                  onClick={async () => {
+                    if (!activeWorkspaceId || !sshName.trim() || !sshHost.trim() || !sshUser.trim()) return
+                    await window.termflow.sshProfiles.create({
+                      workspaceId: activeWorkspaceId,
+                      name: sshName.trim(),
+                      host: sshHost.trim(),
+                      user: sshUser.trim(),
+                      port: 22,
+                      authType: 'agent'
+                    })
+                    setSshName('')
+                    setSshHost('')
+                    setSshUser('')
+                    await reloadDeveloper()
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+              <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                {sshProfiles.map((profile) => (
+                  <div key={profile.id} className="info-row">
+                    <span>{profile.name}</span>
+                    <span className="v">{profile.user}@{profile.host}:{profile.port}</span>
+                    <button className="hbtn" title="Delete" onClick={async () => {
+                      await window.termflow.sshProfiles.remove(profile.id)
+                      await reloadDeveloper()
+                    }}>x</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>
           WebGL / scrollback changes apply to new terminals.
         </p>
@@ -234,6 +344,27 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
           <button className="btn primary" onClick={onClose}>Close</button>
         </div>
       </div>
+      {rulePrompt && (
+        <PromptModal
+          title="Add Highlight Rule"
+          fields={rulePrompt.fields}
+          submitLabel="Add Rule"
+          onClose={() => setRulePrompt(null)}
+          onSubmit={async (values) => {
+            const wsId = useAppStore.getState().activeWorkspaceId
+            await window.termflow.highlightRules.create({
+              pattern: values.pattern,
+              flags: 'gi',
+              color: HIGHLIGHT_COLORS[0],
+              label: values.label || values.pattern,
+              workspaceId: wsId,
+              notifyOnMatch: false
+            })
+            const rules = await window.termflow.highlightRules.list(wsId || undefined)
+            useAppStore.setState({ highlightRules: rules })
+          }}
+        />
+      )}
     </div>
   )
 }

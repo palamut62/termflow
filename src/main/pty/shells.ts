@@ -76,6 +76,10 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
   const cmdPath = join(winDir, 'System32', 'cmd.exe')
 
   // Explicit custom command / shell wins.
+  if (input.kind === 'custom' && input.startupCommand) {
+    return { shell: cmdPath, args: [], cwd, env }
+  }
+
   if (input.kind === 'custom' && input.shell) {
     return { shell: input.shell, args: input.args ?? [], cwd, env }
   }

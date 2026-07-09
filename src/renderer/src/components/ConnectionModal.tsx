@@ -5,6 +5,7 @@ export interface ConnectionFormResult {
   type: ConnectionType
   label?: string
   routeBehavior?: 'marker' | 'continuous' | 'disabled'
+  routeDirection?: 'source_to_target' | 'bidirectional'
   triggerPattern?: string
   transform?: string
 }
@@ -29,6 +30,7 @@ export default function ConnectionModal({ onSubmit, onClose }: Props): React.JSX
   const [type, setType] = useState<ConnectionType>('control')
   const [label, setLabel] = useState('')
   const [routeBehavior, setRouteBehavior] = useState<'marker' | 'continuous' | 'disabled'>('disabled')
+  const [routeDirection, setRouteDirection] = useState<'source_to_target' | 'bidirectional'>('source_to_target')
   const [triggerPattern, setTriggerPattern] = useState('@@HANDOFF@@([\\s\\S]*?)@@END@@')
   const [transform, setTransform] = useState('')
 
@@ -53,12 +55,39 @@ export default function ConnectionModal({ onSubmit, onClose }: Props): React.JSX
 
         <div className="field">
           <label>Route Behavior (Agent-to-Agent)</label>
-          <select value={routeBehavior} onChange={(e) => setRouteBehavior(e.target.value as 'marker' | 'continuous' | 'disabled')}>
+          <select
+            value={routeBehavior}
+            onChange={(e) => {
+              const next = e.target.value as 'marker' | 'continuous' | 'disabled'
+              setRouteBehavior(next)
+              if (next !== 'marker') setRouteDirection('source_to_target')
+            }}
+          >
             <option value="disabled">Disabled</option>
             <option value="marker">Marker-based (@@HANDOFF@@)</option>
             <option value="continuous">Continuous (all output)</option>
           </select>
         </div>
+
+        {routeBehavior !== 'disabled' && (
+          <div className="field">
+            <label>Route Direction</label>
+            <select
+              value={routeDirection}
+              onChange={(e) => setRouteDirection(e.target.value as 'source_to_target' | 'bidirectional')}
+            >
+              <option value="source_to_target">Source output to target input</option>
+              {routeBehavior === 'marker' && (
+                <option value="bidirectional">Both terminals send marker output to each other</option>
+              )}
+            </select>
+            {routeBehavior === 'continuous' && (
+              <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                Continuous routing is one-way to avoid echo loops between terminals.
+              </p>
+            )}
+          </div>
+        )}
 
         {routeBehavior === 'marker' && (
           <>
@@ -89,6 +118,7 @@ export default function ConnectionModal({ onSubmit, onClose }: Props): React.JSX
           <button className="btn primary" onClick={() => onSubmit({
             type, label: label || undefined,
             routeBehavior,
+            routeDirection: routeBehavior === 'disabled' ? undefined : routeDirection,
             triggerPattern: routeBehavior === 'marker' ? triggerPattern : undefined,
             transform: routeBehavior === 'marker' ? transform || undefined : undefined
           })}>Connect</button>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Search, Plus, Folder, Bot, TerminalSquare, Trash2, X, Github, Download, Upload } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { getActiveTerminalId } from '../paneUtils'
+import ConfirmModal from './ConfirmModal'
 
 const XIcon = ({ size = 13 }: { size?: number }): React.JSX.Element => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -26,6 +27,12 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
   const closeNode = useAppStore((s) => s.closeNode)
   const [filter, setFilter] = useState('')
   const [editingWs, setEditingWs] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<{
+    title: string
+    message: string
+    confirmLabel: string
+    onConfirm: () => void
+  } | null>(null)
 
   const filtered = workspaces.filter((w) => w.name.toLowerCase().includes(filter.toLowerCase()))
   const runningCount = Object.values(terminals).filter((t) => t.status === 'running').length
@@ -115,8 +122,12 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                   title="Delete"
                   onClick={(e) => {
                     e.stopPropagation()
-                    if (window.confirm(`"${ws.name}" silinsin mi? Çalışan terminaller kapatılır.`))
-                      deleteWorkspace(ws.id)
+                    setConfirm({
+                      title: 'Delete workspace',
+                      message: `Delete "${ws.name}"? Running terminals will be closed.`,
+                      confirmLabel: 'Delete',
+                      onConfirm: () => deleteWorkspace(ws.id)
+                    })
                   }}
                   style={{
                     marginLeft: isActive && nodes.length ? 6 : 'auto',
@@ -150,12 +161,20 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                         </span>
                         <button
                           className="term-close"
-                          title="Kapat"
+                          title="Close"
                           onClick={(e) => {
                             e.stopPropagation()
                             const running = t?.status === 'running'
-                            if (!running || window.confirm(`"${n.title}" kapatılsın mı?`))
+                            if (!running) {
                               closeNode(n.id, 'terminate')
+                              return
+                            }
+                            setConfirm({
+                              title: 'Close terminal',
+                              message: `Close "${n.title}" and terminate its running process?`,
+                              confirmLabel: 'Terminate',
+                              onConfirm: () => closeNode(n.id, 'terminate')
+                            })
                           }}
                         >
                           <X size={12} />
@@ -185,7 +204,14 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
         </div>
       </div>
 
-      <div className="side-runcount">{runningCount} çalışan terminal</div>
+      <div className="side-runcount">{runningCount} running terminal{runningCount !== 1 ? 's' : ''}</div>
+      {confirm && (
+        <ConfirmModal
+          {...confirm}
+          tone="danger"
+          onClose={() => setConfirm(null)}
+        />
+      )}
     </div>
   )
 }

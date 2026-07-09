@@ -88,10 +88,10 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
           <button
             className="tb-btn primary split-main"
             disabled={disabled}
-            title="Yeni terminal (PowerShell)"
+            title="New terminal (CMD)"
             onClick={() => {
               setTermMenu(false)
-              addTerminal('powershell')
+              addTerminal('cmd')
             }}
           >
             <Plus size={15} /> New Terminal
@@ -99,7 +99,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
           <button
             className="tb-btn primary split-caret"
             disabled={disabled}
-            title="Terminal tipi seç"
+            title="Select terminal type"
             onClick={() => setTermMenu((v) => !v)}
           >
             <ChevronDown size={13} />
@@ -132,7 +132,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
         </button>
         {agentMenu && (
           <div className="menu" style={{ top: 36, left: 0, maxHeight: 360, overflowY: 'auto' }}>
-            <div className="menu-label">Agent Rolleri</div>
+            <div className="menu-label">Agent Roles</div>
             {AGENT_ROLES.map((r) => (
               <div
                 key={r.role}
@@ -203,7 +203,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
           onClose={() => setCustomModal(false)}
           onSubmit={(cmd) => {
             setCustomModal(false)
-            addTerminal('custom', { customShell: cmd, name: cmd.split(' ')[0] })
+            addTerminal('custom', { startupCommand: cmd, name: cmd.split(' ')[0] || 'Custom Command' })
           }}
         />
       )}

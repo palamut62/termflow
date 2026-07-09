@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react'
 import TerminalNode from './TerminalNode'
 import ConnectionModal, { type ConnectionFormResult } from '../components/ConnectionModal'
+import ConfirmModal from '../components/ConfirmModal'
 import { useAppStore } from '../store/appStore'
 
 const nodeTypes: NodeTypes = { terminal: TerminalNode as unknown as React.ComponentType<NodeProps> }
@@ -44,6 +45,7 @@ export default function CanvasFlow(): React.JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const activeNodeId = useAppStore((s) => s.activeNodeId)
   const [pending, setPending] = useState<{ source: string; target: string } | null>(null)
+  const [deleteEdgeId, setDeleteEdgeId] = useState<string | null>(null)
 
   const rfNodes: Node[] = useMemo(() => {
     return nodes.map((n) => ({
@@ -114,7 +116,7 @@ export default function CanvasFlow(): React.JSX.Element {
         onNodeClick={(_e, n) => setActiveNode(n.id)}
         onEdgeClick={(_e, edge) => selectConnection(edge.id)}
         onEdgeDoubleClick={(_e, edge) => {
-          if (window.confirm('Bağlantıyı sil?')) removeConnection(edge.id)
+          setDeleteEdgeId(edge.id)
         }}
         onPaneClick={() => {
           setActiveNode(null)
@@ -151,10 +153,21 @@ export default function CanvasFlow(): React.JSX.Element {
             addConnection(pending.source, pending.target, result.type, result.label, {
               triggerPattern: result.triggerPattern,
               transform: result.transform,
-              routeBehavior: result.routeBehavior
+              routeBehavior: result.routeBehavior,
+              routeDirection: result.routeDirection
             })
             setPending(null)
           }}
+        />
+      )}
+      {deleteEdgeId && (
+        <ConfirmModal
+          title="Delete connection"
+          message="This removes the visual connection and any routing attached to it."
+          confirmLabel="Delete"
+          tone="danger"
+          onConfirm={() => removeConnection(deleteEdgeId)}
+          onClose={() => setDeleteEdgeId(null)}
         />
       )}
     </div>

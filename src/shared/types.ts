@@ -83,6 +83,7 @@ export interface TerminalSession {
   args: string[]
   cwd: string
   env?: Record<string, string>
+  startupCommand?: string
   pid?: number
   status: TerminalStatus
   createdAt: string
@@ -140,6 +141,7 @@ export interface AgentConnection {
   triggerPattern?: string
   transform?: string
   routeBehavior?: 'marker' | 'continuous' | 'disabled'
+  routeDirection?: 'source_to_target' | 'bidirectional'
 }
 
 // ---- Snippets (P0-2) ----
@@ -203,14 +205,19 @@ export interface WorkspaceExport {
   termflowVersion?: string
   workspace: {
     name: string
+    path?: string
     description?: string
     defaultLayoutMode: LayoutMode
   }
   nodes: CanvasNode[]
+  terminals: TerminalSession[]
   connections: AgentConnection[]
   viewport: { zoom: number; x: number; y: number }
   profiles?: TerminalProfile[]
   snippets?: Snippet[]
+  highlightRules?: HighlightRule[]
+  sshProfiles?: SshProfile[]
+  envVars?: EnvEntry[]
 }
 
 // ---- AppSettings extended (P2-12) ----
@@ -240,7 +247,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   passiveThrottleMs: 250,
   webgl: true,
   snapToGrid: false,
-  agentAutoApprove: true,
+  agentAutoApprove: false,
   minimap: false,
   fontFamily: "'Cascadia Mono', 'JetBrains Mono', Consolas, monospace",
   fontSize: 13,

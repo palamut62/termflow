@@ -7,6 +7,8 @@ import StatusBar from './components/StatusBar'
 import WorkspaceModal from './components/WorkspaceModal'
 import SettingsModal from './components/SettingsModal'
 import SnippetModal from './components/SnippetModal'
+import ConfirmModal from './components/ConfirmModal'
+import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
 import CanvasFlow from './canvas/CanvasFlow'
 import { useAppStore } from './store/appStore'
@@ -24,29 +26,53 @@ function ConnectionInspector(): React.JSX.Element | null {
   return (
     <div className="conn-inspector">
       <div className="ci-head">
-        <span>Bağlantı</span>
+        <span>Connection</span>
         <button onClick={() => select(null)}>
           <X size={14} />
         </button>
       </div>
       <div className="info-row">
-        <span>Kaynak</span>
+        <span>Source</span>
         <span className="v">{src}</span>
       </div>
       <div className="info-row">
-        <span>Hedef</span>
+        <span>Target</span>
         <span className="v">{tgt}</span>
       </div>
       <div className="info-row">
-        <span>Tip</span>
+        <span>Type</span>
         <span className="v">{conn.connectionType}</span>
       </div>
       <div className="info-row">
-        <span>Etiket</span>
+        <span>Label</span>
         <span className="v">{conn.label || '—'}</span>
       </div>
+      <div className="info-row">
+        <span>Status</span>
+        <span className="v">{conn.status}</span>
+      </div>
+      <div className="info-row">
+        <span>Routing</span>
+        <span className="v">{conn.routeBehavior ?? 'disabled'}</span>
+      </div>
+      <div className="info-row">
+        <span>Direction</span>
+        <span className="v">{conn.routeDirection ?? 'source_to_target'}</span>
+      </div>
+      {conn.triggerPattern && (
+        <div className="info-row">
+          <span>Trigger</span>
+          <span className="v">{conn.triggerPattern}</span>
+        </div>
+      )}
+      {conn.transform && (
+        <div className="info-row">
+          <span>Transform</span>
+          <span className="v">{conn.transform}</span>
+        </div>
+      )}
       <button className="btn" style={{ marginTop: 10, width: '100%' }} onClick={() => remove(conn.id)}>
-        Bağlantıyı Sil
+        Delete Connection
       </button>
     </div>
   )
@@ -65,9 +91,23 @@ export default function App(): React.JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [showSnippetModal, setShowSnippetModal] = useState(false)
+  const [confirm, setConfirm] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    tone?: 'default' | 'danger'
+    onConfirm: () => void
+  } | null>(null)
+  const [prompt, setPrompt] = useState<{
+    title: string
+    fields: PromptField[]
+    submitLabel?: string
+    onSubmit: (values: Record<string, string>) => void
+  } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   const loadSnippets = useAppStore((s) => s.loadSnippets)
+  const loadHighlightRules = useAppStore((s) => s.loadHighlightRules)
   const startGitPolling = useAppStore((s) => s.startGitPolling)
 
   // Save layout immediately when window closes (before PTYs are killed).
@@ -82,9 +122,10 @@ export default function App(): React.JSX.Element {
     startRuntimeListeners()
     loadWorkspaces().then(() => {
       loadSnippets()
+      loadHighlightRules()
       startGitPolling()
     })
-  }, [loadSettings, startRuntimeListeners, loadWorkspaces, loadSnippets, startGitPolling])
+  }, [loadSettings, startRuntimeListeners, loadWorkspaces, loadSnippets, loadHighlightRules, startGitPolling])
 
   const canvasSize = useCallback(() => {
     const el = canvasRef.current
@@ -105,8 +146,8 @@ export default function App(): React.JSX.Element {
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const s = useAppStore.getState
     const cmds: PaletteCommand[] = [
-      { id: 'new-ps', title: 'New Terminal: PowerShell', run: () => s().addTerminal('powershell') },
       { id: 'new-cmd', title: 'New Terminal: CMD', run: () => s().addTerminal('cmd') },
+      { id: 'new-ps', title: 'New Terminal: PowerShell', run: () => s().addTerminal('powershell') },
       { id: 'new-wsl', title: 'New Terminal: WSL', run: () => s().addTerminal('wsl') },
       { id: 'new-claude', title: 'Open Claude Code', run: () => s().addTerminal('claude') },
       { id: 'new-codex', title: 'Open Codex', run: () => s().addTerminal('codex') },
@@ -127,8 +168,13 @@ export default function App(): React.JSX.Element {
         id: 'kill-all',
         title: 'Kill All Terminals',
         run: () => {
-          if (window.confirm('Tüm terminaller kapatılsın mı?'))
-            s().nodes.slice().forEach((n) => s().closeNode(n.id, 'terminate'))
+          setConfirm({
+            title: 'Close all terminals',
+            message: 'All running terminal panels in this workspace will be terminated.',
+            confirmLabel: 'Terminate All',
+            tone: 'danger',
+            onConfirm: () => s().nodes.slice().forEach((n) => s().closeNode(n.id, 'terminate'))
+          })
         }
       },
       { id: 'toggle-broadcast', title: 'Toggle Broadcast Mode', run: () => s().toggleBroadcast() },
@@ -161,14 +207,18 @@ export default function App(): React.JSX.Element {
           const tid = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
           if (tid) {
             if (sn.params.length > 0) {
-              // Ask for params via simple prompt
-              let cmd = sn.command
-              for (const p of sn.params) {
-                const val = window.prompt(`Enter value for "${p}":`)
-                if (!val) return
-                cmd = cmd.replace(new RegExp(`\\{\\{${p}\\}\\}`, 'g'), val)
-              }
-              window.termflow.pty.write(tid, cmd + '\r')
+              setPrompt({
+                title: `Snippet: ${sn.name}`,
+                submitLabel: 'Run',
+                fields: sn.params.map((p) => ({ key: p, label: p, required: true })),
+                onSubmit: (values) => {
+                  let cmd = sn.command
+                  for (const p of sn.params) {
+                    cmd = cmd.replace(new RegExp(`\\{\\{${p}\\}\\}`, 'g'), values[p] ?? '')
+                  }
+                  window.termflow.pty.write(tid, cmd + '\r')
+                }
+              })
             } else {
               window.termflow.pty.write(tid, sn.command + '\r')
             }
@@ -206,7 +256,7 @@ export default function App(): React.JSX.Element {
         s.setLayoutMode('agent_graph', canvasSize())
       } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 't') {
         e.preventDefault()
-        s.addTerminal('powershell')
+        s.addTerminal('cmd')
       } else if (e.key === 'F11') {
         e.preventDefault()
         if (s.activeNodeId) s.toggleMaximize(s.activeNodeId)
@@ -241,8 +291,8 @@ export default function App(): React.JSX.Element {
         {nodes.length === 0 && (
           <div className="empty-canvas">
             <TerminalSquare size={40} strokeWidth={1.3} />
-            <div className="big">{activeWorkspaceId ? 'Boş canvas' : 'Workspace seçin veya oluşturun'}</div>
-            <div>{activeWorkspaceId ? '"New Terminal" ile terminal ekleyin' : ''}</div>
+            <div className="big">{activeWorkspaceId ? 'Empty canvas' : 'Select or create a workspace'}</div>
+            <div>{activeWorkspaceId ? 'Add a terminal with "New Terminal"' : ''}</div>
           </div>
         )}
       </div>
@@ -251,6 +301,18 @@ export default function App(): React.JSX.Element {
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
+      {confirm && (
+        <ConfirmModal
+          {...confirm}
+          onClose={() => setConfirm(null)}
+        />
+      )}
+      {prompt && (
+        <PromptModal
+          {...prompt}
+          onClose={() => setPrompt(null)}
+        />
+      )}
     </div>
   )
 }

@@ -38,7 +38,7 @@ export default function CommandPalette({ commands, onClose }: Props): React.JSX.
             setQ(e.target.value)
             setIdx(0)
           }}
-          placeholder="Komut ara..."
+          placeholder="Search commands..."
           style={{
             width: '100%',
             background: 'var(--bg-main)',
@@ -69,7 +69,7 @@ export default function CommandPalette({ commands, onClose }: Props): React.JSX.
             </div>
           ))}
           {filtered.length === 0 && (
-            <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 12 }}>Komut bulunamadı</div>
+            <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 12 }}>No commands found</div>
           )}
         </div>
       </div>

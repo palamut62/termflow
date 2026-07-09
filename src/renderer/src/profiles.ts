@@ -6,7 +6,7 @@ export interface ProfileDef {
   nodeType: NodeType
   agentType?: AgentType
   startupCommand?: string
-  /** Flag appended when "AI agent'ları tam yetkiyle başlat" is on (bypass perms). */
+  /** Flag appended when "Launch AI agents with full permissions" is on (bypass perms). */
   bypassArgs?: string
   color: string
   group: 'shell' | 'agent' | 'service'

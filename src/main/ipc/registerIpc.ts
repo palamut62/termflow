@@ -23,6 +23,22 @@ import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyMan
 import { discoverShells } from '../pty/shells'
 import * as dbApi from '../db/database'
 
+function workspaceEnv(workspaceId: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const entry of dbApi.listEnvVars(workspaceId)) {
+    if (entry.masked && safeStorage.isEncryptionAvailable()) {
+      try {
+        out[entry.key] = safeStorage.decryptString(Buffer.from(entry.value, 'base64'))
+      } catch {
+        continue
+      }
+    } else if (!entry.masked) {
+      out[entry.key] = entry.value
+    }
+  }
+  return out
+}
+
 export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   const pty = new PtyManager(() => {
     // A destroyed BrowserWindow throws on `.webContents` access, so guard the
@@ -40,7 +56,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   pty.setPassiveInterval(s.passiveThrottleMs)
 
   // ---- PTY ----
-  ipcMain.handle(IPC.PTY_CREATE, (_e, id: string, input: CreateTerminalInput) => pty.create(id, input))
+  ipcMain.handle(IPC.PTY_CREATE, (_e, id: string, input: CreateTerminalInput) =>
+    pty.create(id, { ...input, env: { ...workspaceEnv(input.workspaceId), ...(input.env || {}) } })
+  )
   ipcMain.on(IPC.PTY_WRITE, (_e, id: string, data: string) => pty.write(id, data))
   ipcMain.on(IPC.PTY_RESIZE, (_e, id: string, cols: number, rows: number) => pty.resize(id, cols, rows))
   ipcMain.on(IPC.PTY_KILL, (_e, id: string) => pty.kill(id))
@@ -159,11 +177,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const exp: WorkspaceExport = {
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
-      workspace: { name: ws.name, description: ws.description, defaultLayoutMode: ws.defaultLayoutMode },
+      workspace: {
+        name: ws.name,
+        path: ws.path,
+        description: ws.description,
+        defaultLayoutMode: ws.defaultLayoutMode
+      },
       nodes: data.nodes,
+      terminals: data.terminals,
       connections: data.connections,
       viewport: data.viewport ?? { zoom: 1, x: 0, y: 0 },
-      snippets: data.snippets
+      snippets: data.snippets,
+      highlightRules: data.highlightRules,
+      sshProfiles: data.sshProfiles,
+      envVars: data.envVars
     }
     const win = getWindow()
     const res = await dialog.showSaveDialog(win!, {
@@ -195,10 +222,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
         return idMap.get(oldId)!
       }
 
+      const newTerms = (raw.terminals || []).map((t: any) => ({
+        ...t,
+        id: remap(t.id),
+        workspaceId: '',
+        pid: undefined,
+        status: 'stopped'
+      }))
+
       const newNodes = (raw.nodes || []).map((n: any) => {
         const newId = remap(n.id)
-        const newTermId = remap(n.terminalId || (n.panes?.terminalId || ''))
-        return { ...n, id: newId, terminalId: n.terminalId ? newTermId : undefined, workspaceId: '' }
+        const newTermId = n.terminalId ? remap(n.terminalId) : undefined
+        return {
+          ...n,
+          id: newId,
+          terminalId: newTermId,
+          panes: dbApi.remapPaneIds(n.panes, remap),
+          activePaneId: n.activePaneId ? remap(n.activePaneId) : undefined,
+          workspaceId: ''
+        }
       })
       const newConns = (raw.connections || []).map((c: any) => ({
         ...c, id: remap(c.id),
@@ -215,12 +257,32 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       })
 
       const wsNodes = newNodes.map((n: any) => ({ ...n, workspaceId: ws.id }))
+      const wsTerms = newTerms.map((t: any) => ({ ...t, workspaceId: ws.id }))
       const wsConns = newConns.map((c: any) => ({ ...c, workspaceId: ws.id }))
       const wsSnippets = (raw.snippets || []).map((s: any) => ({
         ...s, id: remap(s.id), workspaceId: ws.id, scope: 'workspace' as const
       }))
+      const wsHighlightRules = (raw.highlightRules || []).map((r: any) => ({
+        ...r, id: remap(r.id), workspaceId: ws.id
+      }))
+      const wsSshProfiles = (raw.sshProfiles || []).map((p: any) => ({
+        ...p, id: remap(p.id), workspaceId: ws.id
+      }))
+      const wsEnvVars = (raw.envVars || []).map((v: any) => ({
+        ...v, id: remap(v.id), workspaceId: ws.id
+      }))
 
-      dbApi.importWorkspaceData(ws.id, wsNodes, wsConns, wsSnippets, raw.viewport || { zoom: 1, x: 0, y: 0 })
+      dbApi.importWorkspaceData(
+        ws.id,
+        wsTerms,
+        wsNodes,
+        wsConns,
+        wsSnippets,
+        wsHighlightRules,
+        wsSshProfiles,
+        wsEnvVars,
+        raw.viewport || { zoom: 1, x: 0, y: 0 }
+      )
       return ws.id
     } catch (err) {
       console.error('Import failed:', err)

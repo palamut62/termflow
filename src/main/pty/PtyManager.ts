@@ -97,7 +97,7 @@ export class PtyManager {
     })
 
     // Type the startup command into the interactive shell (agents/services).
-    if (input.startupCommand && input.kind !== 'custom') {
+    if (input.startupCommand) {
       setTimeout(() => {
         if (!managed.exited) proc.write(input.startupCommand + '\r')
       }, 350)

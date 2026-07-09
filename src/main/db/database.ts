@@ -20,9 +20,8 @@ import { DEFAULT_SETTINGS } from '../../shared/types'
 
 /**
  * Lightweight JSON-file persistence for workspaces, terminals and canvas
- * layouts. Chosen over better-sqlite3 because that package's bundled sqlite
- * requires the ClangCL toolset to build on this Windows host. The API mirrors a
- * repository layer so it can be swapped for SQLite later without touching IPC.
+ * layouts. The API mirrors a repository layer so the storage backend can be
+ * swapped later without touching IPC.
  * Writes are atomic (temp file + rename). (PRD §15 — same schema, JSON shape.)
  */
 
@@ -89,7 +88,7 @@ export function initDatabase(): void {
     createWorkspace({
       name: 'Default',
       path: app.getPath('home'),
-      description: 'İlk workspace',
+      description: 'Default workspace',
       defaultLayoutMode: 'manual'
     })
   } else {
@@ -162,7 +161,7 @@ export function upsertTerminal(t: TerminalSession): void {
 
 export function deleteTerminal(id: string): void {
   store.terminals = store.terminals.filter((t) => t.id !== id)
-  store.nodes = store.nodes.filter((n) => n.terminalId !== id)
+  store.nodes = store.nodes.filter((n) => n.terminalId !== id && !paneHasTerminal(n.panes, id))
   persist()
 }
 
@@ -176,6 +175,25 @@ function migrateNode(node: CanvasNode): CanvasNode {
     }
   }
   return node
+}
+
+function paneHasTerminal(pane: PaneNode | undefined, terminalId: string): boolean {
+  if (!pane) return false
+  if (pane.type === 'leaf') return pane.terminalId === terminalId
+  return paneHasTerminal(pane.a, terminalId) || paneHasTerminal(pane.b, terminalId)
+}
+
+export function remapPaneIds(
+  pane: PaneNode | undefined,
+  remap: (oldId: string) => string
+): PaneNode | undefined {
+  if (!pane) return undefined
+  if (pane.type === 'leaf') return { ...pane, terminalId: remap(pane.terminalId) }
+  return {
+    ...pane,
+    a: remapPaneIds(pane.a, remap)!,
+    b: remapPaneIds(pane.b, remap)!
+  }
 }
 
 // ---- Layout ----
@@ -298,30 +316,45 @@ export function deleteEnvVar(id: string): void {
 // ---- Workspace Export/Import ----
 
 export function exportWorkspaceData(workspaceId: string): {
+  terminals: TerminalSession[]
   nodes: CanvasNode[]
   connections: AgentConnection[]
   snippets: Snippet[]
+  highlightRules: HighlightRule[]
+  sshProfiles: SshProfile[]
+  envVars: EnvEntry[]
   viewport: { zoom: number; x: number; y: number } | null
 } {
-  const ws = store.workspaces.find((w) => w.id === workspaceId)
   return {
+    terminals: store.terminals.filter((t) => t.workspaceId === workspaceId),
     nodes: store.nodes.filter((n) => n.workspaceId === workspaceId),
     connections: store.connections.filter((c) => c.workspaceId === workspaceId),
     snippets: store.snippets.filter((s) => s.workspaceId === workspaceId),
+    highlightRules: store.highlightRules.filter((r) => r.workspaceId === workspaceId),
+    sshProfiles: store.sshProfiles.filter((p) => p.workspaceId === workspaceId),
+    envVars: store.envVars.filter((e) => e.workspaceId === workspaceId),
     viewport: store.viewports[workspaceId] ?? null
   }
 }
 
 export function importWorkspaceData(
   workspaceId: string,
+  terminals: TerminalSession[],
   nodes: CanvasNode[],
   connections: AgentConnection[],
   snippets: Snippet[],
+  highlightRules: HighlightRule[],
+  sshProfiles: SshProfile[],
+  envVars: EnvEntry[],
   viewport: { zoom: number; x: number; y: number }
 ): void {
+  store.terminals = store.terminals.filter((t) => t.workspaceId !== workspaceId).concat(terminals)
   store.nodes = store.nodes.filter((n) => n.workspaceId !== workspaceId).concat(nodes)
   store.connections = store.connections.filter((c) => c.workspaceId !== workspaceId).concat(connections)
   store.snippets = store.snippets.filter((s) => s.workspaceId !== workspaceId).concat(snippets)
+  store.highlightRules = store.highlightRules.filter((r) => r.workspaceId !== workspaceId).concat(highlightRules)
+  store.sshProfiles = store.sshProfiles.filter((p) => p.workspaceId !== workspaceId).concat(sshProfiles)
+  store.envVars = store.envVars.filter((e) => e.workspaceId !== workspaceId).concat(envVars)
   store.viewports[workspaceId] = { layoutMode: 'manual' as LayoutMode, ...viewport }
   persist()
 }

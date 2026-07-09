@@ -67,7 +67,7 @@ interface AppState {
   toggleInfo: (nodeId: string) => void
   renameNode: (nodeId: string, title: string) => void
 
-  addConnection: (source: string, target: string, type: ConnectionType, label?: string, routeOpts?: { triggerPattern?: string; transform?: string; routeBehavior?: 'marker' | 'continuous' }) => void
+  addConnection: (source: string, target: string, type: ConnectionType, label?: string, routeOpts?: { triggerPattern?: string; transform?: string; routeBehavior?: 'marker' | 'continuous' | 'disabled'; routeDirection?: 'source_to_target' | 'bidirectional' }) => void
   removeConnection: (id: string) => void
 
   setLayoutMode: (mode: LayoutMode, vp?: { width: number; height: number }) => void
@@ -115,6 +115,7 @@ interface AppState {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let listenersStarted = false
+let gitPollingStarted = false
 let systemThemeMql: MediaQueryList | null = null
 
 // Apply light/dark/system theme by toggling the root data-theme attribute.
@@ -137,6 +138,45 @@ function applyTheme(theme: 'dark' | 'light' | 'system'): void {
     })
   }
   resolve()
+}
+
+function syncAgentRouting(nodes: CanvasNode[], connections: AgentConnection[]): void {
+  const nodeById = new Map(nodes.map((n) => [n.id, n]))
+  const termIds = new Set<string>()
+  const grouped = new Map<string, unknown[]>()
+
+  for (const node of nodes) {
+    const ids = node.panes ? getLeafTerminalIds(node.panes) : (node.terminalId ? [node.terminalId] : [])
+    ids.forEach((id) => termIds.add(id))
+  }
+
+  const addRule = (sourceNodeId: string, targetNodeId: string, conn: AgentConnection): void => {
+    const sourceNode = nodeById.get(sourceNodeId)
+    const targetNode = nodeById.get(targetNodeId)
+    if (!sourceNode || !targetNode) return
+    const sourceTermId = getActiveTerminalId(sourceNode.activePaneId, sourceNode.panes, sourceNode.terminalId)
+    const targetTermIds = targetNode.panes
+      ? getLeafTerminalIds(targetNode.panes)
+      : (targetNode.terminalId ? [targetNode.terminalId] : [])
+    if (!sourceTermId || targetTermIds.length === 0) return
+    const rules = grouped.get(sourceTermId) ?? []
+    rules.push({
+      connectionId: conn.id,
+      targetTerminalIds: targetTermIds,
+      triggerPattern: conn.triggerPattern || '@@HANDOFF@@([\\s\\S]*?)@@END@@',
+      transform: conn.transform,
+      routeBehavior: conn.routeBehavior
+    })
+    grouped.set(sourceTermId, rules)
+  }
+
+  for (const conn of connections) {
+    if (!conn.isActive || !conn.routeBehavior || conn.routeBehavior === 'disabled') continue
+    addRule(conn.sourceNodeId, conn.targetNodeId, conn)
+    if (conn.routeDirection === 'bidirectional') addRule(conn.targetNodeId, conn.sourceNodeId, conn)
+  }
+
+  for (const id of termIds) window.termflow.agent.setRouting(id, grouped.get(id) ?? [])
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -252,7 +292,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           args: t.args,
           cwd: t.cwd,
           env: t.env,
-          startupCommand: (t as any).startupCommand
+          startupCommand: t.startupCommand
         })
         terminals[t.id] = { ...t, pid, status: 'running' }
       } catch {
@@ -273,7 +313,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedConnectionId: null,
       zCounter: layout.nodes.length + 1
     })
+    syncAgentRouting(layout.nodes, layout.connections)
     await window.termflow.workspaces.update(id, { lastOpenedAt: new Date().toISOString() })
+    await Promise.all([get().loadSnippets(), get().loadHighlightRules()])
   },
 
   createWorkspace: async (input) => {
@@ -329,7 +371,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!opts?.startupCommand && profile.bypassArgs && st.settings.agentAutoApprove) {
       startup = `${profile.startupCommand} ${profile.bypassArgs}`
     }
-    ;(session as any).startupCommand = startup
+    session.startupCommand = startup
 
     const z = st.zCounter + 1
     const node: CanvasNode = {
@@ -359,7 +401,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         kind,
         shell: opts?.customShell,
         cwd,
-        startupCommand: (session as any).startupCommand
+        startupCommand: session.startupCommand
       })
       pid = res.pid
     } catch {
@@ -533,37 +575,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       status: 'idle',
       triggerPattern: routeOpts?.triggerPattern,
       transform: routeOpts?.transform,
-      routeBehavior: routeOpts?.routeBehavior || 'disabled'
+      routeBehavior: routeOpts?.routeBehavior || 'disabled',
+      routeDirection: routeOpts?.routeDirection || 'source_to_target'
     }
 
-    // Set up routing if route behavior is configured
-    if (routeOpts?.routeBehavior && routeOpts.routeBehavior !== 'disabled') {
-      const srcNode = st.nodes.find((n) => n.id === source)
-      const tgtNode = st.nodes.find((n) => n.id === target)
-      if (srcNode && tgtNode) {
-        const srcTermId = getActiveTerminalId(srcNode.activePaneId, srcNode.panes, srcNode.terminalId)
-        const tgtTermIds = tgtNode.panes ? getLeafTerminalIds(tgtNode.panes) : (tgtNode.terminalId ? [tgtNode.terminalId] : [])
-        if (srcTermId && tgtTermIds.length) {
-          window.termflow.agent.setRouting(srcTermId, [{
-            connectionId: conn.id,
-            targetTerminalIds: tgtTermIds,
-            triggerPattern: routeOpts.triggerPattern || '@@HANDOFF@@([\\s\\S]*?)@@END@@',
-            transform: routeOpts.transform,
-            routeBehavior: routeOpts.routeBehavior
-          }])
-        }
-      }
-    }
-
-    set((s) => ({ connections: [...s.connections, conn], selectedConnectionId: conn.id }))
+    const nextConnections = [...st.connections, conn]
+    syncAgentRouting(st.nodes, nextConnections)
+    set({ connections: nextConnections, selectedConnectionId: conn.id })
     get().persist()
   },
 
   removeConnection: (id) => {
-    set((s) => ({
-      connections: s.connections.filter((c) => c.id !== id),
-      selectedConnectionId: s.selectedConnectionId === id ? null : s.selectedConnectionId
-    }))
+    const st = get()
+    const connections = st.connections.filter((c) => c.id !== id)
+    syncAgentRouting(st.nodes, connections)
+    set({
+      connections,
+      selectedConnectionId: st.selectedConnectionId === id ? null : st.selectedConnectionId
+    })
     get().persist()
   },
 
@@ -658,10 +687,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         })
       }))
     })
-    // Poll process CPU/RAM every 2s.
+    // Poll process CPU/RAM. Large workspaces need a slower cadence to avoid UI stalls.
     const poll = (): void => {
       get().refreshStats()
-      setTimeout(poll, 2000)
+      const count = Object.keys(get().terminals).length
+      setTimeout(poll, count > 8 ? 6000 : 2500)
     }
     setTimeout(poll, 1500)
   },
@@ -804,6 +834,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // ---- Git Status ----
   startGitPolling: () => {
+    if (gitPollingStarted) return
+    gitPollingStarted = true
     const poll = async (): Promise<void> => {
       const st = get()
       if (!st.activeWorkspaceId) return
@@ -824,7 +856,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
     poll()
-    setInterval(poll, 10000)
+    const schedule = (): void => {
+      const count = Object.keys(get().terminals).length
+      setTimeout(async () => {
+        await poll()
+        schedule()
+      }, count > 8 ? 30000 : 10000)
+    }
+    schedule()
   },
 
   // ---- Recording ----

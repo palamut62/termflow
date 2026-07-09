@@ -458,6 +458,10 @@ input {
   background: var(--bg-panel-2);
   color: var(--text-primary);
 }
+.tnode-header .hbtn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .tnode-header .hbtn.danger:hover {
   color: var(--danger);
 }

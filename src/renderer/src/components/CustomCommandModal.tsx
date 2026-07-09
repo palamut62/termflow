@@ -11,11 +11,15 @@ const DANGER_RE = /\b(rm\s+-rf|del\s+\/s|format\b|Invoke-Expression|-EncodedComm
 
 export default function CustomCommandModal({ onSubmit, onClose }: Props): React.JSX.Element {
   const [cmd, setCmd] = useState('')
+  const [confirmedDanger, setConfirmedDanger] = useState(false)
   const danger = DANGER_RE.test(cmd)
 
   const submit = (): void => {
     if (!cmd.trim()) return
-    if (danger && !window.confirm('Bu komut tehlikeli görünüyor. Yine de çalıştırılsın mı?')) return
+    if (danger && !confirmedDanger) {
+      setConfirmedDanger(true)
+      return
+    }
     onSubmit(cmd.trim())
   }
 
@@ -24,26 +28,30 @@ export default function CustomCommandModal({ onSubmit, onClose }: Props): React.
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <h3>Custom Command</h3>
         <div className="field">
-          <label>Çalıştırılacak komut</label>
+          <label>Command to execute</label>
           <input
             value={cmd}
-            onChange={(e) => setCmd(e.target.value)}
-            placeholder="ör. python agent.py"
+            onChange={(e) => {
+              setCmd(e.target.value)
+              setConfirmedDanger(false)
+            }}
+            placeholder="e.g. python agent.py"
             autoFocus
             onKeyDown={(e) => e.key === 'Enter' && submit()}
           />
         </div>
         {danger && (
           <div style={{ display: 'flex', gap: 8, color: 'var(--warning)', fontSize: 12, marginTop: -6 }}>
-            <AlertTriangle size={15} /> Tehlikeli komut kalıbı algılandı.
+            <AlertTriangle size={15} />{' '}
+            {confirmedDanger ? 'Press Run Anyway to confirm this command.' : 'Dangerous command pattern detected.'}
           </div>
         )}
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>
-            İptal
+            Cancel
           </button>
           <button className="btn primary" disabled={!cmd.trim()} onClick={submit}>
-            Aç
+            {danger && confirmedDanger ? 'Run Anyway' : 'Run'}
           </button>
         </div>
       </div>

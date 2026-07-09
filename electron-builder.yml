@@ -14,7 +14,6 @@ extraResources:
       - 'icon.png'
 asarUnpack:
   - '**/node_modules/node-pty/**'
-  - '**/node_modules/better-sqlite3/**'
 win:
   icon: build/icon.ico
   target:

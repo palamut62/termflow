@@ -5,6 +5,9 @@ import {
   Maximize2,
   Minimize2,
   RotateCw,
+  Radio,
+  CircleStop,
+  Save,
   X,
   PanelRightClose,
   PanelRightOpen,
@@ -270,12 +273,18 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const updateNode = useAppStore((s) => s.updateNode)
   const closePaneInNode = useAppStore((s) => s.closePaneInNode)
   const setActivePane = useAppStore((s) => s.setActivePane)
+  const addToBroadcastGroup = useAppStore((s) => s.addToBroadcastGroup)
+  const removeFromBroadcastGroup = useAppStore((s) => s.removeFromBroadcastGroup)
+  const startRecording = useAppStore((s) => s.startRecording)
+  const stopRecording = useAppStore((s) => s.stopRecording)
+  const saveRecording = useAppStore((s) => s.saveRecording)
   const gitStatus = useAppStore((s) => s.gitStatus)
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const broadcastGroup = useAppStore((s) => s.broadcastGroup)
 
   const [editing, setEditing] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [recording, setRecording] = useState(false)
 
   if (!node || !terminal) return <div />
 
@@ -334,6 +343,40 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           </span>
         )}
         <div className="hactions nodrag">
+          {termId && (
+            <button
+              className={`hbtn ${isBroadcasting ? 'active' : ''}`}
+              title={isBroadcasting ? 'Remove from broadcast group' : 'Add to broadcast group'}
+              onClick={() => {
+                if (broadcastGroup.includes(termId)) removeFromBroadcastGroup(termId)
+                else addToBroadcastGroup(termId)
+              }}
+            >
+              <Radio size={13} />
+            </button>
+          )}
+          {termId && (
+            <button
+              className={`hbtn ${recording ? 'active' : ''}`}
+              title={recording ? 'Stop recording' : 'Start recording'}
+              onClick={async () => {
+                if (recording) {
+                  await stopRecording(termId)
+                  setRecording(false)
+                } else {
+                  startRecording(termId)
+                  setRecording(true)
+                }
+              }}
+            >
+              <CircleStop size={13} />
+            </button>
+          )}
+          {termId && (
+            <button className="hbtn" title="Save recording" onClick={() => saveRecording(termId)}>
+              <Save size={13} />
+            </button>
+          )}
           <button className="hbtn" title="Info" onClick={() => toggleInfo(id)}>
             {node.showInfo ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
           </button>

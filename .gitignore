@@ -20,6 +20,24 @@ Thumbs.db
 *.swp
 *.swo
 
+# AI tool local files
+CLAUDE.md
+.claude/
+AGENTS.md
+.codex/
+GEMINI.md
+.gemini/
+.cursor/
+.cursorrules
+.windsurf/
+.windsurfrules
+.aider*
+.opencode/
+opencode.json
+.github/copilot-instructions.md
+.specstory/
+.continue/
+
 # TypeScript build info
 *.tsbuildinfo
 

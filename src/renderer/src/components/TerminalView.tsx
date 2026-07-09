@@ -30,7 +30,8 @@ function applyHighlights(
   if (!rules.length) return
 
   const buffer = term.buffer.active
-  for (let row = 0; row < buffer.length; row++) {
+  const startRow = Math.max(0, buffer.length - 500)
+  for (let row = startRow; row < buffer.length; row++) {
     const line = buffer.getLine(row)
     if (!line) continue
     const text = line.translateToString()
@@ -76,6 +77,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const cursorBlink = useAppStore((s) => s.settings.cursorBlink)
   const terminalThemeName = useAppStore((s) => s.settings.terminalTheme)
   const highlightRules = useAppStore((s) => s.highlightRules)
+  const terminalCount = useAppStore((s) => Object.keys(s.terminals).length)
 
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -84,6 +86,17 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const existingDecorsRef = useRef<IDecoration[]>([])
+  const writtenBufferLengthRef = useRef(0)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const scheduleHighlights = (term: Terminal): void => {
+    if (highlightTimerRef.current) return
+    highlightTimerRef.current = setTimeout(() => {
+      highlightTimerRef.current = null
+      const rules = useAppStore.getState().highlightRules
+      if (rules.length) applyHighlights(term, rules, existingDecorsRef)
+    }, 500)
+  }
 
   useEffect(() => {
     activeRef.current = active
@@ -140,7 +153,8 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     const unregister = registerWriter(terminalId, (data) => {
       if (ready) {
         term.write(data, () => {
-          applyHighlights(term, useAppStore.getState().highlightRules, existingDecorsRef)
+          writtenBufferLengthRef.current += data.length
+          scheduleHighlights(term)
         })
       } else {
         queue.push(data)
@@ -149,10 +163,14 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     window.termflow.pty.buffer(terminalId).then((buf) => {
       if (disposed) return
       if (buf) term.write(buf)
-      for (const q of queue) term.write(q)
+      writtenBufferLengthRef.current = buf.length
+      for (const q of queue) {
+        writtenBufferLengthRef.current += q.length
+        term.write(q)
+      }
       queue.length = 0
       ready = true
-      applyHighlights(term, useAppStore.getState().highlightRules, existingDecorsRef)
+      scheduleHighlights(term)
     })
 
     // Forward input to the PTY only when this terminal is the active one.
@@ -177,7 +195,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
 
     // Tell main this terminal is now visible (passive by default; active flip
     // happens in the separate effect below).
-    window.termflow.pty.setMode(terminalId, active ? 'active' : 'passive')
+    window.termflow.pty.setMode(terminalId, active ? 'active' : (terminalCount > 6 ? 'buffer' : 'passive'))
 
     // Debounced resize -> compute cols/rows -> resize PTY. (PRD §11.7)
     let resizeTimer: ReturnType<typeof setTimeout> | null = null
@@ -199,6 +217,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     return () => {
       disposed = true
       if (resizeTimer) clearTimeout(resizeTimer)
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       ro.disconnect()
       dataSub.dispose()
       keySub.dispose()
@@ -221,7 +240,8 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
 
   // React to active changes: focus, refit, and update the render mode.
   useEffect(() => {
-    window.termflow.pty.setMode(terminalId, active ? 'active' : 'passive')
+    const mode = active ? 'active' : (terminalCount > 6 ? 'buffer' : 'passive')
+    window.termflow.pty.setMode(terminalId, mode)
     if (active && termRef.current) {
       termRef.current.focus()
       try {
@@ -230,8 +250,15 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       } catch {
         /* ignore */
       }
+      window.termflow.pty.buffer(terminalId).then((buf) => {
+        const term = termRef.current
+        if (!term || buf.length <= writtenBufferLengthRef.current) return
+        const next = buf.slice(writtenBufferLengthRef.current)
+        writtenBufferLengthRef.current = buf.length
+        term.write(next, () => scheduleHighlights(term))
+      })
     }
-  }, [active, terminalId])
+  }, [active, terminalId, terminalCount])
 
   // Keep xterm options in sync with settings changes (font, theme, cursor, etc.).
   useEffect(() => {

@@ -11,18 +11,18 @@ export default function CloseModal({ name, running, onTerminate, onDetach, onClo
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 420 }}>
-        <h3>Terminali Kapat</h3>
+        <h3>Close Terminal</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, marginBottom: 4 }}>
           <b style={{ color: 'var(--text-primary)' }}>{name}</b>{' '}
-          {running ? 'çalışıyor. Ne yapmak istersin?' : 'kapatılsın mı?'}
+          {running ? 'is running. What would you like to do?' : 'will be closed.'}
         </p>
         <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
           <button className="btn" onClick={onClose}>
-            İptal
+            Cancel
           </button>
           <div style={{ display: 'flex', gap: 8 }}>
             {running && (
-              <button className="btn" onClick={onDetach} title="Process çalışmaya devam eder, panel kaldırılır">
+              <button className="btn" onClick={onDetach} title="Process keeps running, panel is removed">
                 Detach
               </button>
             )}

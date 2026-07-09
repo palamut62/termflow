@@ -41,7 +41,7 @@
 
 **TermFlow** is a Windows-native desktop application that combines real terminal emulation with an AI agent orchestration canvas. Think of it as tmux meets n8n — you can spawn multiple PowerShell, CMD, WSL, or Git Bash terminals, position them freely on an infinite canvas, and connect them to AI agents (Claude Code, Codex, OpenCode, Ollama) with typed connection edges.
 
-Every terminal is backed by a real **node-pty** process. The canvas is powered by **React Flow** for smooth drag-and-drop, resize, and minimap navigation. Workspaces, terminal sessions, layouts, and connections are persisted in **SQLite** so your setup survives restarts.
+Every terminal is backed by a real **node-pty** process. The canvas is powered by **React Flow** for smooth drag-and-drop, resize, and minimap navigation. Workspaces, terminal sessions, layouts, connections, snippets, SSH profiles, highlights, and workspace environment variables are persisted in an atomic JSON store so your setup survives restarts.
 
 ## Features
 
@@ -67,7 +67,8 @@ Every terminal is backed by a real **node-pty** process. The canvas is powered b
 
 ### Workspace Management
 - **Multi-workspace** — create, rename, duplicate, delete entire workspaces
-- **SQLite persistence** — terminals, canvas nodes, connections, viewport, and settings all survive restart
+- **Workspace persistence** — terminals, canvas nodes, connections, snippets, profiles, viewport, and settings all survive restart
+- **Developer tools** — workspace environment variables, SSH profile registry, terminal recording, snippets, and import/export
 - **Command palette** — Ctrl+K quick-launch for terminals, agents, and workspace commands
 - **Settings panel** — active border color, scrollback size, WebGL toggle, snap-to-grid, minimap
 
@@ -81,7 +82,7 @@ Every terminal is backed by a real **node-pty** process. The canvas is powered b
 | **node-pty** | Native Windows pseudo-terminal; one process per terminal card |
 | **React Flow (@xyflow/react)** | Canvas-based node graph with built-in drag, resize, edge drawing, and minimap |
 | **Zustand** | Lightweight state management; single store for workspace, terminals, canvas, and settings |
-| **better-sqlite3** | Synchronous embedded SQLite; workspace, terminal, layout, and connection persistence |
+| **JSON store** | Atomic local persistence for workspace, terminal, layout, connection, snippet, SSH, env, and highlight data |
 | **electron-vite** | Fast Vite-based dev/build toolchain for Electron main/preload/renderer |
 | **electron-builder** | NSIS installer and ZIP packaging for Windows distribution |
 
@@ -92,7 +93,7 @@ graph TD
     A[Renderer Process - React UI] -->|IPC| B[Preload - contextBridge]
     B -->|IPC| C[Main Process - Node.js]
     C --> D[PtyManager - node-pty]
-    C --> E[Database - better-sqlite3]
+    C --> E[Atomic JSON Store]
     C --> F[Shell Discovery]
     D --> G[PowerShell / CMD / WSL / Git Bash]
     D --> H[Claude / Codex / OpenCode / Ollama]
@@ -104,7 +105,7 @@ graph TD
 
 **Three-process Electron architecture:**
 
-1. **Main process** (`src/main`) — PTY lifecycle management, SQLite database, shell auto-discovery, IPC handler registration
+1. **Main process** (`src/main`) — PTY lifecycle management, JSON persistence, shell auto-discovery, IPC handler registration
 2. **Preload** (`src/preload`) — contextBridge exposing a typed `window.termflow` API to the renderer
 3. **Renderer** (`src/renderer`) — React SPA with React Flow canvas, terminal nodes, sidebar, toolbar, and modals
 
@@ -119,7 +120,7 @@ graph TD
 │   │   │   ├── PtyManager.ts  # PTY spawn/kill/resize/write, output batching
 │   │   │   └── shells.ts      # Shell discovery + resolution for all kinds
 │   │   ├── db/
-│   │   │   └── database.ts    # SQLite schema, migrations, CRUD helpers
+│   │   │   └── database.ts    # Atomic JSON persistence + CRUD helpers
 │   │   └── ipc/
 │   │       └── registerIpc.ts # All IPC channel handlers
 │   ├── preload/
@@ -182,7 +183,7 @@ cd termflow
 npm install
 ```
 
-`npm install` will automatically rebuild native modules (`node-pty`, `better-sqlite3`) against Electron's Node.js headers via `electron-rebuild`.
+`npm install` installs the Electron and native PTY dependencies. Packaging rebuilds `node-pty` against Electron's Node.js headers.
 
 ### Run (Development)
 
@@ -200,9 +201,17 @@ npm run build
 
 Produces compiled output in `out/` (main + preload + renderer).
 
+### Verify
+
+```bash
+npm run verify
+```
+
+Runs TypeScript type-checking and a production Electron build. Use this before packaging or publishing a release.
+
 ## Configuration
 
-TermFlow stores settings in the SQLite database and applies them at runtime. No `.env` file is required.
+TermFlow stores settings in the local JSON store and applies them at runtime. No `.env` file is required.
 
 | Setting | Default | Description |
 | --- | --- | --- |
@@ -211,7 +220,7 @@ TermFlow stores settings in the SQLite database and applies them at runtime. No 
 | `passiveThrottleMs` | `250` | Render throttle for unfocused terminals |
 | `webgl` | `true` | Use WebGL renderer for terminals (`xterm-addon-webgl`) |
 | `snapToGrid` | `false` | Snap terminal cards to a grid when moving |
-| `agentAutoApprove` | `true` | Launch AI agents with full bypass permissions |
+| `agentAutoApprove` | `false` | Launch AI agents with full bypass permissions |
 | `minimap` | `false` | Show React Flow minimap overlay |
 
 All settings are editable via the in-app Settings modal (gear icon in toolbar).
@@ -226,8 +235,11 @@ All settings are editable via the in-app Settings modal (gear icon in toolbar).
 6. **Auto-arrange** — select a layout mode from the toolbar dropdown (Grid, Columns, Rows, Focus, Auto-Fit, etc.).
 7. **Connect nodes** — right-click a terminal, choose "Start Connection", click the target to draw a typed edge.
 8. **Add AI agents** — select "Claude Code", "Codex", "OpenCode", or "Ollama" from the `+` menu. Agents launch in an interactive CMD host.
-9. **Command palette** — `Ctrl+K` to search workspaces, terminals, profiles, and quick actions.
-10. **Minimize/Maximize** — use the card header buttons to collapse or expand terminal panels.
+9. **Broadcast input** — add terminals to the broadcast group from each terminal header, then toggle Broadcast in the toolbar.
+10. **Record sessions** — start/stop recording from a terminal header and save recordings as asciinema `.cast` files.
+11. **Developer settings** — Settings > Developer manages workspace env vars and SSH profile metadata.
+12. **Command palette** — `Ctrl+K` to search workspaces, terminals, profiles, snippets, and quick actions.
+13. **Minimize/Maximize** — use the card header buttons to collapse or expand terminal panels.
 
 ## Packaging
 
@@ -304,5 +316,5 @@ Distributed under the MIT License. See `LICENSE` for details.
 - [React Flow](https://reactflow.dev/) — infinitely customizable node graph library
 - [node-pty](https://github.com/Tyriar/node-pty) — native pseudo-terminal bindings
 - [Electron](https://www.electronjs.org/) — the desktop app framework
-- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — synchronous SQLite for Node.js
+- [node-pty](https://github.com/microsoft/node-pty) — native pseudo-terminal bindings
 - [Zustand](https://zustand-demo.pmnd.rs/) — minimal yet powerful state management
