@@ -119,7 +119,11 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 <select value={settings.updateChannel} onChange={(e) => update({ updateChannel: e.target.value as 'stable' | 'beta' })}><option value="stable">Stable channel</option><option value="beta">Beta channel</option></select>
                 <button className="btn" onClick={() => window.termflow.updates.check(settings.updateChannel)}>Check now</button>
               </div>
-              <div style={{ marginTop: 6, color: updateStatus.status === 'error' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 10 }}>Status: {updateStatus.status}{updateStatus.detail ? ` · ${updateStatus.detail}` : ''}</div>
+              <div style={{ marginTop: 6, color: updateStatus.status === 'error' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 10, overflowWrap: 'anywhere' }}>
+                Status: {updateStatus.status === 'no-releases'
+                  ? 'No published releases found on GitHub yet'
+                  : `${updateStatus.status}${updateStatus.detail ? ` · ${updateStatus.detail.slice(0, 160)}` : ''}`}
+              </div>
               {updateStatus.status === 'ready' && <button className="btn primary" style={{ marginTop: 7 }} onClick={() => window.termflow.updates.install()}>Restart and install update</button>}
             </div>
 

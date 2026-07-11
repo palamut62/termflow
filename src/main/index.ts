@@ -138,7 +138,16 @@ app.whenReady().then(() => {
   autoUpdater.on('update-not-available', () => publishUpdateStatus('current'))
   autoUpdater.on('download-progress', (progress) => publishUpdateStatus('downloading', `${Math.round(progress.percent)}%`))
   autoUpdater.on('update-downloaded', (info) => publishUpdateStatus('ready', info.version))
-  autoUpdater.on('error', (error) => publishUpdateStatus('error', error.message))
+  autoUpdater.on('error', (error) => {
+    // A 404 from GitHub just means no published release exists yet (or the
+    // repo is private) — show a friendly message instead of the raw HTTP dump.
+    const msg = error.message || ''
+    if (/404|releases\.atom|no published versions/i.test(msg)) {
+      publishUpdateStatus('no-releases')
+    } else {
+      publishUpdateStatus('error', msg.split('\n')[0].slice(0, 160))
+    }
+  })
   initDatabase()
   const settings = getSettings()
   configureUpdater(settings.updateChannel)
