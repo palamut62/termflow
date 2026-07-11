@@ -8,8 +8,6 @@ export type LayoutMode =
   | 'rows'
   | 'focus'
   | 'agent_graph'
-  | 'monitoring'
-  | 'split_grid'
 
 export type ShellKind =
   | 'powershell'
@@ -281,7 +279,6 @@ export interface AppSettings {
   cursorStyle: 'block' | 'underline' | 'bar'
   cursorBlink: boolean
   terminalTheme: string
-  ligatures: boolean
   startAtLogin: boolean
   minimizeToTray: boolean
   providerProfiles: AiProviderProfile[]
@@ -316,7 +313,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cursorStyle: 'block',
   cursorBlink: true,
   terminalTheme: 'TermFlow Dark',
-  ligatures: true,
   startAtLogin: true,
   minimizeToTray: true,
   providerProfiles: [

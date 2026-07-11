@@ -10,8 +10,7 @@ const SHELLS = new Set<ShellKind>([
   'ollama', 'ssh', 'custom'
 ])
 const LAYOUTS = new Set<LayoutMode>([
-  'manual', 'auto_fit', 'grid', 'columns', 'rows', 'focus', 'agent_graph',
-  'monitoring', 'split_grid'
+  'manual', 'auto_fit', 'grid', 'columns', 'rows', 'focus', 'agent_graph'
 ])
 
 function record(value: unknown): Record<string, unknown> | null {

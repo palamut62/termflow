@@ -222,11 +222,6 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                   onChange={(e) => update({ cursorBlink: e.target.checked })} />
                 Cursor blink
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginLeft: 20 }}>
-                <input type="checkbox" checked={settings.ligatures} style={{ width: 'auto' }}
-                  onChange={(e) => update({ ligatures: e.target.checked })} />
-                Font ligatures
-              </label>
             </div>
           </>
         )}

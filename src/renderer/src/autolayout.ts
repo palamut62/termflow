@@ -44,8 +44,7 @@ export function computeLayout(
       rows = n
       break
     case 'grid':
-    case 'auto_fit':
-    case 'split_grid': {
+    case 'auto_fit': {
       cols = Math.ceil(Math.sqrt((n * areaW) / areaH))
       cols = Math.max(1, Math.min(cols, n))
       rows = Math.ceil(n / cols)
