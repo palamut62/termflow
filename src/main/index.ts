@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, shell, Tray } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { IPC } from '../shared/types'
+import { autoUpdater } from 'electron-updater'
 
 // Dev: project resources/. Packaged: extraResources under process.resourcesPath.
 const APP_ICON = app.isPackaged
@@ -17,6 +18,15 @@ let tray: Tray | null = null
 let isQuitting = false
 let recoveryFile = ''
 let previousSessionCrashed = false
+const isE2E = process.env.TERMFLOW_E2E === '1'
+if (isE2E) app.setPath('userData', join(app.getPath('temp'), `termflow-e2e-${process.pid}`))
+
+function configureUpdater(channel: 'stable' | 'beta'): void {
+  autoUpdater.channel = channel === 'beta' ? 'beta' : 'latest'
+  autoUpdater.allowPrerelease = channel === 'beta'
+  autoUpdater.autoDownload = true
+}
+function publishUpdateStatus(status: string, detail?: string): void { mainWindow?.webContents.send(IPC.UPDATE_STATUS, { status, detail }) }
 
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow()
@@ -105,7 +115,7 @@ function createWindow(): void {
 
 // Single-instance: focus the existing window instead of spawning a second
 // process that would fight over the userData/cache locks.
-const gotLock = app.requestSingleInstanceLock()
+const gotLock = isE2E || app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
@@ -120,12 +130,21 @@ app.whenReady().then(() => {
   writeFileSync(recoveryFile, JSON.stringify({ cleanExit: false, startedAt: new Date().toISOString() }), 'utf-8')
   ipcMain.handle(IPC.RECOVERY_STATUS, () => ({ crashed: previousSessionCrashed }))
   ipcMain.handle(IPC.RECOVERY_ACK, () => { previousSessionCrashed = false })
+  ipcMain.handle(IPC.UPDATE_CHECK, async (_event, channel: 'stable' | 'beta') => { if (!app.isPackaged) return { status: 'development' }; configureUpdater(channel); publishUpdateStatus('checking'); await autoUpdater.checkForUpdates(); return { status: 'checking' } })
+  ipcMain.handle(IPC.UPDATE_INSTALL, () => autoUpdater.quitAndInstall())
+  autoUpdater.on('update-available', (info) => publishUpdateStatus('available', info.version))
+  autoUpdater.on('update-not-available', () => publishUpdateStatus('current'))
+  autoUpdater.on('download-progress', (progress) => publishUpdateStatus('downloading', `${Math.round(progress.percent)}%`))
+  autoUpdater.on('update-downloaded', (info) => publishUpdateStatus('ready', info.version))
+  autoUpdater.on('error', (error) => publishUpdateStatus('error', error.message))
   initDatabase()
   const settings = getSettings()
+  configureUpdater(settings.updateChannel)
   if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: settings.startAtLogin, path: process.execPath })
   ptyManager = registerIpc(() => mainWindow)
   createTray()
   createWindow()
+  if (app.isPackaged && settings.autoUpdate) setTimeout(() => { void autoUpdater.checkForUpdates().catch(() => undefined) }, 5000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

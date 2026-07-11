@@ -45,6 +45,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const [sshPort, setSshPort] = useState('22')
   const [sshKeyPath, setSshKeyPath] = useState('')
   const [sshJumpHost, setSshJumpHost] = useState('')
+  const [updateStatus, setUpdateStatus] = useState<{ status: string; detail?: string }>({ status: 'idle' })
 
   const reloadDeveloper = async (): Promise<void> => {
     if (!activeWorkspaceId) return
@@ -61,6 +62,8 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
     if (activeTab === 'developer') reloadDeveloper()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, activeWorkspaceId])
+
+  useEffect(() => window.termflow.updates.onStatus(setUpdateStatus), [])
 
   const tabs = [
     { key: 'general' as const, label: 'General' },
@@ -107,6 +110,17 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 <option value="ayu">Ayu Mirage</option>
                 <option value="rose-pine">Rosé Pine</option>
               </select>
+            </div>
+
+            <div className="field">
+              <label>Application updates</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" style={{ width: 'auto' }} checked={settings.autoUpdate} onChange={(e) => update({ autoUpdate: e.target.checked })} />Automatic</label>
+                <select value={settings.updateChannel} onChange={(e) => update({ updateChannel: e.target.value as 'stable' | 'beta' })}><option value="stable">Stable channel</option><option value="beta">Beta channel</option></select>
+                <button className="btn" onClick={() => window.termflow.updates.check(settings.updateChannel)}>Check now</button>
+              </div>
+              <div style={{ marginTop: 6, color: updateStatus.status === 'error' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 10 }}>Status: {updateStatus.status}{updateStatus.detail ? ` · ${updateStatus.detail}` : ''}</div>
+              {updateStatus.status === 'ready' && <button className="btn primary" style={{ marginTop: 7 }} onClick={() => window.termflow.updates.install()}>Restart and install update</button>}
             </div>
 
             <div className="field">

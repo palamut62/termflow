@@ -105,6 +105,11 @@ const api = {
     status: (): Promise<{ crashed: boolean }> => ipcRenderer.invoke(IPC.RECOVERY_STATUS),
     acknowledge: (): Promise<void> => ipcRenderer.invoke(IPC.RECOVERY_ACK)
   },
+  updates: {
+    check: (channel: 'stable' | 'beta'): Promise<{ status: string }> => ipcRenderer.invoke(IPC.UPDATE_CHECK, channel),
+    install: (): Promise<void> => ipcRenderer.invoke(IPC.UPDATE_INSTALL),
+    onStatus: (cb: (value: { status: string; detail?: string }) => void): (() => void) => { const handler = (_event: unknown, value: { status: string; detail?: string }): void => cb(value); ipcRenderer.on(IPC.UPDATE_STATUS, handler); return () => ipcRenderer.removeListener(IPC.UPDATE_STATUS, handler) }
+  },
   workspaces: {
     list: (): Promise<Workspace[]> => ipcRenderer.invoke(IPC.WS_LIST),
     create: (input: {

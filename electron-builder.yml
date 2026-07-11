@@ -1,5 +1,10 @@
 appId: com.termflow.app
 productName: TermFlow
+publish:
+  provider: github
+  owner: palamut62
+  repo: termflow
+  releaseType: release
 directories:
   output: dist
   buildResources: resources

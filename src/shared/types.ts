@@ -349,6 +349,8 @@ export interface AppSettings {
   notifyOnError: boolean
   notifyOnAgentWaiting: boolean
   longCommandThresholdMs: number
+  autoUpdate: boolean
+  updateChannel: 'stable' | 'beta'
 }
 
 export interface AiProviderProfile {
@@ -390,7 +392,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyOnLongCommand: true,
   notifyOnError: true,
   notifyOnAgentWaiting: true,
-  longCommandThresholdMs: 30000
+  longCommandThresholdMs: 30000,
+  autoUpdate: true,
+  updateChannel: 'stable'
 }
 
 export interface CanvasViewport {
@@ -455,6 +459,9 @@ export const IPC = {
   FLOW_PACKAGE_IMPORT: 'flowPackage:import',
   RECOVERY_STATUS: 'recovery:status',
   RECOVERY_ACK: 'recovery:ack',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_STATUS: 'update:status',
   // shells
   SHELLS_DISCOVER: 'shells:discover',
   // settings

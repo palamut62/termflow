@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "typecheck": "tsc --build --force",
-    "test": "vitest run",
+    "test": "vitest run src",
+    "test:e2e": "npm run build && playwright test",
     "verify": "npm run test && npm run typecheck && electron-vite build",
     "build": "electron-vite build",
     "start": "electron-vite preview",
@@ -24,11 +25,13 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^5.5.0",
     "@xyflow/react": "^12.3.5",
+    "electron-updater": "^6.8.9",
     "nanoid": "^3.3.15",
     "pidusage": "^4.0.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^22.10.1",
     "@types/pidusage": "^2.0.5",
     "@types/react": "^18.3.12",
