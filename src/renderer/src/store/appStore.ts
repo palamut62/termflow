@@ -148,6 +148,9 @@ let listenersStarted = false
 let gitPollingStarted = false
 let systemThemeMql: MediaQueryList | null = null
 let workspaceRequest = 0
+// Per-connection timers that flip an active edge back to idle once data stops.
+const routeIdleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const ROUTE_ACTIVE_MS = 600
 
 const AGENT_PATTERNS: { kind: AgentActivity['kind']; re: RegExp; nameGroup?: number; messageGroup?: number }[] = [
   { kind: 'subagent', re: /\b(?:sub-?agent|agent team|team agent)\b[:\s-]*([A-Za-z0-9 _.-]+)?/i, nameGroup: 1 },
@@ -959,6 +962,31 @@ export const useAppStore = create<AppState>((set, get) => ({
           nodes: s.nodes.map((n) => (n === nodeWithTerm ? { ...n, status: 'stopped' } : n))
         }
       })
+    })
+    window.termflow.agent.onRoute((connectionId) => {
+      // Pulse the edge 'active' while data flows, then relax back to 'idle'.
+      set((s) => {
+        const conn = s.connections.find((c) => c.id === connectionId)
+        if (!conn || conn.status === 'active') return {}
+        return {
+          connections: s.connections.map((c) =>
+            c.id === connectionId ? { ...c, status: 'active' as const } : c
+          )
+        }
+      })
+      const existing = routeIdleTimers.get(connectionId)
+      if (existing) clearTimeout(existing)
+      routeIdleTimers.set(
+        connectionId,
+        setTimeout(() => {
+          routeIdleTimers.delete(connectionId)
+          set((s) => ({
+            connections: s.connections.map((c) =>
+              c.id === connectionId && c.status === 'active' ? { ...c, status: 'idle' as const } : c
+            )
+          }))
+        }, ROUTE_ACTIVE_MS)
+      )
     })
     window.termflow.pty.onActivity((id, error) => {
       if (!error) return

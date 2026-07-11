@@ -131,7 +131,12 @@ const api = {
   // ---- Agent Routing ----
   agent: {
     setRouting: (terminalId: string, rules: unknown[]): void =>
-      ipcRenderer.send(IPC.AGENT_SET_ROUTING, terminalId, rules)
+      ipcRenderer.send(IPC.AGENT_SET_ROUTING, terminalId, rules),
+    onRoute: (cb: (connectionId: string) => void): (() => void) => {
+      const h = (_e: unknown, payload: { connectionId: string }): void => cb(payload.connectionId)
+      ipcRenderer.on(IPC.PTY_ROUTE, h)
+      return () => ipcRenderer.removeListener(IPC.PTY_ROUTE, h)
+    }
   },
   // ---- Recording ----
   recording: {

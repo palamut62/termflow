@@ -367,6 +367,7 @@ export const IPC = {
   PTY_BUFFER: 'pty:buffer', // request full buffer on attach
   PTY_MODE: 'pty:mode', // renderer -> main: set render mode (active/passive/buffer)
   PTY_ACTIVITY: 'pty:activity', // main -> renderer: error/activity signal
+  PTY_ROUTE: 'pty:route', // main -> renderer: agent-to-agent data routed over a connection
   PROC_STATS: 'proc:stats', // renderer -> main: get cpu/mem for pids
   // shells
   SHELLS_DISCOVER: 'shells:discover',
