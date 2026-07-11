@@ -20,6 +20,7 @@ import {
   ,FileSearch
   ,PanelLeftOpen
   ,Gauge
+  ,Puzzle
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
@@ -28,6 +29,7 @@ import FlowTemplatesModal from './FlowTemplatesModal'
 import GlobalSearchModal from './GlobalSearchModal'
 import DeveloperWorkbench from './DeveloperWorkbench'
 import AgentOpsModal from './AgentOpsModal'
+import PluginManagerModal from './PluginManagerModal'
 import type { LayoutMode, ShellKind } from '../../../shared/types'
 
 interface Props {
@@ -80,6 +82,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [globalSearchModal, setGlobalSearchModal] = useState(false)
   const [workbench, setWorkbench] = useState(false)
   const [agentOps, setAgentOps] = useState(false)
+  const [plugins, setPlugins] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
@@ -266,6 +269,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       </button>
       <button className="tb-btn" disabled={disabled} title="Developer Workbench" onClick={() => setWorkbench(true)}><PanelLeftOpen size={15} /></button>
       <button className="tb-btn" disabled={disabled} title="Agent metrics and credential vault" onClick={() => setAgentOps(true)}><Gauge size={15} /></button>
+      <button className="tb-btn" disabled={disabled} title="Extensions and workflow packages" onClick={() => setPlugins(true)}><Puzzle size={15} /></button>
       <button
         className="tb-btn"
         disabled={disabled}
@@ -295,6 +299,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       {globalSearchModal && <GlobalSearchModal onClose={() => setGlobalSearchModal(false)} />}
       {workbench && <DeveloperWorkbench onClose={() => setWorkbench(false)} />}
       {agentOps && <AgentOpsModal onClose={() => setAgentOps(false)} />}
+      {plugins && <PluginManagerModal onClose={() => setPlugins(false)} />}
     </div>
   )
 }

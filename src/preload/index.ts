@@ -22,6 +22,7 @@ import {
   ,type WorkspaceFileEntry
   ,type GitWorkbenchState
   ,type CredentialMeta
+  ,type TermFlowPluginManifest
 } from '../shared/types'
 
 const api = {
@@ -90,6 +91,15 @@ const api = {
     list: (workspaceId?: string): Promise<CredentialMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST, workspaceId),
     save: (input: Omit<CredentialMeta, 'id' | 'updatedAt'> & { id?: string; value: string }): Promise<CredentialMeta> => ipcRenderer.invoke(IPC.VAULT_SAVE, input),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_DELETE, id)
+  },
+  plugins: {
+    list: (): Promise<TermFlowPluginManifest[]> => ipcRenderer.invoke(IPC.PLUGIN_LIST),
+    install: (): Promise<TermFlowPluginManifest | null> => ipcRenderer.invoke(IPC.PLUGIN_INSTALL),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.PLUGIN_DELETE, id)
+  },
+  workflowPackages: {
+    export: (): Promise<void> => ipcRenderer.invoke(IPC.FLOW_PACKAGE_EXPORT),
+    import: (): Promise<number> => ipcRenderer.invoke(IPC.FLOW_PACKAGE_IMPORT)
   },
   workspaces: {
     list: (): Promise<Workspace[]> => ipcRenderer.invoke(IPC.WS_LIST),

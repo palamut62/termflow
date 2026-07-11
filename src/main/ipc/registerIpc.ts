@@ -29,6 +29,7 @@ import {
   ,type WorkspaceFileEntry
   ,type GitWorkbenchState
   ,type CredentialMeta
+  ,type TermFlowPluginManifest
 } from '../../shared/types'
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
@@ -226,6 +227,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     return meta
   })
   ipcMain.handle(IPC.VAULT_DELETE, (_e, id: string) => writeVault(readVault().filter((item) => item.id !== id)))
+
+  const pluginsDir = join(app.getPath('userData'), 'plugins')
+  const ensurePlugins = (): void => { if (!existsSync(pluginsDir)) mkdirSync(pluginsDir, { recursive: true }) }
+  const validatePlugin = (value: unknown): TermFlowPluginManifest => {
+    const item = value as Partial<TermFlowPluginManifest>
+    if (item.schemaVersion !== 1 || !item.id?.match(/^[a-z0-9][a-z0-9._-]+$/i) || !item.name || !item.version || !Array.isArray(item.commands)) throw new Error('Invalid TermFlow plugin manifest')
+    for (const command of item.commands) if (!command.id || !command.title || !command.command) throw new Error('Plugin command is invalid')
+    return item as TermFlowPluginManifest
+  }
+  ipcMain.handle(IPC.PLUGIN_LIST, (): TermFlowPluginManifest[] => { ensurePlugins(); return readdirSync(pluginsDir).filter((file) => file.endsWith('.json')).flatMap((file) => { try { return [validatePlugin(JSON.parse(readFileSync(join(pluginsDir, file), 'utf-8')))] } catch { return [] } }) })
+  ipcMain.handle(IPC.PLUGIN_INSTALL, async (): Promise<TermFlowPluginManifest | null> => {
+    const result = await dialog.showOpenDialog(getWindow()!, { title: 'Install TermFlow plugin', properties: ['openFile'], filters: [{ name: 'TermFlow Plugin', extensions: ['json'] }] })
+    if (result.canceled || !result.filePaths[0]) return null
+    const stat = statSync(result.filePaths[0]); if (stat.size > MAX_JSON_FILE_BYTES) throw new Error('Plugin manifest is too large')
+    const plugin = validatePlugin(JSON.parse(readFileSync(result.filePaths[0], 'utf-8'))); ensurePlugins(); writeFileSync(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return plugin
+  })
+  ipcMain.handle(IPC.PLUGIN_DELETE, (_e, id: string) => { const file = join(pluginsDir, `${id}.json`); if (existsSync(file)) unlinkSync(file) })
 
   // ---- Workspace Export/Import (shared helpers also power templates + clone) ----
   function buildWorkspaceExport(workspaceId: string): WorkspaceExport | null {
@@ -525,6 +543,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     } catch {
       /* ignore */
     }
+  })
+
+  ipcMain.handle(IPC.FLOW_PACKAGE_EXPORT, async () => {
+    ensureFlowTemplatesDir()
+    const templates = readdirSync(flowTemplatesDir).filter((file) => file.endsWith('.json')).flatMap((file) => { try { return [JSON.parse(readFileSync(join(flowTemplatesDir, file), 'utf-8'))] } catch { return [] } })
+    const result = await dialog.showSaveDialog(getWindow()!, { title: 'Export workflow package', defaultPath: 'termflow-workflows.termflow-package.json', filters: [{ name: 'TermFlow Workflow Package', extensions: ['termflow-package.json'] }] })
+    if (!result.canceled && result.filePath) writeFileSync(result.filePath, JSON.stringify({ schemaVersion: 1, kind: 'termflow-workflows', exportedAt: new Date().toISOString(), templates }, null, 2), 'utf-8')
+  })
+  ipcMain.handle(IPC.FLOW_PACKAGE_IMPORT, async (): Promise<number> => {
+    const result = await dialog.showOpenDialog(getWindow()!, { title: 'Import workflow package', properties: ['openFile'], filters: [{ name: 'TermFlow Workflow Package', extensions: ['json'] }] })
+    if (result.canceled || !result.filePaths[0]) return 0
+    const stat = statSync(result.filePaths[0]); if (stat.size > MAX_JSON_FILE_BYTES) throw new Error('Workflow package is too large')
+    const data = JSON.parse(readFileSync(result.filePaths[0], 'utf-8')) as { schemaVersion?: number; kind?: string; templates?: unknown[] }
+    if (data.schemaVersion !== 1 || data.kind !== 'termflow-workflows' || !Array.isArray(data.templates)) throw new Error('Invalid workflow package')
+    ensureFlowTemplatesDir(); let count = 0
+    for (const raw of data.templates) { const template = raw as { id?: string; name?: string; nodes?: unknown[]; connections?: unknown[] }; if (!template.name || !Array.isArray(template.nodes) || !Array.isArray(template.connections)) continue; const id = nanoid(); writeFileSync(flowTemplateFile(id), JSON.stringify({ ...template, id, builtin: false }, null, 2), 'utf-8'); count++ }
+    return count
   })
 
   // ---- Task Triggers (process_exit / timer, feature: expanded task triggers) ----
