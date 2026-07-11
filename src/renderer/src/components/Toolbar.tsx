@@ -12,7 +12,8 @@ import {
   Search,
   ChevronDown,
   Radio,
-  Activity
+  Activity,
+  Workflow
   ,FolderOpen
   ,CircleHelp
   ,Trash2
@@ -20,6 +21,7 @@ import {
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
 import CustomCommandModal from './CustomCommandModal'
+import FlowTemplatesModal from './FlowTemplatesModal'
 import type { LayoutMode, ShellKind } from '../../../shared/types'
 
 interface Props {
@@ -68,6 +70,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [agentMenu, setAgentMenu] = useState(false)
   const [layoutMenu, setLayoutMenu] = useState(false)
   const [customModal, setCustomModal] = useState(false)
+  const [flowModal, setFlowModal] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
@@ -240,6 +243,9 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       <button className="tb-btn danger" disabled={disabled} title="Close all terminals" onClick={() => window.dispatchEvent(new CustomEvent('termflow:close-all-terminals'))}>
         <Trash2 size={15} /> Close All
       </button>
+      <button className="tb-btn" disabled={disabled} title="Agent flow templates" onClick={() => setFlowModal(true)}>
+        <Workflow size={15} /> Flows
+      </button>
 
       <div className="spacer" />
 
@@ -271,6 +277,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
           }}
         />
       )}
+      {flowModal && <FlowTemplatesModal onClose={() => setFlowModal(false)} />}
     </div>
   )
 }

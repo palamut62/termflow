@@ -220,6 +220,32 @@ export interface TermflowManifest {
   snippets?: TermflowManifestSnippet[]
 }
 
+// ---- Agent Flow Templates (feature: agent flow templates) ----
+export interface FlowTemplateNode {
+  title: string
+  kind: ShellKind
+  agentRole?: string
+  startupCommand?: string
+}
+
+export interface FlowTemplateConnection {
+  from: number // index into FlowTemplate.nodes
+  to: number
+  connectionType: ConnectionType
+  label?: string
+  triggerPattern?: string
+  routeBehavior?: 'marker' | 'continuous' | 'disabled'
+  routeDirection?: 'source_to_target' | 'bidirectional'
+}
+
+export interface FlowTemplate {
+  id: string
+  name: string
+  builtin?: boolean
+  nodes: FlowTemplateNode[]
+  connections: FlowTemplateConnection[]
+}
+
 // ---- Env Vars (P2-11) ----
 export interface EnvEntry {
   id: string
@@ -432,6 +458,10 @@ export const IPC = {
   GIT_STATUS: 'git:status',
   // package.json script runner
   PKG_SCRIPTS: 'pkg:scripts',
+  // agent flow templates
+  FLOW_TEMPLATE_LIST: 'flowTemplate:list',
+  FLOW_TEMPLATE_SAVE: 'flowTemplate:save',
+  FLOW_TEMPLATE_DELETE: 'flowTemplate:delete',
   // env vars
   ENV_LIST: 'env:list',
   ENV_CREATE: 'env:create',

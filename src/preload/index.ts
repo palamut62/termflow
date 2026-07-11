@@ -14,7 +14,10 @@ import {
   type SshProfile,
   type EnvEntry,
   type GitStatus,
-  type WorkspaceHealthCheck
+  type WorkspaceHealthCheck,
+  type FlowTemplate,
+  type FlowTemplateNode,
+  type FlowTemplateConnection
 } from '../shared/types'
 
 const api = {
@@ -92,6 +95,13 @@ const api = {
   pkg: {
     scripts: (cwd: string): Promise<{ scripts: Record<string, string>; packageManager: 'npm' | 'pnpm' | 'yarn' } | null> =>
       ipcRenderer.invoke(IPC.PKG_SCRIPTS, cwd)
+  },
+  // ---- Agent Flow Templates ----
+  flowTemplates: {
+    list: (): Promise<FlowTemplate[]> => ipcRenderer.invoke(IPC.FLOW_TEMPLATE_LIST),
+    save: (name: string, nodes: FlowTemplateNode[], connections: FlowTemplateConnection[]): Promise<{ id?: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.FLOW_TEMPLATE_SAVE, name, nodes, connections),
+    remove: (templateId: string): Promise<void> => ipcRenderer.invoke(IPC.FLOW_TEMPLATE_DELETE, templateId)
   },
   // ---- Workspace Templates ----
   templates: {

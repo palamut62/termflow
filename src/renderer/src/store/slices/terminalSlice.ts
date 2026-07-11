@@ -4,7 +4,8 @@ import type {
   TerminalSession,
   CanvasNode,
   ShellKind,
-  ProcStats
+  ProcStats,
+  FlowTemplate
 } from '../../../../shared/types'
 import { profileFor } from '../../profiles'
 import { computeLayout } from '../../autolayout'
@@ -29,6 +30,8 @@ export interface TerminalSlice {
 
   addTerminal: (kind: ShellKind, opts?: NewTerminalOpts) => Promise<void>
   duplicateNode: (nodeId: string) => Promise<void>
+  applyFlowTemplate: (template: FlowTemplate) => Promise<void>
+  saveFlowTemplate: (name: string) => Promise<{ id?: string; error?: string }>
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
   reattachTerminal: (terminalId: string) => Promise<void>
   restartNode: (nodeId: string) => Promise<void>
@@ -182,6 +185,65 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       agentRole: node.agentRole,
       env: source.env
     })
+  },
+
+  // Instantiate a multi-agent pipeline template: spawns one node per template
+  // node (in order) then wires the declared connections between them, using
+  // each freshly-created node's id (addTerminal sets activeNodeId to it).
+  // (feature: agent flow templates)
+  applyFlowTemplate: async (template) => {
+    const nodeIds: string[] = []
+    for (const n of template.nodes) {
+      await get().addTerminal(n.kind, {
+        name: n.title,
+        agentRole: n.agentRole,
+        startupCommand: n.startupCommand
+      })
+      const created = get().activeNodeId
+      if (created) nodeIds.push(created)
+    }
+    for (const c of template.connections) {
+      const source = nodeIds[c.from]
+      const target = nodeIds[c.to]
+      if (!source || !target) continue
+      get().addConnection(source, target, c.connectionType, c.label, {
+        triggerPattern: c.triggerPattern,
+        routeBehavior: c.routeBehavior,
+        routeDirection: c.routeDirection
+      })
+    }
+    get().setLayoutMode('agent_graph', get().canvasSize)
+  },
+
+  // Save the currently-open agent nodes (+ connections between them) as a
+  // reusable flow template. (feature: agent flow templates)
+  saveFlowTemplate: async (name) => {
+    const st = get()
+    const agentNodes = st.nodes.filter((n) => n.nodeType === 'agent')
+    if (agentNodes.length < 2) return { error: 'Select a workspace with at least 2 agent nodes' }
+    const indexOf = new Map(agentNodes.map((n, i) => [n.id, i]))
+    const nodes = agentNodes.map((n) => {
+      const termId = getActiveTerminalId(n.activePaneId, n.panes, n.terminalId)
+      const source = termId ? st.terminals[termId] : undefined
+      return {
+        title: n.title,
+        kind: source?.kind ?? 'claude',
+        agentRole: n.agentRole,
+        startupCommand: source?.startupCommand
+      }
+    })
+    const connections = st.connections
+      .filter((c) => indexOf.has(c.sourceNodeId) && indexOf.has(c.targetNodeId))
+      .map((c) => ({
+        from: indexOf.get(c.sourceNodeId)!,
+        to: indexOf.get(c.targetNodeId)!,
+        connectionType: c.connectionType,
+        label: c.label,
+        triggerPattern: c.triggerPattern,
+        routeBehavior: c.routeBehavior,
+        routeDirection: c.routeDirection
+      }))
+    return window.termflow.flowTemplates.save(name, nodes, connections)
   },
 
   closeNode: async (nodeId, mode) => {

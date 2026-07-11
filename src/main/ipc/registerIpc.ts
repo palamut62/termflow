@@ -395,6 +395,104 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
   })
 
+  // ---- Agent Flow Templates (multi-agent pipeline wiring, feature: agent flow templates) ----
+  const flowTemplatesDir = join(app.getPath('userData'), 'flow-templates')
+  function ensureFlowTemplatesDir(): void {
+    if (!existsSync(flowTemplatesDir)) mkdirSync(flowTemplatesDir, { recursive: true })
+  }
+  function flowTemplateFile(id: string): string {
+    return join(flowTemplatesDir, `${id}.json`)
+  }
+
+  const BUILTIN_FLOW_TEMPLATES: Array<{
+    id: string
+    name: string
+    builtin: true
+    nodes: Array<{ title: string; kind: string; agentRole?: string; startupCommand?: string }>
+    connections: Array<{ from: number; to: number; connectionType: string; label?: string; routeBehavior?: string; routeDirection?: string }>
+  }> = [
+    {
+      id: 'builtin:planner-coder-reviewer',
+      name: 'Planner → Coder → Reviewer',
+      builtin: true,
+      nodes: [
+        { title: 'Planner', kind: 'claude', agentRole: 'planner' },
+        { title: 'Coder', kind: 'claude', agentRole: 'coder' },
+        { title: 'Reviewer', kind: 'claude', agentRole: 'reviewer' }
+      ],
+      connections: [
+        { from: 0, to: 1, connectionType: 'control', label: 'plan', routeBehavior: 'marker', routeDirection: 'source_to_target' },
+        { from: 1, to: 2, connectionType: 'control', label: 'review', routeBehavior: 'marker', routeDirection: 'source_to_target' }
+      ]
+    },
+    {
+      id: 'builtin:researcher-writer-editor',
+      name: 'Researcher → Writer → Editor',
+      builtin: true,
+      nodes: [
+        { title: 'Researcher', kind: 'claude', agentRole: 'researcher' },
+        { title: 'Writer', kind: 'claude', agentRole: 'writer' },
+        { title: 'Editor', kind: 'claude', agentRole: 'editor' }
+      ],
+      connections: [
+        { from: 0, to: 1, connectionType: 'data', label: 'findings', routeBehavior: 'marker', routeDirection: 'source_to_target' },
+        { from: 1, to: 2, connectionType: 'control', label: 'draft', routeBehavior: 'marker', routeDirection: 'source_to_target' }
+      ]
+    },
+    {
+      id: 'builtin:debug-trio',
+      name: 'Reproducer → Fixer → Verifier',
+      builtin: true,
+      nodes: [
+        { title: 'Reproducer', kind: 'claude', agentRole: 'reproducer' },
+        { title: 'Fixer', kind: 'claude', agentRole: 'fixer' },
+        { title: 'Verifier', kind: 'claude', agentRole: 'verifier' }
+      ],
+      connections: [
+        { from: 0, to: 1, connectionType: 'error', label: 'repro', routeBehavior: 'marker', routeDirection: 'source_to_target' },
+        { from: 1, to: 2, connectionType: 'control', label: 'fix', routeBehavior: 'marker', routeDirection: 'source_to_target' }
+      ]
+    }
+  ]
+
+  ipcMain.handle(IPC.FLOW_TEMPLATE_LIST, async () => {
+    ensureFlowTemplatesDir()
+    let saved: unknown[] = []
+    try {
+      saved = readdirSync(flowTemplatesDir)
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => {
+          try {
+            return JSON.parse(readFileSync(join(flowTemplatesDir, f), 'utf-8'))
+          } catch {
+            return null
+          }
+        })
+        .filter(Boolean)
+    } catch {
+      saved = []
+    }
+    return [...BUILTIN_FLOW_TEMPLATES, ...saved]
+  })
+
+  ipcMain.handle(IPC.FLOW_TEMPLATE_SAVE, async (_e, name: string, nodes: unknown[], connections: unknown[]) => {
+    if (!name?.trim() || !Array.isArray(nodes) || nodes.length < 2) return { error: 'At least 2 agent nodes are required' }
+    ensureFlowTemplatesDir()
+    const id = nanoid()
+    const payload = { id, name: name.trim(), builtin: false, nodes, connections: connections || [] }
+    writeFileSync(flowTemplateFile(id), JSON.stringify(payload, null, 2), 'utf-8')
+    return { id }
+  })
+
+  ipcMain.handle(IPC.FLOW_TEMPLATE_DELETE, async (_e, templateId: string) => {
+    if (templateId.startsWith('builtin:')) return
+    try {
+      if (existsSync(flowTemplateFile(templateId))) unlinkSync(flowTemplateFile(templateId))
+    } catch {
+      /* ignore */
+    }
+  })
+
   // ---- Project Manifest (.termflow.json) ----
   ipcMain.handle(IPC.WS_CHECK_MANIFEST, async (_e, cwd: string) => {
     const manifestPath = join(cwd, '.termflow.json')
