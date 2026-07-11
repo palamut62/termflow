@@ -177,7 +177,8 @@ export default function CanvasFlow(): React.JSX.Element {
               const env: Record<string, string> = {}
               if (provider.baseUrlEnv && provider.baseUrl) env[provider.baseUrlEnv] = provider.baseUrl
               if (provider.modelEnv && provider.model) env[provider.modelEnv] = provider.model
-              addTerminal('custom', { name: provider.name, startupCommand: provider.command, env })
+              const command = provider.fullPermissionArgs ? `${provider.command} ${provider.fullPermissionArgs}` : provider.command
+              addTerminal('custom', { name: provider.name, startupCommand: command, env })
               setContextMenu(null)
             }}><Bot size={14} color={provider.color} />{provider.name}</div>
           ))}

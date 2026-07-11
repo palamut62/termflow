@@ -81,6 +81,9 @@ Every terminal is backed by a real **prebuilt node-pty** process. The canvas is 
 - **Provider profiles** — configure DeepSeek, Ollama, or any CLI/API-compatible provider without storing API keys in profile data
 - **System tray lifecycle** — optionally start with Windows, keep PTYs running when the window closes, and quit explicitly from the tray
 - **Folder launcher and help** — open any supported shell at a chosen path and learn the main workflows from the in-app help page
+- **Unified themes and transparency** — MarkNote-compatible Latte, Frappé, Macchiato, Mocha, Matcha, Kanagawa, Ayu, and Rosé Pine palettes affect terminals, chrome, menus, and dialogs
+- **Full-permission path launch** — start Claude Code, Codex, DeepSeek-backed profiles, or other providers in a selected trusted directory
+- **Close All** — terminate every terminal process in the active workspace after an in-app confirmation
 - **Detached sessions** — remove a running terminal from the canvas and reattach it later without losing the process
 - **Command palette** — Ctrl+K quick-launch for terminals, agents, and workspace commands
 - **Settings panel** — active border color, scrollback size, WebGL toggle, snap-to-grid, minimap
@@ -240,6 +243,9 @@ TermFlow stores settings in the local JSON store and applies them at runtime. No
 | `snapToGrid` | `false` | Snap terminal cards to a grid when moving |
 | `agentAutoApprove` | `false` | Launch AI agents with full bypass permissions |
 | `minimap` | `false` | Show React Flow minimap overlay |
+| `transparency` | `100` | Unified window, terminal, menu, and dialog opacity (`100` disables transparency) |
+| `startAtLogin` | `true` | Start the packaged TermFlow application with Windows |
+| `minimizeToTray` | `true` | Keep PTYs running when the main window is closed |
 
 All settings are editable via the in-app Settings modal (gear icon in toolbar).
 

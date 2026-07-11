@@ -116,7 +116,7 @@ export interface ProcStats {
   memory: number
 }
 
-export type ThemeMode = 'dark' | 'light' | 'system'
+export type ThemeMode = 'system' | 'latte' | 'frappe' | 'macchiato' | 'mocha' | 'matcha' | 'kanagawa' | 'ayu' | 'rose-pine' | 'dark' | 'light'
 
 export type ConnectionType =
   | 'control'
@@ -165,6 +165,7 @@ export interface HighlightRule {
   pattern: string
   flags: string
   color: string
+  fullPermissionArgs: string
   label?: string
   notifyOnMatch?: boolean
 }
@@ -283,6 +284,7 @@ export interface AppSettings {
   startAtLogin: boolean
   minimizeToTray: boolean
   providerProfiles: AiProviderProfile[]
+  transparency: number
 }
 
 export interface AiProviderProfile {
@@ -316,9 +318,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   startAtLogin: true,
   minimizeToTray: true,
   providerProfiles: [
-    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827' },
-    { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead' }
-  ]
+    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '--dangerously-skip-permissions' },
+    { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead', fullPermissionArgs: '' }
+  ],
+  transparency: 100
 }
 
 export interface CanvasViewport {

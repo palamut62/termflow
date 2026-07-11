@@ -96,11 +96,24 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
           <>
             <div className="field">
               <label>Theme</label>
-              <select value={settings.theme} onChange={(e) => update({ theme: e.target.value as 'dark' | 'light' | 'system' })}>
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
+              <select value={settings.theme} onChange={(e) => update({ theme: e.target.value as typeof settings.theme })}>
                 <option value="system">System</option>
+                <option value="latte">Catppuccin Latte</option>
+                <option value="frappe">Catppuccin Frappé</option>
+                <option value="macchiato">Catppuccin Macchiato</option>
+                <option value="mocha">Catppuccin Mocha</option>
+                <option value="matcha">Matcha</option>
+                <option value="kanagawa">Kanagawa</option>
+                <option value="ayu">Ayu Mirage</option>
+                <option value="rose-pine">Rosé Pine</option>
               </select>
+            </div>
+
+            <div className="field">
+              <label>Window transparency: {settings.transparency >= 100 ? 'Off' : `${100 - settings.transparency}%`}</label>
+              <input type="range" min={45} max={100} value={settings.transparency}
+                onChange={(e) => update({ transparency: Number(e.target.value) })} style={{ width: '100%' }} />
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Applies to the workspace, terminals, menus, settings, and all in-app dialogs.</p>
             </div>
 
             <div className="field">

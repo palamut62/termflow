@@ -15,6 +15,7 @@ import {
   Activity
   ,FolderOpen
   ,CircleHelp
+  ,Trash2
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
@@ -160,7 +161,8 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
                 const env: Record<string, string> = {}
                 if (provider.baseUrlEnv && provider.baseUrl) env[provider.baseUrlEnv] = provider.baseUrl
                 if (provider.modelEnv && provider.model) env[provider.modelEnv] = provider.model
-                addTerminal('custom', { name: provider.name, startupCommand: provider.command, env })
+                const command = provider.fullPermissionArgs ? `${provider.command} ${provider.fullPermissionArgs}` : provider.command
+                addTerminal('custom', { name: provider.name, startupCommand: command, env })
               }}>
                 <Bot size={14} color={provider.color} />
                 {provider.name}
@@ -234,6 +236,9 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
         onClick={toggleBroadcast}
       >
         <Radio size={15} /> Broadcast
+      </button>
+      <button className="tb-btn danger" disabled={disabled} title="Close all terminals" onClick={() => window.dispatchEvent(new CustomEvent('termflow:close-all-terminals'))}>
+        <Trash2 size={15} /> Close All
       </button>
 
       <div className="spacer" />

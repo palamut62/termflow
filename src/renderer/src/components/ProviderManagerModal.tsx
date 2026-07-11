@@ -5,7 +5,7 @@ import { useAppStore } from '../store/appStore'
 
 const emptyProfile = (): AiProviderProfile => ({
   id: crypto.randomUUID(), name: 'New Provider', command: '', model: '', baseUrl: '',
-  apiKeyEnv: '', modelEnv: '', baseUrlEnv: '', color: '#2f80ff'
+  apiKeyEnv: '', modelEnv: '', baseUrlEnv: '', color: '#2f80ff', fullPermissionArgs: ''
 })
 
 export default function ProviderManagerModal({ onClose }: { onClose: () => void }): React.JSX.Element {
@@ -37,6 +37,7 @@ export default function ProviderManagerModal({ onClose }: { onClose: () => void 
                 <label>API key variable<input value={profile.apiKeyEnv} onChange={(e) => patchProfile(profile.id, { apiKeyEnv: e.target.value })} placeholder="OPENAI_API_KEY" /></label>
                 <label>Model variable<input value={profile.modelEnv} onChange={(e) => patchProfile(profile.id, { modelEnv: e.target.value })} placeholder="OPENAI_MODEL" /></label>
                 <label>Base URL variable<input value={profile.baseUrlEnv} onChange={(e) => patchProfile(profile.id, { baseUrlEnv: e.target.value })} placeholder="OPENAI_BASE_URL" /></label>
+                <label>Full-permission arguments<input value={profile.fullPermissionArgs} onChange={(e) => patchProfile(profile.id, { fullPermissionArgs: e.target.value })} placeholder="--dangerously-skip-permissions" /></label>
               </div>
             </section>
           ))}

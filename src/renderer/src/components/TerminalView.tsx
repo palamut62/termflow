@@ -76,6 +76,8 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const cursorStyle = useAppStore((s) => s.settings.cursorStyle)
   const cursorBlink = useAppStore((s) => s.settings.cursorBlink)
   const terminalThemeName = useAppStore((s) => s.settings.terminalTheme)
+  const appTheme = useAppStore((s) => s.settings.theme)
+  const transparency = useAppStore((s) => s.settings.transparency)
   const highlightRules = useAppStore((s) => s.highlightRules)
   const terminalCount = useAppStore((s) => Object.keys(s.terminals).length)
 
@@ -270,8 +272,16 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.options.lineHeight = s.lineHeight
     term.options.cursorStyle = s.cursorStyle
     term.options.cursorBlink = s.cursorBlink
-    term.options.theme = getTheme(s.terminalTheme).theme
-  }, [fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, terminalThemeName])
+    const base = getTheme(s.terminalTheme).theme
+    const css = getComputedStyle(document.documentElement)
+    term.options.theme = {
+      ...base,
+      background: transparency < 100 ? 'rgba(0,0,0,0)' : css.getPropertyValue('--bg-terminal').trim(),
+      foreground: css.getPropertyValue('--text-primary').trim(),
+      cursor: css.getPropertyValue('--active-border').trim(),
+      selectionBackground: css.getPropertyValue('--accent-soft').trim()
+    }
+  }, [fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, terminalThemeName, appTheme, transparency])
 
   // Re-apply highlight decorations when the rule set changes.
   useEffect(() => {

@@ -208,14 +208,17 @@ function parseAgentActivities(
 }
 
 // Apply light/dark/system theme by toggling the root data-theme attribute.
-function applyTheme(theme: 'dark' | 'light' | 'system'): void {
+function applyTheme(theme: AppSettings['theme'], transparency = useAppStore.getState().settings.transparency): void {
   const root = document.documentElement
   const systemDark = (): boolean =>
     window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : true
   const resolve = (): void => {
-    const isLight = theme === 'light' || (theme === 'system' && !systemDark())
-    if (isLight) root.setAttribute('data-theme', 'light')
-    else root.removeAttribute('data-theme')
+    const resolved = theme === 'system' ? (systemDark() ? 'mocha' : 'latte') : theme === 'dark' ? 'mocha' : theme === 'light' ? 'latte' : theme
+    const isLight = resolved === 'latte' || resolved === 'matcha'
+    root.setAttribute('data-theme', resolved)
+    const opacity = Math.max(45, Math.min(100, transparency))
+    root.toggleAttribute('data-transparency', opacity < 100)
+    root.style.setProperty('--user-opacity', String(opacity / 100))
     // Keep the native Windows titlebar overlay (min/max/close) in sync.
     if (isLight) window.termflow.window.setOverlay('#eaedf3', '#4a5162')
     else window.termflow.window.setOverlay('#20242c', '#a0a7b4')
@@ -341,7 +344,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const settings = await window.termflow.settings.get()
     set({ settings })
     document.documentElement.style.setProperty('--active-border', settings.activeBorderColor)
-    applyTheme(settings.theme)
+    applyTheme(settings.theme, settings.transparency)
   },
 
   updateSettings: async (patch) => {
@@ -349,7 +352,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ settings })
     if (patch.activeBorderColor)
       document.documentElement.style.setProperty('--active-border', settings.activeBorderColor)
-    if (patch.theme) applyTheme(settings.theme)
+    if (patch.theme || patch.transparency !== undefined) applyTheme(settings.theme, settings.transparency)
   },
 
   loadWorkspaces: async () => {
