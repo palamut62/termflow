@@ -19,6 +19,8 @@ import {
   type FlowTemplateNode,
   type FlowTemplateConnection,
   type TaskTrigger
+  ,type WorkspaceFileEntry
+  ,type GitWorkbenchState
 } from '../shared/types'
 
 const api = {
@@ -78,6 +80,10 @@ const api = {
   dialog: {
     openDir: (): Promise<string | null> => ipcRenderer.invoke(IPC.DIALOG_OPEN_DIR),
     checkFile: (path: string): Promise<boolean> => ipcRenderer.invoke(IPC.DIALOG_CHECK_FILE, path)
+  },
+  files: {
+    list: (workspaceId: string, path?: string): Promise<WorkspaceFileEntry[]> => ipcRenderer.invoke(IPC.FS_LIST, workspaceId, path),
+    readText: (workspaceId: string, path: string): Promise<string> => ipcRenderer.invoke(IPC.FS_READ_TEXT, workspaceId, path)
   },
   workspaces: {
     list: (): Promise<Workspace[]> => ipcRenderer.invoke(IPC.WS_LIST),
@@ -172,7 +178,11 @@ const api = {
   // ---- Git ----
   git: {
     status: (cwd: string): Promise<GitStatus | null> => ipcRenderer.invoke(IPC.GIT_STATUS, cwd),
-    fetch: (cwd: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_FETCH, cwd)
+    fetch: (cwd: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_FETCH, cwd),
+    workbench: (cwd: string): Promise<GitWorkbenchState> => ipcRenderer.invoke(IPC.GIT_WORKBENCH, cwd),
+    stage: (cwd: string, paths: string[]): Promise<void> => ipcRenderer.invoke(IPC.GIT_STAGE, cwd, paths),
+    unstage: (cwd: string, paths: string[]): Promise<void> => ipcRenderer.invoke(IPC.GIT_UNSTAGE, cwd, paths),
+    commit: (cwd: string, message: string): Promise<string> => ipcRenderer.invoke(IPC.GIT_COMMIT, cwd, message)
   },
   // ---- Agent Routing ----
   agent: {

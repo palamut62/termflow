@@ -2,8 +2,8 @@ import { app, ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
-import { join } from 'path'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs'
+import { isAbsolute, join, relative, resolve } from 'path'
 import { nanoid } from 'nanoid'
 
 const execFileAsync = promisify(execFile)
@@ -26,6 +26,8 @@ import {
   type WorkspaceExport,
   type GitStatus,
   type WorkspaceHealthCheck
+  ,type WorkspaceFileEntry
+  ,type GitWorkbenchState
 } from '../../shared/types'
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
@@ -33,6 +35,15 @@ import * as dbApi from '../db/database'
 import { validateManifest, validateWorkspaceExport } from '../../shared/validation'
 
 const MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
+const MAX_PREVIEW_BYTES = 512 * 1024
+
+function pathInside(root: string, candidate: string): string {
+  const base = resolve(root)
+  const target = resolve(candidate)
+  const rel = relative(base, target)
+  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Path is outside the workspace')
+  return target
+}
 
 function workspaceEnv(workspaceId: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -672,6 +683,45 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : 'git fetch başarısız' }
     }
+  })
+
+  ipcMain.handle(IPC.FS_LIST, (_e, workspaceId: string, path?: string): WorkspaceFileEntry[] => {
+    const ws = dbApi.listWorkspaces().find((item) => item.id === workspaceId)
+    if (!ws) return []
+    const dir = pathInside(ws.path, path || ws.path)
+    return readdirSync(dir, { withFileTypes: true }).filter((item) => !['node_modules', '.git', 'dist', 'out'].includes(item.name)).map((item) => {
+      const fullPath = join(dir, item.name)
+      const stat = statSync(fullPath)
+      return { name: item.name, path: fullPath, directory: item.isDirectory(), size: stat.size }
+    }).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name))
+  })
+
+  ipcMain.handle(IPC.FS_READ_TEXT, (_e, workspaceId: string, path: string): string => {
+    const ws = dbApi.listWorkspaces().find((item) => item.id === workspaceId)
+    if (!ws) throw new Error('Workspace not found')
+    const target = pathInside(ws.path, path)
+    const stat = statSync(target)
+    if (stat.size > MAX_PREVIEW_BYTES) throw new Error('File is too large to preview')
+    const data = readFileSync(target)
+    if (data.includes(0)) throw new Error('Binary files cannot be previewed')
+    return data.toString('utf-8')
+  })
+
+  ipcMain.handle(IPC.GIT_WORKBENCH, async (_e, cwd: string): Promise<GitWorkbenchState> => {
+    const [{ stdout: branch }, { stdout: status }, { stdout: diff }] = await Promise.all([
+      execFileAsync('git', ['branch', '--show-current'], { cwd, encoding: 'utf-8', timeout: 5000 }),
+      execFileAsync('git', ['status', '--short'], { cwd, encoding: 'utf-8', timeout: 5000 }),
+      execFileAsync('git', ['diff', '--no-ext-diff', '--stat', '--patch'], { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 2 * 1024 * 1024 })
+    ])
+    return { branch: branch.trim(), status, diff }
+  })
+  ipcMain.handle(IPC.GIT_STAGE, async (_e, cwd: string, paths: string[]) => { await execFileAsync('git', ['add', '--', ...paths], { cwd, timeout: 10000 }); gitStatusCache.delete(cwd) })
+  ipcMain.handle(IPC.GIT_UNSTAGE, async (_e, cwd: string, paths: string[]) => { await execFileAsync('git', ['restore', '--staged', '--', ...paths], { cwd, timeout: 10000 }); gitStatusCache.delete(cwd) })
+  ipcMain.handle(IPC.GIT_COMMIT, async (_e, cwd: string, message: string) => {
+    if (!message.trim() || message.length > 240) throw new Error('Commit message is invalid')
+    const { stdout } = await execFileAsync('git', ['commit', '-m', message.trim()], { cwd, encoding: 'utf-8', timeout: 30000 })
+    gitStatusCache.delete(cwd)
+    return stdout
   })
 
   // ---- Agent Routing ----

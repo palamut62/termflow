@@ -18,12 +18,14 @@ import {
   ,CircleHelp
   ,Trash2
   ,FileSearch
+  ,PanelLeftOpen
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
 import CustomCommandModal from './CustomCommandModal'
 import FlowTemplatesModal from './FlowTemplatesModal'
 import GlobalSearchModal from './GlobalSearchModal'
+import DeveloperWorkbench from './DeveloperWorkbench'
 import type { LayoutMode, ShellKind } from '../../../shared/types'
 
 interface Props {
@@ -74,6 +76,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [customModal, setCustomModal] = useState(false)
   const [flowModal, setFlowModal] = useState(false)
   const [globalSearchModal, setGlobalSearchModal] = useState(false)
+  const [workbench, setWorkbench] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
@@ -258,6 +261,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       <button className="tb-btn" title="Search all terminals" onClick={() => setGlobalSearchModal(true)}>
         <FileSearch size={15} />
       </button>
+      <button className="tb-btn" disabled={disabled} title="Developer Workbench" onClick={() => setWorkbench(true)}><PanelLeftOpen size={15} /></button>
       <button
         className="tb-btn"
         disabled={disabled}
@@ -285,6 +289,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       )}
       {flowModal && <FlowTemplatesModal onClose={() => setFlowModal(false)} />}
       {globalSearchModal && <GlobalSearchModal onClose={() => setGlobalSearchModal(false)} />}
+      {workbench && <DeveloperWorkbench onClose={() => setWorkbench(false)} />}
     </div>
   )
 }

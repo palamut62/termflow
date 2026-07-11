@@ -6,6 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { SearchAddon } from '@xterm/addon-search'
 import { registerWriter } from '../terminalRegistry'
 import { useAppStore } from '../store/appStore'
+import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
 
 interface Props {
@@ -178,6 +179,8 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // Forward input to the PTY only when this terminal is the active one.
     const dataSub = term.onData((data) => {
       if (!activeRef.current) return
+      const state = useAppStore.getState()
+      if (state.activeWorkspaceId) captureCommandInput(state.activeWorkspaceId, terminalId, state.terminals[terminalId]?.cwd ?? '', data)
       window.termflow.pty.write(terminalId, data)
       // Broadcast keystrokes to all members of the broadcast group (P0-4)
       const st = useAppStore.getState()

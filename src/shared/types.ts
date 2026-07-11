@@ -287,6 +287,9 @@ export interface GitStatus {
   behind?: number
 }
 
+export interface WorkspaceFileEntry { name: string; path: string; directory: boolean; size: number }
+export interface GitWorkbenchState { branch: string; status: string; diff: string }
+
 export interface WorkspaceHealthCheck {
   id: string
   label: string
@@ -433,6 +436,12 @@ export const IPC = {
   PTY_CWD: 'pty:cwd', // main -> renderer: OSC 7 cwd change detected in a terminal's output
   PROC_STATS: 'proc:stats', // renderer -> main: get cpu/mem for pids
   GIT_FETCH: 'git:fetch', // renderer -> main: run `git fetch` for a cwd
+  GIT_WORKBENCH: 'git:workbench',
+  GIT_STAGE: 'git:stage',
+  GIT_UNSTAGE: 'git:unstage',
+  GIT_COMMIT: 'git:commit',
+  FS_LIST: 'fs:list',
+  FS_READ_TEXT: 'fs:readText',
   // shells
   SHELLS_DISCOVER: 'shells:discover',
   // settings
