@@ -493,6 +493,46 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
   })
 
+  // ---- Task Triggers (process_exit / timer, feature: expanded task triggers) ----
+  const taskTriggersDir = join(app.getPath('userData'), 'task-triggers')
+  function ensureTaskTriggersDir(): void {
+    if (!existsSync(taskTriggersDir)) mkdirSync(taskTriggersDir, { recursive: true })
+  }
+  function taskTriggersFile(workspaceId: string): string {
+    return join(taskTriggersDir, `${workspaceId}.json`)
+  }
+  function readTaskTriggers(workspaceId: string): unknown[] {
+    try {
+      const f = taskTriggersFile(workspaceId)
+      if (!existsSync(f)) return []
+      return JSON.parse(readFileSync(f, 'utf-8'))
+    } catch {
+      return []
+    }
+  }
+
+  ipcMain.handle(IPC.TASK_TRIGGER_LIST, async (_e, workspaceId: string) => {
+    return readTaskTriggers(workspaceId)
+  })
+
+  ipcMain.handle(IPC.TASK_TRIGGER_SAVE, async (_e, trigger: { id?: string; workspaceId: string }) => {
+    if (!trigger?.workspaceId) return { error: 'Missing workspace' }
+    ensureTaskTriggersDir()
+    const existing = readTaskTriggers(trigger.workspaceId) as Array<{ id: string }>
+    const id = trigger.id || nanoid()
+    const saved = { ...trigger, id }
+    const next = existing.some((t) => t.id === id)
+      ? existing.map((t) => (t.id === id ? saved : t))
+      : [...existing, saved]
+    writeFileSync(taskTriggersFile(trigger.workspaceId), JSON.stringify(next, null, 2), 'utf-8')
+    return { id }
+  })
+
+  ipcMain.handle(IPC.TASK_TRIGGER_DELETE, async (_e, workspaceId: string, id: string) => {
+    const existing = readTaskTriggers(workspaceId) as Array<{ id: string }>
+    writeFileSync(taskTriggersFile(workspaceId), JSON.stringify(existing.filter((t) => t.id !== id), null, 2), 'utf-8')
+  })
+
   // ---- Project Manifest (.termflow.json) ----
   ipcMain.handle(IPC.WS_CHECK_MANIFEST, async (_e, cwd: string) => {
     const manifestPath = join(cwd, '.termflow.json')

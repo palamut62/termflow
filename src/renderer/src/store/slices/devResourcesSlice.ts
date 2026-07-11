@@ -6,7 +6,8 @@ import type {
   Snippet,
   HighlightRule,
   SshProfile,
-  TermflowManifest
+  TermflowManifest,
+  TaskTrigger
 } from '../../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../../shared/types'
 import { isValidSshProfile } from '../../../../shared/validation'
@@ -55,10 +56,24 @@ export interface DevResourcesSlice {
   packageManager: 'npm' | 'pnpm' | 'yarn'
   loadPkgScripts: () => Promise<void>
   runPkgScript: (scriptName: string) => Promise<void>
+
+  // Task triggers: process_exit / timer (feature: expanded task triggers)
+  taskTriggers: TaskTrigger[]
+  loadTaskTriggers: () => Promise<void>
+  saveTaskTrigger: (trigger: Omit<TaskTrigger, 'id' | 'workspaceId'> & { id?: string }) => Promise<void>
+  deleteTaskTrigger: (id: string) => Promise<void>
+  toggleTaskTrigger: (id: string) => Promise<void>
+  runTaskTriggerAction: (trigger: TaskTrigger) => Promise<void>
 }
 
 let gitPollingStarted = false
 let workspaceRequest = 0
+const timerHandles = new Map<string, ReturnType<typeof setInterval>>()
+
+function clearTaskTimers(): void {
+  for (const handle of timerHandles.values()) clearInterval(handle)
+  timerHandles.clear()
+}
 
 export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResourcesSlice> = (set, get) => ({
   workspaces: [],
@@ -73,6 +88,7 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
   gitStatus: {},
   pkgScripts: {},
   packageManager: 'npm',
+  taskTriggers: [],
 
   loadSettings: async () => {
     const settings = await window.termflow.settings.get()
@@ -103,6 +119,7 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
     if (prev.activeWorkspaceId && prev.activeWorkspaceId !== id) {
       for (const t of Object.values(prev.terminals)) window.termflow.pty.kill(t.id)
     }
+    clearTaskTimers()
 
     const layout = await window.termflow.layout.get(id)
     const terms = await window.termflow.terminals.list(id)
@@ -200,6 +217,7 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
     syncAgentRouting(layout.nodes, layout.connections)
     await window.termflow.workspaces.update(id, { lastOpenedAt: new Date().toISOString() })
     await get().loadPkgScripts()
+    await get().loadTaskTriggers()
   },
 
   createWorkspace: async (input) => {
@@ -392,6 +410,54 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       name: scriptName,
       cwd: ws.path,
       startupCommand: `${st.packageManager} run ${scriptName}`
+    })
+  },
+
+  // ---- Task Triggers (process_exit / timer) ----
+  loadTaskTriggers: async () => {
+    const wsId = get().activeWorkspaceId
+    clearTaskTimers()
+    if (!wsId) {
+      set({ taskTriggers: [] })
+      return
+    }
+    const taskTriggers = await window.termflow.taskTriggers.list(wsId)
+    set({ taskTriggers })
+    for (const trigger of taskTriggers) {
+      if (trigger.kind !== 'timer' || !trigger.enabled || !trigger.intervalMs) continue
+      const handle = setInterval(() => { void get().runTaskTriggerAction(trigger) }, Math.max(5000, trigger.intervalMs))
+      timerHandles.set(trigger.id, handle)
+    }
+  },
+
+  saveTaskTrigger: async (trigger) => {
+    const wsId = get().activeWorkspaceId
+    if (!wsId) return
+    await window.termflow.taskTriggers.save({ ...trigger, workspaceId: wsId } as TaskTrigger)
+    await get().loadTaskTriggers()
+  },
+
+  deleteTaskTrigger: async (id) => {
+    const wsId = get().activeWorkspaceId
+    if (!wsId) return
+    await window.termflow.taskTriggers.remove(wsId, id)
+    await get().loadTaskTriggers()
+  },
+
+  toggleTaskTrigger: async (id) => {
+    const trigger = get().taskTriggers.find((t) => t.id === id)
+    if (!trigger) return
+    await get().saveTaskTrigger({ ...trigger, enabled: !trigger.enabled })
+  },
+
+  runTaskTriggerAction: async (trigger) => {
+    const st = get()
+    const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
+    if (!ws || !trigger.command.trim()) return
+    await get().addTerminal(trigger.shell ?? 'cmd', {
+      name: trigger.name || 'Trigger',
+      cwd: trigger.cwd || ws.path,
+      startupCommand: trigger.command
     })
   }
 })

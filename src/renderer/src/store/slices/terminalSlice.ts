@@ -487,20 +487,30 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const st = get()
       const t = st.terminals[id]
       if (t) notifyLongCommandDone(id, t.name, exitCode, durationMs)
+      // Check if this terminalId belongs to any node (pane-tree aware)
+      const nodeWithTerm = st.nodes.find((n) => {
+        if (n.terminalId === id) return true
+        if (n.panes) return getLeafTerminalIds(n.panes).includes(id)
+        return false
+      })
       set((s) => {
         const t = s.terminals[id]
         if (!t) return {}
-        // Check if this terminalId belongs to any node (pane-tree aware)
-        const nodeWithTerm = s.nodes.find((n) => {
-          if (n.terminalId === id) return true
-          if (n.panes) return getLeafTerminalIds(n.panes).includes(id)
-          return false
-        })
         return {
           terminals: { ...s.terminals, [id]: { ...t, status: 'exited', pid: undefined } },
           nodes: s.nodes.map((n) => (n === nodeWithTerm ? { ...n, status: 'stopped' } : n))
         }
       })
+      // Fire matching process_exit task triggers ("when command finishes, run X"). (feature: expanded task triggers)
+      if (nodeWithTerm) {
+        for (const trigger of get().taskTriggers) {
+          if (trigger.kind !== 'process_exit' || !trigger.enabled || trigger.sourceNodeId !== nodeWithTerm.id) continue
+          const filter = trigger.exitCodeFilter ?? 'any'
+          if (filter === 'zero' && exitCode !== 0) continue
+          if (filter === 'nonzero' && exitCode === 0) continue
+          void get().runTaskTriggerAction(trigger)
+        }
+      }
     })
     window.termflow.agent.onRoute((connectionId) => {
       // Pulse the edge 'active' while data flows, then relax back to 'idle'.

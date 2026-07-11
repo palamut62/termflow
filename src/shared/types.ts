@@ -246,6 +246,30 @@ export interface FlowTemplate {
   connections: FlowTemplateConnection[]
 }
 
+// ---- Task Triggers (feature: expanded task triggers) ----
+// Beyond output-regex agent routing: fire a shell command when a specific
+// node's process exits (optionally filtered by exit code), or on a repeating
+// timer. ("when command finishes, run X")
+export type TaskTriggerKind = 'process_exit' | 'timer'
+export type ExitCodeFilter = 'any' | 'zero' | 'nonzero'
+
+export interface TaskTrigger {
+  id: string
+  workspaceId: string
+  name: string
+  kind: TaskTriggerKind
+  enabled: boolean
+  // process_exit
+  sourceNodeId?: string
+  exitCodeFilter?: ExitCodeFilter
+  // timer
+  intervalMs?: number
+  // action
+  command: string
+  shell?: ShellKind
+  cwd?: string
+}
+
 // ---- Env Vars (P2-11) ----
 export interface EnvEntry {
   id: string
@@ -462,6 +486,10 @@ export const IPC = {
   FLOW_TEMPLATE_LIST: 'flowTemplate:list',
   FLOW_TEMPLATE_SAVE: 'flowTemplate:save',
   FLOW_TEMPLATE_DELETE: 'flowTemplate:delete',
+  // task triggers
+  TASK_TRIGGER_LIST: 'taskTrigger:list',
+  TASK_TRIGGER_SAVE: 'taskTrigger:save',
+  TASK_TRIGGER_DELETE: 'taskTrigger:delete',
   // env vars
   ENV_LIST: 'env:list',
   ENV_CREATE: 'env:create',

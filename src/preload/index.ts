@@ -17,7 +17,8 @@ import {
   type WorkspaceHealthCheck,
   type FlowTemplate,
   type FlowTemplateNode,
-  type FlowTemplateConnection
+  type FlowTemplateConnection,
+  type TaskTrigger
 } from '../shared/types'
 
 const api = {
@@ -102,6 +103,14 @@ const api = {
     save: (name: string, nodes: FlowTemplateNode[], connections: FlowTemplateConnection[]): Promise<{ id?: string; error?: string }> =>
       ipcRenderer.invoke(IPC.FLOW_TEMPLATE_SAVE, name, nodes, connections),
     remove: (templateId: string): Promise<void> => ipcRenderer.invoke(IPC.FLOW_TEMPLATE_DELETE, templateId)
+  },
+  // ---- Task Triggers (process_exit / timer) ----
+  taskTriggers: {
+    list: (workspaceId: string): Promise<TaskTrigger[]> => ipcRenderer.invoke(IPC.TASK_TRIGGER_LIST, workspaceId),
+    save: (trigger: TaskTrigger): Promise<{ id?: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.TASK_TRIGGER_SAVE, trigger),
+    remove: (workspaceId: string, id: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.TASK_TRIGGER_DELETE, workspaceId, id)
   },
   // ---- Workspace Templates ----
   templates: {
