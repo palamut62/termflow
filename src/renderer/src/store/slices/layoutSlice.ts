@@ -29,6 +29,7 @@ export interface LayoutSlice {
   toggleMaximize: (nodeId: string) => void
   toggleInfo: (nodeId: string) => void
   renameNode: (nodeId: string, title: string) => void
+  togglePin: (nodeId: string) => void
 
   addConnection: (source: string, target: string, type: ConnectionType, label?: string, routeOpts?: { triggerPattern?: string; transform?: string; routeBehavior?: 'marker' | 'continuous' | 'disabled'; routeDirection?: 'source_to_target' | 'bidirectional' }) => void
   removeConnection: (id: string) => void
@@ -188,6 +189,11 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
 
   renameNode: (nodeId, title) => {
     set((s) => ({ nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, title } : n)) }))
+    get().persist()
+  },
+
+  togglePin: (nodeId) => {
+    set((s) => ({ nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, isPinned: !n.isPinned } : n)) }))
     get().persist()
   },
 

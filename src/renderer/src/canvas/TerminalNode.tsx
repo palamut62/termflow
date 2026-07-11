@@ -14,7 +14,10 @@ import {
   Bot,
   TerminalSquare,
   AlertTriangle,
-  GitBranch
+  GitBranch,
+  Copy,
+  Pin,
+  PinOff
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
@@ -279,6 +282,8 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const toggleInfo = useAppStore((s) => s.toggleInfo)
   const restartNode = useAppStore((s) => s.restartNode)
   const closeNode = useAppStore((s) => s.closeNode)
+  const duplicateNode = useAppStore((s) => s.duplicateNode)
+  const togglePin = useAppStore((s) => s.togglePin)
   const renameNode = useAppStore((s) => s.renameNode)
   const updateNode = useAppStore((s) => s.updateNode)
   const closePaneInNode = useAppStore((s) => s.closePaneInNode)
@@ -445,6 +450,12 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           </button>
           <button className="hbtn" title="Restart" onClick={() => restartNode(id)}>
             <RotateCw size={13} />
+          </button>
+          <button className="hbtn" title="Duplicate (same shell/cwd/startup)" onClick={() => duplicateNode(id)}>
+            <Copy size={13} />
+          </button>
+          <button className={`hbtn ${node.isPinned ? 'active' : ''}`} title={node.isPinned ? 'Unpin (allow auto-layout to move it)' : 'Pin (auto-layout will not move it)'} onClick={() => togglePin(id)}>
+            {node.isPinned ? <PinOff size={13} /> : <Pin size={13} />}
           </button>
           <button className="hbtn danger" title="Close" onClick={() => setClosing(true)}>
             <X size={15} />

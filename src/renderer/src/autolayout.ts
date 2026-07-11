@@ -22,7 +22,9 @@ export function computeLayout(
   connections: AgentConnection[] = []
 ): Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> {
   const result: Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> = {}
-  const visible = nodes.filter((n) => !n.isMinimized)
+  // Pinned nodes stay exactly where the user put them — excluded from the
+  // tiling pass entirely so auto-layout never moves or resizes them.
+  const visible = nodes.filter((n) => !n.isMinimized && !n.isPinned)
   const n = visible.length
   if (n === 0) return result
 

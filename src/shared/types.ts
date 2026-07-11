@@ -107,6 +107,8 @@ export interface CanvasNode {
   showInfo: boolean
   /** Runtime-only: true when the node was spawned with the permission-bypass flag. Not persisted into startupCommand. */
   bypass?: boolean
+  /** When true, auto-layout (grid/columns/rows/auto_fit/focus) skips repositioning this node. */
+  isPinned?: boolean
 }
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
@@ -395,8 +397,14 @@ export const IPC = {
   WS_DELETE: 'ws:delete',
   WS_EXPORT: 'ws:export',
   WS_IMPORT: 'ws:import',
+  WS_CLONE: 'ws:clone',
   WS_CHECK_MANIFEST: 'ws:checkManifest',
   WS_HEALTH: 'ws:health',
+  // workspace templates
+  TEMPLATE_SAVE: 'template:save',
+  TEMPLATE_LIST: 'template:list',
+  TEMPLATE_CREATE_WORKSPACE: 'template:createWorkspace',
+  TEMPLATE_DELETE: 'template:delete',
   DIAGNOSTICS_EXPORT: 'diagnostics:export',
   // layout
   LAYOUT_GET: 'layout:get',

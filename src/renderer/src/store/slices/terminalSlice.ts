@@ -28,6 +28,7 @@ export interface TerminalSlice {
   termEpoch: Record<string, number> // bump to force xterm remount on restart
 
   addTerminal: (kind: ShellKind, opts?: NewTerminalOpts) => Promise<void>
+  duplicateNode: (nodeId: string) => Promise<void>
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
   reattachTerminal: (terminalId: string) => Promise<void>
   restartNode: (nodeId: string) => Promise<void>
@@ -161,6 +162,26 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       }
     })
     get().persist()
+  },
+
+  // Duplicate a node: spawn a fresh terminal with the same shell/cwd/startup
+  // command as the source node's active terminal (feature: terminal duplicate).
+  duplicateNode: async (nodeId) => {
+    const st = get()
+    const node = st.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    const termId = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
+    const source = termId ? st.terminals[termId] : undefined
+    if (!source) return
+    await get().addTerminal(source.kind, {
+      cwd: source.cwd,
+      startupCommand: source.startupCommand,
+      customShell: source.shell !== source.kind ? source.shell : undefined,
+      args: source.args,
+      name: `${node.title} copy`,
+      agentRole: node.agentRole,
+      env: source.env
+    })
   },
 
   closeNode: async (nodeId, mode) => {

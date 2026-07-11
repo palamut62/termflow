@@ -2,7 +2,7 @@ import { app, ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { nanoid } from 'nanoid'
 
@@ -193,12 +193,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   })
   ipcMain.handle(IPC.ENV_DELETE, (_e, id: string) => dbApi.deleteEnvVar(id))
 
-  // ---- Workspace Export/Import ----
-  ipcMain.handle(IPC.WS_EXPORT, async (_e, workspaceId: string) => {
+  // ---- Workspace Export/Import (shared helpers also power templates + clone) ----
+  function buildWorkspaceExport(workspaceId: string): WorkspaceExport | null {
     const ws = dbApi.listWorkspaces().find((w) => w.id === workspaceId)
-    if (!ws) return
+    if (!ws) return null
     const data = dbApi.exportWorkspaceData(workspaceId)
-    const exp: WorkspaceExport = {
+    return {
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
       workspace: {
@@ -216,33 +216,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       sshProfiles: data.sshProfiles,
       envVars: data.envVars.map((v) => v.masked ? { ...v, value: '' } : v)
     }
-    const win = getWindow()
-    const res = await dialog.showSaveDialog(win!, {
-      title: 'Export Workspace',
-      defaultPath: `${ws.name.replace(/\s+/g, '_')}.termflow.json`,
-      filters: [{ name: 'TermFlow Workspace', extensions: ['termflow.json'] }]
-    })
-    if (!res.canceled && res.filePath) {
-      writeFileSync(res.filePath, JSON.stringify(exp, null, 2), 'utf-8')
-    }
-  })
+  }
 
-  ipcMain.handle(IPC.WS_IMPORT, async () => {
-    const win = getWindow()
-    const res = await dialog.showOpenDialog(win!, {
-      title: 'Import Workspace',
-      filters: [{ name: 'TermFlow Workspace', extensions: ['termflow.json'] }],
-      properties: ['openFile']
-    })
-    if (res.canceled || !res.filePaths[0]) return null
+  function instantiateWorkspaceExport(raw: WorkspaceExport, overrides?: { name?: string; path?: string }): { id: string } | { error: string } {
     try {
-      const file = res.filePaths[0]
-      const source = readFileSync(file, 'utf-8')
-      if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) throw new Error('Import file is too large')
-      const checked = validateWorkspaceExport(JSON.parse(source))
-      if (!checked.data) throw new Error(checked.errors.join(' '))
-      const raw = checked.data
-
       // Generate new IDs via remap
       const idMap = new Map<string, string>()
       const remap = (oldId: string): string => {
@@ -278,8 +255,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       }))
 
       const ws = dbApi.createWorkspace({
-        name: raw.workspace.name || 'Imported',
-        path: raw.workspace.path || process.env.USERPROFILE || '',
+        name: overrides?.name || raw.workspace.name || 'Imported',
+        path: overrides?.path || raw.workspace.path || process.env.USERPROFILE || '',
         description: raw.workspace.description,
         defaultLayoutMode: raw.workspace.defaultLayoutMode
       })
@@ -315,6 +292,106 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     } catch (err) {
       console.error('Import failed:', err)
       return { error: err instanceof Error ? err.message : 'Import failed' }
+    }
+  }
+
+  ipcMain.handle(IPC.WS_EXPORT, async (_e, workspaceId: string) => {
+    const exp = buildWorkspaceExport(workspaceId)
+    if (!exp) return
+    const win = getWindow()
+    const res = await dialog.showSaveDialog(win!, {
+      title: 'Export Workspace',
+      defaultPath: `${exp.workspace.name.replace(/\s+/g, '_')}.termflow.json`,
+      filters: [{ name: 'TermFlow Workspace', extensions: ['termflow.json'] }]
+    })
+    if (!res.canceled && res.filePath) {
+      writeFileSync(res.filePath, JSON.stringify(exp, null, 2), 'utf-8')
+    }
+  })
+
+  ipcMain.handle(IPC.WS_IMPORT, async () => {
+    const win = getWindow()
+    const res = await dialog.showOpenDialog(win!, {
+      title: 'Import Workspace',
+      filters: [{ name: 'TermFlow Workspace', extensions: ['termflow.json'] }],
+      properties: ['openFile']
+    })
+    if (res.canceled || !res.filePaths[0]) return null
+    try {
+      const file = res.filePaths[0]
+      const source = readFileSync(file, 'utf-8')
+      if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) throw new Error('Import file is too large')
+      const checked = validateWorkspaceExport(JSON.parse(source))
+      if (!checked.data) throw new Error(checked.errors.join(' '))
+      return instantiateWorkspaceExport(checked.data)
+    } catch (err) {
+      console.error('Import failed:', err)
+      return { error: err instanceof Error ? err.message : 'Import failed' }
+    }
+  })
+
+  // ---- Workspace Clone (duplicate an existing workspace's full layout) ----
+  ipcMain.handle(IPC.WS_CLONE, async (_e, workspaceId: string) => {
+    const exp = buildWorkspaceExport(workspaceId)
+    if (!exp) return { error: 'Workspace not found' }
+    return instantiateWorkspaceExport(exp, { name: `${exp.workspace.name} (Copy)` })
+  })
+
+  // ---- Workspace Templates (save current layout, reuse it for new workspaces) ----
+  const templatesDir = join(app.getPath('userData'), 'templates')
+  function ensureTemplatesDir(): void {
+    if (!existsSync(templatesDir)) mkdirSync(templatesDir, { recursive: true })
+  }
+  function templateFile(id: string): string {
+    return join(templatesDir, `${id}.termflow.json`)
+  }
+
+  ipcMain.handle(IPC.TEMPLATE_SAVE, async (_e, workspaceId: string, templateName: string) => {
+    const exp = buildWorkspaceExport(workspaceId)
+    if (!exp) return { error: 'Workspace not found' }
+    ensureTemplatesDir()
+    const id = nanoid()
+    const payload = { ...exp, templateName: templateName || exp.workspace.name }
+    writeFileSync(templateFile(id), JSON.stringify(payload, null, 2), 'utf-8')
+    return { id }
+  })
+
+  ipcMain.handle(IPC.TEMPLATE_LIST, async () => {
+    ensureTemplatesDir()
+    try {
+      return readdirSync(templatesDir)
+        .filter((f) => f.endsWith('.termflow.json'))
+        .map((f) => {
+          const id = f.replace(/\.termflow\.json$/, '')
+          try {
+            const data = JSON.parse(readFileSync(join(templatesDir, f), 'utf-8'))
+            return { id, name: data.templateName || data.workspace?.name || id, savedAt: data.exportedAt || '' }
+          } catch {
+            return null
+          }
+        })
+        .filter((t): t is { id: string; name: string; savedAt: string } => !!t)
+    } catch {
+      return []
+    }
+  })
+
+  ipcMain.handle(IPC.TEMPLATE_CREATE_WORKSPACE, async (_e, templateId: string, opts?: { name?: string; path?: string }) => {
+    try {
+      const source = readFileSync(templateFile(templateId), 'utf-8')
+      const checked = validateWorkspaceExport(JSON.parse(source))
+      if (!checked.data) throw new Error(checked.errors.join(' '))
+      return instantiateWorkspaceExport(checked.data, opts)
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Template could not be applied' }
+    }
+  })
+
+  ipcMain.handle(IPC.TEMPLATE_DELETE, async (_e, templateId: string) => {
+    try {
+      if (existsSync(templateFile(templateId))) unlinkSync(templateFile(templateId))
+    } catch {
+      /* ignore */
     }
   })
 

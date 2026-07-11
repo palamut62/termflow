@@ -84,8 +84,18 @@ const api = {
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.WS_DELETE, id),
     export: (workspaceId: string): Promise<void> => ipcRenderer.invoke(IPC.WS_EXPORT, workspaceId),
     import: (): Promise<{ id?: string; error?: string } | null> => ipcRenderer.invoke(IPC.WS_IMPORT),
+    clone: (workspaceId: string): Promise<{ id?: string; error?: string }> => ipcRenderer.invoke(IPC.WS_CLONE, workspaceId),
     checkManifest: (cwd: string): Promise<unknown> => ipcRenderer.invoke(IPC.WS_CHECK_MANIFEST, cwd),
     health: (workspaceId: string): Promise<WorkspaceHealthCheck[]> => ipcRenderer.invoke(IPC.WS_HEALTH, workspaceId)
+  },
+  // ---- Workspace Templates ----
+  templates: {
+    save: (workspaceId: string, name: string): Promise<{ id?: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.TEMPLATE_SAVE, workspaceId, name),
+    list: (): Promise<{ id: string; name: string; savedAt: string }[]> => ipcRenderer.invoke(IPC.TEMPLATE_LIST),
+    createWorkspace: (templateId: string, opts?: { name?: string; path?: string }): Promise<{ id?: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.TEMPLATE_CREATE_WORKSPACE, templateId, opts),
+    remove: (templateId: string): Promise<void> => ipcRenderer.invoke(IPC.TEMPLATE_DELETE, templateId)
   },
   terminals: {
     list: (workspaceId: string): Promise<TerminalSession[]> =>
