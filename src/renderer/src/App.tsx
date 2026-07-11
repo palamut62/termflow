@@ -122,11 +122,14 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const openLauncher = (): void => setShowTerminalLauncher(true)
     const openProviders = (): void => setShowProviderManager(true)
+    const closeAll = (): void => setConfirm({ title: 'Close all terminals', message: 'All terminal processes in this workspace will be terminated completely.', confirmLabel: 'Terminate All', tone: 'danger', onConfirm: () => useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')) })
     window.addEventListener('termflow:open-terminal-launcher', openLauncher)
     window.addEventListener('termflow:open-provider-manager', openProviders)
+    window.addEventListener('termflow:close-all-terminals', closeAll)
     return () => {
       window.removeEventListener('termflow:open-terminal-launcher', openLauncher)
       window.removeEventListener('termflow:open-provider-manager', openProviders)
+      window.removeEventListener('termflow:close-all-terminals', closeAll)
     }
   }, [])
 
