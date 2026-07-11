@@ -642,11 +642,36 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
         execFileAsync('git', ['status', '--porcelain'], { cwd, encoding: 'utf-8', timeout: 3000 })
       ])
       result = { branch: branchOut.trim(), dirty: statusOut.length > 0 }
+      // Ahead/behind vs upstream — best-effort, missing upstream just leaves these undefined.
+      try {
+        const { stdout: aheadBehindOut } = await execFileAsync(
+          'git',
+          ['rev-list', '--left-right', '--count', 'HEAD...@{u}'],
+          { cwd, encoding: 'utf-8', timeout: 3000 }
+        )
+        const [ahead, behind] = aheadBehindOut.trim().split(/\s+/).map(Number)
+        if (!Number.isNaN(ahead) && !Number.isNaN(behind)) {
+          result.ahead = ahead
+          result.behind = behind
+        }
+      } catch {
+        /* no upstream configured, ignore */
+      }
     } catch {
       result = null
     }
     gitStatusCache.set(cwd, { result, timestamp: Date.now() })
     return result
+  })
+
+  ipcMain.handle(IPC.GIT_FETCH, async (_e, cwd: string): Promise<{ ok: boolean; message: string }> => {
+    try {
+      await execFileAsync('git', ['fetch'], { cwd, encoding: 'utf-8', timeout: 15000 })
+      gitStatusCache.delete(cwd)
+      return { ok: true, message: 'git fetch tamamlandı' }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : 'git fetch başarısız' }
+    }
   })
 
   // ---- Agent Routing ----

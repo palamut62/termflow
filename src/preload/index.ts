@@ -53,6 +53,11 @@ const api = {
       const h = (_e: unknown, payload: { id: string }): void => cb(payload.id)
       ipcRenderer.on(IPC.PTY_AWAITING, h)
       return () => ipcRenderer.removeListener(IPC.PTY_AWAITING, h)
+    },
+    onCwd: (cb: (id: string, cwd: string) => void): (() => void) => {
+      const h = (_e: unknown, payload: { id: string; cwd: string }): void => cb(payload.id, payload.cwd)
+      ipcRenderer.on(IPC.PTY_CWD, h)
+      return () => ipcRenderer.removeListener(IPC.PTY_CWD, h)
     }
   },
   proc: {
@@ -166,7 +171,8 @@ const api = {
   },
   // ---- Git ----
   git: {
-    status: (cwd: string): Promise<GitStatus | null> => ipcRenderer.invoke(IPC.GIT_STATUS, cwd)
+    status: (cwd: string): Promise<GitStatus | null> => ipcRenderer.invoke(IPC.GIT_STATUS, cwd),
+    fetch: (cwd: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_FETCH, cwd)
   },
   // ---- Agent Routing ----
   agent: {

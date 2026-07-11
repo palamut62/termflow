@@ -298,6 +298,9 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const recordingLimitWarning = useAppStore((s) => s.recordingLimitWarning)
   const dismissRecordingLimitWarning = useAppStore((s) => s.dismissRecordingLimitWarning)
   const gitStatus = useAppStore((s) => s.gitStatus)
+  const fetchGitRemote = useAppStore((s) => s.fetchGitRemote)
+  const refreshGitStatus = useAppStore((s) => s.refreshGitStatus)
+  const copyGitBranch = useAppStore((s) => s.copyGitBranch)
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const broadcastGroup = useAppStore((s) => s.broadcastGroup)
 
@@ -305,6 +308,8 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const [closing, setClosing] = useState(false)
   const [recording, setRecording] = useState(false)
   const [showLogSummary, setShowLogSummary] = useState(false)
+  const [showGitMenu, setShowGitMenu] = useState(false)
+  const [gitActionMsg, setGitActionMsg] = useState<string | null>(null)
 
   useEffect(() => {
     if (recordingLimitWarning && recordingLimitWarning.terminalId === termId) {
@@ -401,12 +406,37 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           </span>
         )}
         {termId && terminal.cwd && gitStatus[termId] && (
-          <span className="git-badge" title={`${gitStatus[termId]!.branch}${gitStatus[termId]!.dirty ? ' (dirty)' : ''}`}>
+          <span
+            className="git-badge nodrag"
+            style={{ cursor: 'pointer', position: 'relative' }}
+            title={`${gitStatus[termId]!.branch}${gitStatus[termId]!.dirty ? ' (dirty)' : ''} — click for git actions`}
+            onClick={() => setShowGitMenu((v) => !v)}
+          >
             <GitBranch size={11} />
             {gitStatus[termId]!.branch}
             {gitStatus[termId]!.dirty && <span className="git-dirty">&#9679;</span>}
+            {!!gitStatus[termId]!.ahead && <span style={{ marginLeft: 3, fontSize: 10 }}>↑{gitStatus[termId]!.ahead}</span>}
+            {!!gitStatus[termId]!.behind && <span style={{ marginLeft: 2, fontSize: 10 }}>↓{gitStatus[termId]!.behind}</span>}
+            {showGitMenu && (
+              <div
+                className="menu"
+                style={{ position: 'absolute', top: '100%', left: 0, zIndex: 20, minWidth: 160 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="menu-item" onClick={async () => { setGitActionMsg('git fetch…'); const res = await fetchGitRemote(termId); setGitActionMsg(res.message); setTimeout(() => setGitActionMsg(null), 3000) }}>
+                  <RotateCw size={12} /> Fetch
+                </div>
+                <div className="menu-item" onClick={() => { void refreshGitStatus(termId); setShowGitMenu(false) }}>
+                  <GitBranch size={12} /> Refresh status
+                </div>
+                <div className="menu-item" onClick={() => { void copyGitBranch(termId); setShowGitMenu(false) }}>
+                  <Copy size={12} /> Copy branch name
+                </div>
+              </div>
+            )}
           </span>
         )}
+        {gitActionMsg && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{gitActionMsg}</span>}
         <div className="hactions nodrag">
           {termId && (
             <button

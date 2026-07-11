@@ -591,6 +591,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const t = get().terminals[id]
       if (t) notifyAgentWaiting(id, t.name)
     })
+    // OSC 7 cwd tracking: keep the terminal's cwd (and thus the git badge)
+    // in sync as the user `cd`s around, without polling. (deep git)
+    window.termflow.pty.onCwd((id, cwd) => {
+      set((s) => (s.terminals[id] ? { terminals: { ...s.terminals, [id]: { ...s.terminals[id], cwd } } } : {}))
+    })
     window.termflow.recording.onLimit((id, reason) => {
       set({ recordingLimitWarning: { terminalId: id, reason } })
     })

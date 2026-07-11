@@ -47,9 +47,12 @@ export interface DevResourcesSlice {
   applyProjectManifest: () => Promise<void>
   dismissProjectManifest: () => void
 
-  // Git status (P2-9)
-  gitStatus: Record<string, { branch: string; dirty: boolean } | null>
+  // Git status (P2-9, extended with ahead/behind + fetch for deep git)
+  gitStatus: Record<string, { branch: string; dirty: boolean; ahead?: number; behind?: number } | null>
   startGitPolling: () => void
+  refreshGitStatus: (terminalId: string) => Promise<void>
+  fetchGitRemote: (terminalId: string) => Promise<{ ok: boolean; message: string }>
+  copyGitBranch: (terminalId: string) => Promise<void>
 
   // package.json script runner (feature: task-runner)
   pkgScripts: Record<string, string>
@@ -389,6 +392,32 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       }, count > 8 ? 30000 : 10000)
     }
     schedule()
+  },
+
+  // Force a single terminal's git badge to refresh right away, e.g. right
+  // after a manual fetch. (deep git)
+  refreshGitStatus: async (terminalId) => {
+    const t = get().terminals[terminalId]
+    if (!t?.cwd) return
+    try {
+      const status = await window.termflow.git.status(t.cwd)
+      set((s) => ({ gitStatus: { ...s.gitStatus, [terminalId]: status } }))
+    } catch { /* ignore */ }
+  },
+
+  // Quick git action: `git fetch` for the terminal's cwd, then refresh the badge. (deep git)
+  fetchGitRemote: async (terminalId) => {
+    const t = get().terminals[terminalId]
+    if (!t?.cwd) return { ok: false, message: 'cwd bilinmiyor' }
+    const res = await window.termflow.git.fetch(t.cwd)
+    await get().refreshGitStatus(terminalId)
+    return res
+  },
+
+  // Quick git action: copy the current branch name to the clipboard. (deep git)
+  copyGitBranch: async (terminalId) => {
+    const status = get().gitStatus[terminalId]
+    if (status?.branch) await navigator.clipboard.writeText(status.branch)
   },
 
   // ---- package.json script runner ----

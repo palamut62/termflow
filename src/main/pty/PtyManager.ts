@@ -16,6 +16,11 @@ const ERROR_RE = /\b(error|exception|failed|fatal|traceback|npm ERR|ModuleNotFou
 // notification — matches common y/n and tool-permission style prompts.
 const AWAITING_RE = /(\(y\/n\)|\[y\/n\]|yes\/no|do you want to proceed|do you want to continue|allow this action|press enter to continue|waiting for (?:approval|confirmation)|confirm\?)/i
 
+// OSC 7 "current working directory" escape sequence, emitted by most modern
+// shells (bash/zsh/pwsh prompts, VS Code shell integration, etc.) on every
+// prompt redraw: ESC ] 7 ; file://<host>/<path> BEL|ST (deep git / cwd tracking)
+const OSC7_RE = /\x1b\]7;file:\/\/[^/]*(\/[^\x07\x1b]*)(?:\x07|\x1b\\)/
+
 // Agent-to-agent routing loop/echo guards. Routing writes one process's output
 // into another's input, so an A->B->A topology (or a terminal echoing its own
 // input) can otherwise spin into an infinite feedback loop.
@@ -53,6 +58,7 @@ interface ManagedPty {
   errorSignalled: boolean
   awaitingSignalled: boolean
   createdAt: number
+  cwd: string
   routingRules?: RoutingRule[]
   lastRouteAt: Map<string, number>
   // Routing loop/echo protection + continuous queue (per connection)
@@ -109,6 +115,7 @@ export class PtyManager {
       errorSignalled: false,
       awaitingSignalled: false,
       createdAt: Date.now(),
+      cwd: resolved.cwd,
       lastRouteAt: new Map(),
       recentInbound: [],
       routeHops: new Map(),
@@ -168,6 +175,26 @@ export class PtyManager {
       } else {
         managed.recordedChunks.push({ ts: elapsed, data })
         managed.recordedBytes = nextBytes
+      }
+    }
+
+    // OSC 7 cwd tracking — shells report their cwd on every prompt redraw, so
+    // we pick up `cd`s without polling. (deep git / cwd tracking)
+    let osc7Match: RegExpExecArray | null
+    const osc7Re = new RegExp(OSC7_RE.source, 'g')
+    let lastPath: string | null = null
+    while ((osc7Match = osc7Re.exec(data)) !== null) lastPath = osc7Match[1]
+    if (lastPath) {
+      try {
+        const decoded = decodeURIComponent(lastPath)
+        // Windows paths arrive as /C:/Users/... over the file:// URI — strip the leading slash.
+        const normalized = /^\/[a-zA-Z]:/.test(decoded) ? decoded.slice(1) : decoded
+        if (normalized && normalized !== managed.cwd) {
+          managed.cwd = normalized
+          this.getSender()?.send(IPC.PTY_CWD, { id: managed.id, cwd: normalized })
+        }
+      } catch {
+        /* malformed OSC 7 payload */
       }
     }
 

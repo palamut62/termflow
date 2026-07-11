@@ -279,10 +279,12 @@ export interface EnvEntry {
   masked: boolean
 }
 
-// ---- Git Status (P2-9) ----
+// ---- Git Status (P2-9, extended with ahead/behind for deep git) ----
 export interface GitStatus {
   branch: string
   dirty: boolean
+  ahead?: number
+  behind?: number
 }
 
 export interface WorkspaceHealthCheck {
@@ -428,7 +430,9 @@ export const IPC = {
   PTY_ACTIVITY: 'pty:activity', // main -> renderer: error/activity signal
   PTY_AWAITING: 'pty:awaiting', // main -> renderer: process output looks like it's waiting on a y/n confirmation
   PTY_ROUTE: 'pty:route', // main -> renderer: agent-to-agent data routed over a connection
+  PTY_CWD: 'pty:cwd', // main -> renderer: OSC 7 cwd change detected in a terminal's output
   PROC_STATS: 'proc:stats', // renderer -> main: get cpu/mem for pids
+  GIT_FETCH: 'git:fetch', // renderer -> main: run `git fetch` for a cwd
   // shells
   SHELLS_DISCOVER: 'shells:discover',
   // settings
