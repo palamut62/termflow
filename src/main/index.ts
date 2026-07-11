@@ -65,7 +65,9 @@ function createWindow(): void {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // Sandboxed renderer: the preload only uses contextBridge/ipcRenderer
+      // (no direct Node APIs), so the full Chromium sandbox can stay on.
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
