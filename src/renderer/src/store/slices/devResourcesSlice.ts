@@ -49,6 +49,12 @@ export interface DevResourcesSlice {
   // Git status (P2-9)
   gitStatus: Record<string, { branch: string; dirty: boolean } | null>
   startGitPolling: () => void
+
+  // package.json script runner (feature: task-runner)
+  pkgScripts: Record<string, string>
+  packageManager: 'npm' | 'pnpm' | 'yarn'
+  loadPkgScripts: () => Promise<void>
+  runPkgScript: (scriptName: string) => Promise<void>
 }
 
 let gitPollingStarted = false
@@ -65,6 +71,8 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
   projectManifest: null,
   projectManifestApplied: false,
   gitStatus: {},
+  pkgScripts: {},
+  packageManager: 'npm',
 
   loadSettings: async () => {
     const settings = await window.termflow.settings.get()
@@ -191,6 +199,7 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
     })
     syncAgentRouting(layout.nodes, layout.connections)
     await window.termflow.workspaces.update(id, { lastOpenedAt: new Date().toISOString() })
+    await get().loadPkgScripts()
   },
 
   createWorkspace: async (input) => {
@@ -362,5 +371,27 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       }, count > 8 ? 30000 : 10000)
     }
     schedule()
+  },
+
+  // ---- package.json script runner ----
+  loadPkgScripts: async () => {
+    const ws = get().workspaces.find((w) => w.id === get().activeWorkspaceId)
+    if (!ws?.path) {
+      set({ pkgScripts: {}, packageManager: 'npm' })
+      return
+    }
+    const result = await window.termflow.pkg.scripts(ws.path)
+    set({ pkgScripts: result?.scripts ?? {}, packageManager: result?.packageManager ?? 'npm' })
+  },
+
+  runPkgScript: async (scriptName) => {
+    const st = get()
+    const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
+    if (!ws || !st.pkgScripts[scriptName]) return
+    await get().addTerminal('cmd', {
+      name: scriptName,
+      cwd: ws.path,
+      startupCommand: `${st.packageManager} run ${scriptName}`
+    })
   }
 })

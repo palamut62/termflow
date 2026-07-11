@@ -408,6 +408,25 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
   })
 
+  // ---- package.json script runner (feature: task-runner) ----
+  ipcMain.handle(IPC.PKG_SCRIPTS, async (_e, cwd: string) => {
+    const pkgPath = join(cwd, 'package.json')
+    if (!existsSync(pkgPath)) return null
+    try {
+      const source = readFileSync(pkgPath, 'utf-8')
+      if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) return null
+      const pkg = JSON.parse(source)
+      const scripts: Record<string, string> =
+        pkg && typeof pkg.scripts === 'object' && pkg.scripts ? pkg.scripts : {}
+      let packageManager: 'npm' | 'pnpm' | 'yarn' = 'npm'
+      if (existsSync(join(cwd, 'pnpm-lock.yaml'))) packageManager = 'pnpm'
+      else if (existsSync(join(cwd, 'yarn.lock'))) packageManager = 'yarn'
+      return { scripts, packageManager }
+    } catch {
+      return null
+    }
+  })
+
   ipcMain.handle(IPC.WS_HEALTH, async (_e, workspaceId: string): Promise<WorkspaceHealthCheck[]> => {
     const ws = dbApi.listWorkspaces().find((item) => item.id === workspaceId)
     if (!ws) return [{ id: 'workspace', label: 'Workspace', status: 'error', detail: 'Workspace not found' }]

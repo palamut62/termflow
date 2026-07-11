@@ -10,6 +10,9 @@ export default function DeveloperCenter(): React.JSX.Element | null {
   const workspaceId = useAppStore((s) => s.activeWorkspaceId)
   const manifest = useAppStore((s) => s.projectManifest)
   const runTask = useAppStore((s) => s.runManifestTask)
+  const pkgScripts = useAppStore((s) => s.pkgScripts)
+  const packageManager = useAppStore((s) => s.packageManager)
+  const runPkgScript = useAppStore((s) => s.runPkgScript)
 
   useEffect(() => {
     const openDeveloperCenter = (): void => setOpen(true)
@@ -35,6 +38,14 @@ export default function DeveloperCenter(): React.JSX.Element | null {
       {(manifest?.tasks?.length ?? 0) > 0 && <div className="dev-section">
         <div className="dev-section-title">Project tasks</div>
         {manifest!.tasks!.map((task) => <button className="dev-task" key={task.name} onClick={() => runTask(task.name)}><Play size={12} /><span>{task.name}</span><em>{task.command}</em></button>)}
+      </div>}
+      {Object.keys(pkgScripts).length > 0 && <div className="dev-section">
+        <div className="dev-section-title"><span>package.json scripts</span><em>{packageManager}</em></div>
+        {Object.entries(pkgScripts).map(([name, command]) => (
+          <button className="dev-task" key={name} onClick={() => runPkgScript(name)}>
+            <Play size={12} /><span>{name}</span><em>{command}</em>
+          </button>
+        ))}
       </div>}
       <div className="dev-section">
         <div className="dev-section-title"><span>Workspace health</span><button className="hbtn" title="Refresh workspace health" aria-label="Refresh workspace health" disabled={loading} onClick={() => refresh()}><RefreshCw className={loading ? 'spin' : ''} size={14} /></button></div>

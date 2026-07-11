@@ -88,6 +88,11 @@ const api = {
     checkManifest: (cwd: string): Promise<unknown> => ipcRenderer.invoke(IPC.WS_CHECK_MANIFEST, cwd),
     health: (workspaceId: string): Promise<WorkspaceHealthCheck[]> => ipcRenderer.invoke(IPC.WS_HEALTH, workspaceId)
   },
+  // ---- package.json script runner ----
+  pkg: {
+    scripts: (cwd: string): Promise<{ scripts: Record<string, string>; packageManager: 'npm' | 'pnpm' | 'yarn' } | null> =>
+      ipcRenderer.invoke(IPC.PKG_SCRIPTS, cwd)
+  },
   // ---- Workspace Templates ----
   templates: {
     save: (workspaceId: string, name: string): Promise<{ id?: string; error?: string }> =>

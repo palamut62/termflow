@@ -430,6 +430,8 @@ export const IPC = {
   SSH_PROFILE_DELETE: 'ssh:delete',
   // git
   GIT_STATUS: 'git:status',
+  // package.json script runner
+  PKG_SCRIPTS: 'pkg:scripts',
   // env vars
   ENV_LIST: 'env:list',
   ENV_CREATE: 'env:create',
