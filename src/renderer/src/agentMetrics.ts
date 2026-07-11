@@ -3,6 +3,12 @@ import type { AgentMetric } from '../../shared/types'
 const live = new Map<string, AgentMetric>()
 const key = (workspaceId: string): string => `termflow.agentMetrics.${workspaceId}`
 const number = (value: string): number => Number(value.replace(/,/g, '')) || 0
+function estimateCost(agentName: string, inputTokens: number, outputTokens: number): number {
+  const name = agentName.toLowerCase()
+  if (name.includes('ollama') || name.includes('local')) return 0
+  const rates = name.includes('deepseek') ? { input: 0.27, output: 1.1 } : name.includes('codex') || name.includes('openai') ? { input: 2.5, output: 10 } : { input: 3, output: 15 }
+  return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000
+}
 
 export function captureAgentMetric(workspaceId: string, terminalId: string, agentName: string, data: string): void {
   const metric = live.get(terminalId) ?? { terminalId, agentName, startedAt: new Date().toISOString(), durationMs: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 }
@@ -14,6 +20,7 @@ export function captureAgentMetric(workspaceId: string, terminalId: string, agen
   if (output) metric.outputTokens = Math.max(metric.outputTokens, number(output[1]))
   if (total && !input && !output) metric.outputTokens = Math.max(metric.outputTokens, number(total[1]))
   if (cost) metric.estimatedCostUsd = Math.max(metric.estimatedCostUsd, Number(cost[1]) || 0)
+  else metric.estimatedCostUsd = estimateCost(metric.agentName, metric.inputTokens, metric.outputTokens)
   metric.durationMs = Date.now() - new Date(metric.startedAt).getTime()
   live.set(terminalId, metric)
   persist(workspaceId, metric)
