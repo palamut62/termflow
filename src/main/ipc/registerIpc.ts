@@ -107,7 +107,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.SETTINGS_GET, () => dbApi.getSettings())
   ipcMain.handle(IPC.SETTINGS_SET, (_e, patch: Partial<AppSettings>) => {
     const next = dbApi.setSettings(patch)
-    if (patch.startAtLogin !== undefined) {
+    if (app.isPackaged && patch.startAtLogin !== undefined) {
       app.setLoginItemSettings({ openAtLogin: next.startAtLogin, path: process.execPath })
     }
     pty.setScrollback(next.scrollback)

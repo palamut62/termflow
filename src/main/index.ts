@@ -112,7 +112,7 @@ if (!gotLock) {
 app.whenReady().then(() => {
   initDatabase()
   const settings = getSettings()
-  app.setLoginItemSettings({ openAtLogin: settings.startAtLogin, path: process.execPath })
+  if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: settings.startAtLogin, path: process.execPath })
   ptyManager = registerIpc(() => mainWindow)
   createTray()
   createWindow()
