@@ -17,10 +17,12 @@ import {
   GitBranch,
   Copy,
   Pin,
-  PinOff
+  PinOff,
+  Sparkles
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
+import LogSummaryModal from '../components/LogSummaryModal'
 import { useAppStore } from '../store/appStore'
 import { profileFor } from '../profiles'
 import type { PaneNode } from '../../../shared/types'
@@ -302,6 +304,7 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [closing, setClosing] = useState(false)
   const [recording, setRecording] = useState(false)
+  const [showLogSummary, setShowLogSummary] = useState(false)
 
   useEffect(() => {
     if (recordingLimitWarning && recordingLimitWarning.terminalId === termId) {
@@ -457,6 +460,9 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           <button className={`hbtn ${node.isPinned ? 'active' : ''}`} title={node.isPinned ? 'Unpin (allow auto-layout to move it)' : 'Pin (auto-layout will not move it)'} onClick={() => togglePin(id)}>
             {node.isPinned ? <PinOff size={13} /> : <Pin size={13} />}
           </button>
+          <button className="hbtn" title="Send log to AI agent for summary" onClick={() => setShowLogSummary(true)}>
+            <Sparkles size={13} />
+          </button>
           <button className="hbtn danger" title="Close" onClick={() => setClosing(true)}>
             <X size={15} />
           </button>
@@ -522,6 +528,10 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         </div>
       )}
       <Handle type="source" position={Position.Right} />
+
+      {showLogSummary && (
+        <LogSummaryModal sourceNodeId={id} onClose={() => setShowLogSummary(false)} />
+      )}
 
       {closing && (
         <CloseModal

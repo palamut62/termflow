@@ -32,6 +32,7 @@ export interface TerminalSlice {
   duplicateNode: (nodeId: string) => Promise<void>
   applyFlowTemplate: (template: FlowTemplate) => Promise<void>
   saveFlowTemplate: (name: string) => Promise<{ id?: string; error?: string }>
+  sendLogToAgent: (sourceNodeId: string, targetNodeId: string | 'new') => Promise<void>
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
   reattachTerminal: (terminalId: string) => Promise<void>
   restartNode: (nodeId: string) => Promise<void>
@@ -244,6 +245,44 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         routeDirection: c.routeDirection
       }))
     return window.termflow.flowTemplates.save(name, nodes, connections)
+  },
+
+  // AI log summary: grab a terminal's recent buffer and hand it to an agent
+  // (existing node or a freshly spawned one) with a "what happened / error /
+  // suggestion" prompt. (feature: AI log summary)
+  sendLogToAgent: async (sourceNodeId, targetNodeId) => {
+    const st = get()
+    const sourceNode = st.nodes.find((n) => n.id === sourceNodeId)
+    if (!sourceNode) return
+    const sourceTermId = getActiveTerminalId(sourceNode.activePaneId, sourceNode.panes, sourceNode.terminalId)
+    if (!sourceTermId) return
+    const raw = await window.termflow.pty.buffer(sourceTermId)
+    // Strip ANSI escapes + collapse whitespace so it survives as one pty.write line.
+    const ESC = String.fromCharCode(27)
+    const cleaned = raw
+      .split(ESC).join('')
+      .replace(/\[[0-9;?]*[A-Za-z]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const tail = cleaned.slice(-6000)
+    const prompt = `Bu bir terminalin (${sourceNode.title}) son çıktısıdır. Ne olduğunu, varsa hatayı ve önerini kısaca özetle: """${tail}"""`
+
+    let targetTermId: string | undefined
+    if (targetNodeId === 'new') {
+      await get().addTerminal('claude', { name: `${sourceNode.title} — AI Summary`, agentRole: 'Log Summary' })
+      const newNodeId = get().activeNodeId
+      const newNode = newNodeId ? get().nodes.find((n) => n.id === newNodeId) : undefined
+      targetTermId = newNode ? getActiveTerminalId(newNode.activePaneId, newNode.panes, newNode.terminalId) : undefined
+      if (targetTermId) {
+        const tid = targetTermId
+        setTimeout(() => window.termflow.pty.write(tid, prompt + '\r'), 1800)
+      }
+      return
+    }
+    const targetNode = st.nodes.find((n) => n.id === targetNodeId)
+    if (!targetNode) return
+    targetTermId = getActiveTerminalId(targetNode.activePaneId, targetNode.panes, targetNode.terminalId)
+    if (targetTermId) window.termflow.pty.write(targetTermId, prompt + '\r')
   },
 
   closeNode: async (nodeId, mode) => {
