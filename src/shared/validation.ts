@@ -84,6 +84,36 @@ export function validateManifest(value: unknown): { data: TermflowManifest | nul
   return { data: { name: text(root.name, 120), tasks, agents, env, snippets }, errors: [] }
 }
 
+function num(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function bool(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function checkArray(
+  root: Record<string, unknown>,
+  key: 'nodes' | 'terminals' | 'connections',
+  errors: string[],
+  validateItem: (item: Record<string, unknown>, index: number) => string | null
+): void {
+  const input = root[key]
+  if (!Array.isArray(input) || input.length > 1000) {
+    errors.push(`${key} is missing or too large.`)
+    return
+  }
+  input.forEach((item, index) => {
+    const row = record(item)
+    if (!row) {
+      errors.push(`${key}[${index}] must be an object.`)
+      return
+    }
+    const err = validateItem(row, index)
+    if (err) errors.push(err)
+  })
+}
+
 export function validateWorkspaceExport(value: unknown): { data: WorkspaceExport | null; errors: string[] } {
   const root = record(value)
   const workspace = record(root?.workspace)
@@ -95,11 +125,59 @@ export function validateWorkspaceExport(value: unknown): { data: WorkspaceExport
   if (!name?.trim() || !LAYOUTS.has(mode as LayoutMode)) {
     return { data: null, errors: ['Workspace name or layout mode is invalid.'] }
   }
-  for (const key of ['nodes', 'terminals', 'connections'] as const) {
-    if (!Array.isArray(root[key]) || root[key].length > 1000) {
-      return { data: null, errors: [`${key} is missing or too large.`] }
+
+  const errors: string[] = []
+
+  checkArray(root, 'nodes', errors, (row, index) => {
+    const position = record(row.position)
+    const size = record(row.size)
+    if (
+      !text(row.id, 128) ||
+      !text(row.title, 512) ||
+      typeof row.nodeType !== 'string' ||
+      typeof row.status !== 'string' ||
+      !position || num(position.x) === undefined || num(position.y) === undefined ||
+      !size || num(size.width) === undefined || num(size.height) === undefined ||
+      num(row.zIndex) === undefined ||
+      bool(row.isMinimized) === undefined ||
+      bool(row.isMaximized) === undefined ||
+      bool(row.showInfo) === undefined
+    ) {
+      return `nodes[${index}] is invalid.`
     }
-  }
+    return null
+  })
+
+  checkArray(root, 'terminals', errors, (row, index) => {
+    if (
+      !text(row.id, 128) ||
+      !text(row.name, 512) ||
+      typeof row.kind !== 'string' ||
+      typeof row.shell !== 'string' ||
+      !Array.isArray(row.args) ||
+      typeof row.cwd !== 'string' ||
+      typeof row.status !== 'string'
+    ) {
+      return `terminals[${index}] is invalid.`
+    }
+    return null
+  })
+
+  checkArray(root, 'connections', errors, (row, index) => {
+    if (
+      !text(row.id, 128) ||
+      !text(row.sourceNodeId, 128) ||
+      !text(row.targetNodeId, 128) ||
+      typeof row.connectionType !== 'string' ||
+      bool(row.isActive) === undefined ||
+      typeof row.status !== 'string'
+    ) {
+      return `connections[${index}] is invalid.`
+    }
+    return null
+  })
+
+  if (errors.length) return { data: null, errors }
   return { data: value as WorkspaceExport, errors: [] }
 }
 
