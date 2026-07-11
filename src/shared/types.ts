@@ -107,6 +107,8 @@ export interface CanvasNode {
   isMaximized: boolean
   status: NodeStatus
   showInfo: boolean
+  /** Runtime-only: true when the node was spawned with the permission-bypass flag. Not persisted into startupCommand. */
+  bypass?: boolean
 }
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
@@ -318,7 +320,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   startAtLogin: true,
   minimizeToTray: true,
   providerProfiles: [
-    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '--dangerously-skip-permissions' },
+    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '' },
     { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead', fullPermissionArgs: '' }
   ],
   transparency: 100

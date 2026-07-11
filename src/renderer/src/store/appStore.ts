@@ -515,13 +515,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       createdAt: ts,
       updatedAt: ts
     }
-    // Build the startup command; for AI agents append the bypass-permissions
-    // flag so they launch fully authorized when the setting is on.
-    let startup = opts?.startupCommand || profile.startupCommand
-    if (!opts?.startupCommand && profile.bypassArgs && st.settings.agentAutoApprove) {
-      startup = `${profile.startupCommand} ${profile.bypassArgs}`
-    }
-    session.startupCommand = startup
+    // Persist only the plain startup command. The permission-bypass flag is
+    // NEVER written into the saved session state; it is applied at runtime
+    // (spawn time) based on the current agentAutoApprove setting so it cannot
+    // silently re-enable itself on reload. (security)
+    const baseStartup = opts?.startupCommand || profile.startupCommand
+    session.startupCommand = baseStartup
+    const useBypass = !opts?.startupCommand && !!profile.bypassArgs && st.settings.agentAutoApprove
+    const runtimeStartup = useBypass ? `${profile.startupCommand} ${profile.bypassArgs}` : baseStartup
 
     const z = st.zCounter + 1
     const node: CanvasNode = {
@@ -540,7 +541,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       isMinimized: false,
       isMaximized: false,
       status: 'running',
-      showInfo: true
+      showInfo: true,
+      bypass: useBypass
     }
 
     let pid: number | undefined
@@ -553,7 +555,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         args: opts?.args,
         cwd,
         env: opts?.env,
-        startupCommand: session.startupCommand
+        startupCommand: runtimeStartup
       })
       pid = res.pid
     } catch {

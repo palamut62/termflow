@@ -345,6 +345,27 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         )}
         {node.agentRole && <span className="kind-tag">{node.agentRole}</span>}
         <span className="kind-tag">{terminal.kind}</span>
+        {node.bypass && (
+          <span
+            className="bypass-badge"
+            title="Bu düğüm izin-atlama (bypass) bayrağı ile başlatıldı"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              fontSize: 10,
+              fontWeight: 600,
+              lineHeight: 1,
+              padding: '2px 5px',
+              borderRadius: 5,
+              color: 'var(--danger)',
+              background: 'color-mix(in srgb, var(--danger) 16%, transparent)',
+              border: '1px solid var(--danger)'
+            }}
+          >
+            <AlertTriangle size={10} /> bypass
+          </span>
+        )}
         {termId && terminal.cwd && gitStatus[termId] && (
           <span className="git-badge" title={`${gitStatus[termId]!.branch}${gitStatus[termId]!.dirty ? ' (dirty)' : ''}`}>
             <GitBranch size={11} />
