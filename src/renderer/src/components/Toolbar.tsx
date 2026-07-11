@@ -17,11 +17,13 @@ import {
   ,FolderOpen
   ,CircleHelp
   ,Trash2
+  ,FileSearch
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
 import CustomCommandModal from './CustomCommandModal'
 import FlowTemplatesModal from './FlowTemplatesModal'
+import GlobalSearchModal from './GlobalSearchModal'
 import type { LayoutMode, ShellKind } from '../../../shared/types'
 
 interface Props {
@@ -71,6 +73,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [layoutMenu, setLayoutMenu] = useState(false)
   const [customModal, setCustomModal] = useState(false)
   const [flowModal, setFlowModal] = useState(false)
+  const [globalSearchModal, setGlobalSearchModal] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
@@ -252,6 +255,9 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       <button className="tb-btn" title="Command Palette (Ctrl+K)" onClick={onOpenPalette}>
         <Search size={15} />
       </button>
+      <button className="tb-btn" title="Search all terminals" onClick={() => setGlobalSearchModal(true)}>
+        <FileSearch size={15} />
+      </button>
       <button
         className="tb-btn"
         disabled={disabled}
@@ -278,6 +284,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
         />
       )}
       {flowModal && <FlowTemplatesModal onClose={() => setFlowModal(false)} />}
+      {globalSearchModal && <GlobalSearchModal onClose={() => setGlobalSearchModal(false)} />}
     </div>
   )
 }

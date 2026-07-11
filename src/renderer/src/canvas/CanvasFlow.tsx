@@ -44,7 +44,7 @@ export default function CanvasFlow(): React.JSX.Element {
   const addConnection = useAppStore((s) => s.addConnection)
   const removeConnection = useAppStore((s) => s.removeConnection)
   const setStoredViewport = useAppStore((s) => s.setViewport)
-  const { setViewport: setFlowViewport } = useReactFlow()
+  const { setViewport: setFlowViewport, setCenter } = useReactFlow()
   const wrapRef = useRef<HTMLDivElement>(null)
   const activeNodeId = useAppStore((s) => s.activeNodeId)
   const tiled = useAppStore((s) => s.layoutMode !== 'manual' && s.layoutMode !== 'agent_graph')
@@ -59,6 +59,22 @@ export default function CanvasFlow(): React.JSX.Element {
     void setFlowViewport({ x: 0, y: 0, zoom: 1 }, { duration: 0 })
     setStoredViewport({ x: 0, y: 0, zoom: 1 })
   }, [setFlowViewport, setStoredViewport, tiled])
+
+  // Global search / other features jump here to pan the canvas to a node. (feature: global search)
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail?.nodeId
+      if (!nodeId) return
+      const node = nodes.find((n) => n.id === nodeId)
+      if (!node) return
+      setActiveNode(nodeId)
+      const cx = node.position.x + node.size.width / 2
+      const cy = node.position.y + node.size.height / 2
+      void setCenter(cx, cy, { zoom: 1, duration: 400 })
+    }
+    window.addEventListener('termflow:focus-node', handler)
+    return () => window.removeEventListener('termflow:focus-node', handler)
+  }, [nodes, setActiveNode, setCenter])
 
   const rfNodes: Node[] = useMemo(() => {
     return nodes.map((n) => ({
