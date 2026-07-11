@@ -60,6 +60,10 @@ interface ManagedPty {
   createdAt: number
   cwd: string
   routingRules?: RoutingRule[]
+  // Regex compiled once per setRouting() call (per-chunk compilation is costly
+  // and a ReDoS vector). null `re` means the rule's pattern was invalid/skipped.
+  compiledRules?: { rule: RoutingRule; re: RegExp | null }[]
+  startupTimer: NodeJS.Timeout | null
   lastRouteAt: Map<string, number>
   // Routing loop/echo protection + continuous queue (per connection)
   recentInbound: { sig: string; at: number }[] // payloads recently injected INTO this pty
@@ -116,6 +120,7 @@ export class PtyManager {
       awaitingSignalled: false,
       createdAt: Date.now(),
       cwd: resolved.cwd,
+      startupTimer: null,
       lastRouteAt: new Map(),
       recentInbound: [],
       routeHops: new Map(),
@@ -135,11 +140,19 @@ export class PtyManager {
       this.flush(managed, true)
       const durationMs = Date.now() - managed.createdAt
       this.getSender()?.send(IPC.PTY_EXIT, { id, exitCode, durationMs })
+      // Release the heavy per-terminal routing/echo state now that the process
+      // is gone. `buffer` is intentionally kept so the renderer can rehydrate.
+      managed.recentInbound = []
+      managed.routeHops.clear()
+      managed.loopWarned.clear()
+      for (const q of managed.routeQueues.values()) if (q.timer) clearTimeout(q.timer)
+      managed.routeQueues.clear()
     })
 
     // Type the startup command into the interactive shell (agents/services).
     if (input.startupCommand) {
-      setTimeout(() => {
+      managed.startupTimer = setTimeout(() => {
+        managed.startupTimer = null
         if (!managed.exited) proc.write(input.startupCommand + '\r')
       }, 350)
     }
@@ -214,34 +227,31 @@ export class PtyManager {
     // Agent-to-agent routing (opt-in). Continuous routing is intentionally
     // sanitized and rate-limited because it writes process output into another
     // process input stream.
-    if (managed.routingRules?.length) {
-      for (const rule of managed.routingRules) {
+    if (managed.compiledRules?.length) {
+      for (const { rule, re } of managed.compiledRules) {
         if (rule.routeBehavior === 'continuous') {
           const clean = this.sanitizeRouteData(data)
           if (!clean.trim()) continue
           // Never drop: accumulate into a per-connection queue and flush on a
           // throttle. Loop/echo checks run at flush time (single point).
           this.enqueueContinuous(managed, rule, clean)
-        } else {
-          try {
-            const re = new RegExp(rule.triggerPattern, 'gs')
-            let match: RegExpExecArray | null
-            while ((match = re.exec(data)) !== null) {
-              let output = match[0]
-              if (rule.transform) {
-                output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
-              }
-              output = this.sanitizeRouteData(output).slice(0, 4000)
-              if (!output.trim()) continue
-              if (this.shouldBlockRoute(managed, rule.connectionId, output)) continue
-              for (const tid of rule.targetTerminalIds) {
-                this.write(tid, output + '\r')
-                this.recordInbound(tid, output)
-              }
-              this.emitRoute(rule.connectionId)
+        } else if (re) {
+          // 'gs' regex is stateful (lastIndex) — reset before each chunk scan.
+          re.lastIndex = 0
+          let match: RegExpExecArray | null
+          while ((match = re.exec(data)) !== null) {
+            let output = match[0]
+            if (rule.transform) {
+              output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
             }
-          } catch {
-            /* invalid regex */
+            output = this.sanitizeRouteData(output).slice(0, 4000)
+            if (!output.trim()) continue
+            if (this.shouldBlockRoute(managed, rule.connectionId, output)) continue
+            for (const tid of rule.targetTerminalIds) {
+              this.write(tid, output + '\r')
+              this.recordInbound(tid, output)
+            }
+            this.emitRoute(rule.connectionId)
           }
         }
       }
@@ -420,6 +430,7 @@ export class PtyManager {
     const t = this.terminals.get(id)
     if (!t) return
     if (t.flushTimer) clearTimeout(t.flushTimer)
+    if (t.startupTimer) clearTimeout(t.startupTimer)
     for (const q of t.routeQueues.values()) if (q.timer) clearTimeout(q.timer)
     try {
       if (!t.exited) t.proc.kill()
@@ -446,9 +457,33 @@ export class PtyManager {
   }
 
   // ---- Routing ----
+  private static MAX_ROUTE_PATTERN_LEN = 500 // basic ReDoS guard
+
   setRouting(id: string, rules: RoutingRule[]): void {
     const t = this.terminals.get(id)
-    if (t) t.routingRules = rules.length ? rules : undefined
+    if (!t) return
+    if (!rules.length) {
+      t.routingRules = undefined
+      t.compiledRules = undefined
+      return
+    }
+    t.routingRules = rules
+    // Compile each trigger pattern ONCE here instead of on every onData chunk.
+    // Invalid or over-long patterns get a null `re` and are skipped at runtime.
+    t.compiledRules = rules.map((rule) => {
+      if (rule.routeBehavior === 'continuous') return { rule, re: null }
+      if (rule.triggerPattern.length > PtyManager.MAX_ROUTE_PATTERN_LEN) {
+        console.warn(
+          `[PtyManager] routing pattern too long (${rule.triggerPattern.length} > ${PtyManager.MAX_ROUTE_PATTERN_LEN}); skipping rule for connection ${rule.connectionId}.`
+        )
+        return { rule, re: null }
+      }
+      try {
+        return { rule, re: new RegExp(rule.triggerPattern, 'gs') }
+      } catch {
+        return { rule, re: null }
+      }
+    })
   }
 
   // ---- Recording ----

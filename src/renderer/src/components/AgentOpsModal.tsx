@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CredentialMeta } from '../../../shared/types'
 import { readAgentMetrics } from '../agentMetrics'
 import { useAppStore } from '../store/appStore'
+import { useModalClose } from '../hooks/useModalClose'
 
 export default function AgentOpsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const workspaceId = useAppStore((s) => s.activeWorkspaceId)!
@@ -13,7 +14,8 @@ export default function AgentOpsModal({ onClose }: { onClose: () => void }): Rea
   const totals = metrics.reduce((sum, item) => ({ tokens: sum.tokens + item.inputTokens + item.outputTokens, cost: sum.cost + item.estimatedCostUsd, duration: sum.duration + item.durationMs }), { tokens: 0, cost: 0, duration: 0 })
   const reload = async (): Promise<void> => setCredentials(await window.termflow.vault.list(workspaceId))
   useEffect(() => { void reload() }, [workspaceId])
-  return <div className="modal-overlay" onMouseDown={onClose}><div className="modal agent-ops" onMouseDown={(e) => e.stopPropagation()}>
+  useModalClose(onClose)
+  return <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}><div className="modal agent-ops" onMouseDown={(e) => e.stopPropagation()}>
     <header className="workbench-head"><div><h3>Agent Operations</h3><span>Usage metrics and encrypted credentials</span></div><button className="hbtn" onClick={onClose}><X size={16} /></button></header>
     <section className="metric-summary"><div><strong>{metrics.length}</strong><span>sessions</span></div><div><strong>{totals.tokens.toLocaleString()}</strong><span>tokens</span></div><div><strong>${totals.cost.toFixed(4)}</strong><span>reported cost</span></div><div><strong>{Math.round(totals.duration / 60000)}m</strong><span>agent time</span></div><button className="hbtn" onClick={() => setRefresh((v) => v + 1)}><RefreshCw size={14} /></button></section>
     <div className="agent-ops-grid"><section><h4>Agent sessions</h4><div className="metric-list">{metrics.map((item) => <div key={`${item.terminalId}:${item.startedAt}`}><strong>{item.agentName}</strong><span>{(item.inputTokens + item.outputTokens).toLocaleString()} tokens</span><span>${item.estimatedCostUsd.toFixed(4)}</span><time>{Math.round(item.durationMs / 1000)}s</time></div>)}</div></section>

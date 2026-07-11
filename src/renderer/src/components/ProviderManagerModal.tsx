@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { AiProviderProfile } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
+import { useModalClose } from '../hooks/useModalClose'
 
 const emptyProfile = (): AiProviderProfile => ({
   id: crypto.randomUUID(), name: 'New Provider', command: '', model: '', baseUrl: '',
@@ -12,13 +13,14 @@ export default function ProviderManagerModal({ onClose }: { onClose: () => void 
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const [profiles, setProfiles] = useState<AiProviderProfile[]>(settings.providerProfiles)
+  useModalClose(onClose)
 
   const patchProfile = (id: string, patch: Partial<AiProviderProfile>): void => {
     setProfiles((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item))
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal provider-modal" onMouseDown={(event) => event.stopPropagation()}>
         <h3>AI Provider Profiles</h3>
         <p className="help-intro">Configure any CLI-backed provider. Store API keys separately under Settings &gt; Developer &gt; Workspace Environment using the API key variable shown here.</p>

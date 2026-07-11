@@ -1,5 +1,6 @@
 import { Bot, FolderOpen, Grid2X2, HeartPulse, Keyboard, Radio, Search, Settings, TerminalSquare, X, type LucideIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface HelpTopic {
   id: string
@@ -48,9 +49,10 @@ export default function HelpModal({ onClose }: { onClose: () => void }): React.J
   }), [category, query])
   const visible = query ? filtered : topics.filter((topic) => topic.category === category)
   const active = visible.find((topic) => topic.id === activeId) ?? visible[0]
+  useModalClose(onClose)
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal help-center" onMouseDown={(event) => event.stopPropagation()}>
         <header className="help-head"><div><h3>TermFlow Help Center</h3><p>Features, setup guides, workflows, and troubleshooting.</p></div><button className="hbtn" aria-label="Close help" onClick={onClose}><X size={16} /></button></header>
         <div className="help-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search help topics..." /></div>

@@ -8,7 +8,7 @@ import { autoUpdater } from 'electron-updater'
 const APP_ICON = app.isPackaged
   ? join(process.resourcesPath, 'resources', 'icon.ico')
   : join(__dirname, '../../resources/icon.ico')
-import { getSettings, initDatabase } from './db/database'
+import { getSettings, initDatabase, flushPersist } from './db/database'
 import { registerIpc } from './ipc/registerIpc'
 import type { PtyManager } from './pty/PtyManager'
 
@@ -129,7 +129,7 @@ if (!gotLock) {
 app.whenReady().then(() => {
   recoveryFile = join(app.getPath('userData'), 'session-state.json')
   if (existsSync(recoveryFile)) { try { previousSessionCrashed = !(JSON.parse(readFileSync(recoveryFile, 'utf-8')) as { cleanExit?: boolean }).cleanExit } catch { previousSessionCrashed = true } }
-  writeFileSync(recoveryFile, JSON.stringify({ cleanExit: false, startedAt: new Date().toISOString() }), 'utf-8')
+  try { writeFileSync(recoveryFile, JSON.stringify({ cleanExit: false, startedAt: new Date().toISOString() }), 'utf-8') } catch (err) { console.warn('[recovery] failed to write session-state:', err) }
   ipcMain.handle(IPC.RECOVERY_STATUS, () => ({ crashed: previousSessionCrashed }))
   ipcMain.handle(IPC.RECOVERY_ACK, () => { previousSessionCrashed = false })
   ipcMain.handle(IPC.UPDATE_CHECK, async (_event, channel: 'stable' | 'beta') => { if (!app.isPackaged) return { status: 'development' }; configureUpdater(channel); publishUpdateStatus('checking'); await autoUpdater.checkForUpdates(); return { status: 'checking' } })
@@ -169,5 +169,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   isQuitting = true
   if (recoveryFile) { try { writeFileSync(recoveryFile, JSON.stringify({ cleanExit: true, endedAt: new Date().toISOString() }), 'utf-8') } catch { /* ignore shutdown write failure */ } }
+  flushPersist() // write any debounced store mutations before the process dies
   ptyManager?.killAll()
 })

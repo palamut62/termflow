@@ -10,7 +10,17 @@ const execFileAsync = promisify(execFile)
 
 // Kısa süreli cache: aynı cwd için ardışık git:status çağrılarında gereksiz process spawn'ı önler.
 const GIT_STATUS_CACHE_TTL_MS = 1500
+const GIT_STATUS_CACHE_MAX = 100
 const gitStatusCache = new Map<string, { result: GitStatus | null; timestamp: number }>()
+function setGitStatusCache(cwd: string, entry: { result: GitStatus | null; timestamp: number }): void {
+  gitStatusCache.set(cwd, entry)
+  // Bounded LRU: evict the oldest (first-inserted) entries beyond the cap.
+  while (gitStatusCache.size > GIT_STATUS_CACHE_MAX) {
+    const oldest = gitStatusCache.keys().next().value
+    if (oldest === undefined) break
+    gitStatusCache.delete(oldest)
+  }
+}
 import {
   IPC,
   type CreateTerminalInput,
@@ -50,6 +60,20 @@ function pathInside(root: string, candidate: string): string {
   const rel = relative(base, target)
   if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Path is outside the workspace')
   return target
+}
+
+// Single gate for cwd coming from the renderer into filesystem/git IPC. A
+// terminal's cwd can legitimately drift outside any known workspace (OSC 7
+// tracks `cd`), so we only enforce that it is an absolute, existing directory
+// — rejecting empty/non-string/relative/missing inputs. Kept as one place so
+// the policy can be tightened later.
+function validateCwd(cwd: unknown): string | null {
+  if (typeof cwd !== 'string' || !cwd.trim() || !isAbsolute(cwd)) return null
+  try {
+    return statSync(cwd).isDirectory() ? cwd : null
+  } catch {
+    return null
+  }
 }
 
 function workspaceEnv(workspaceId: string): Record<string, string> {
@@ -604,7 +628,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   })
 
   // ---- Project Manifest (.termflow.json) ----
-  ipcMain.handle(IPC.WS_CHECK_MANIFEST, async (_e, cwd: string) => {
+  ipcMain.handle(IPC.WS_CHECK_MANIFEST, async (_e, rawCwd: string) => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return null
     const manifestPath = join(cwd, '.termflow.json')
     if (!existsSync(manifestPath)) return null
     try {
@@ -617,7 +643,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   })
 
   // ---- package.json script runner (feature: task-runner) ----
-  ipcMain.handle(IPC.PKG_SCRIPTS, async (_e, cwd: string) => {
+  ipcMain.handle(IPC.PKG_SCRIPTS, async (_e, rawCwd: string) => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return null
     const pkgPath = join(cwd, 'package.json')
     if (!existsSync(pkgPath)) return null
     try {
@@ -700,7 +728,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.DIALOG_CHECK_FILE, async (_e, path: string) => existsSync(path))
 
   // ---- Git Status ----
-  ipcMain.handle(IPC.GIT_STATUS, async (_e, cwd: string): Promise<GitStatus | null> => {
+  ipcMain.handle(IPC.GIT_STATUS, async (_e, rawCwd: string): Promise<GitStatus | null> => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return null
     const cached = gitStatusCache.get(cwd)
     if (cached && Date.now() - cached.timestamp < GIT_STATUS_CACHE_TTL_MS) {
       return cached.result
@@ -730,11 +760,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     } catch {
       result = null
     }
-    gitStatusCache.set(cwd, { result, timestamp: Date.now() })
+    setGitStatusCache(cwd, { result, timestamp: Date.now() })
     return result
   })
 
-  ipcMain.handle(IPC.GIT_FETCH, async (_e, cwd: string): Promise<{ ok: boolean; message: string }> => {
+  ipcMain.handle(IPC.GIT_FETCH, async (_e, rawCwd: string): Promise<{ ok: boolean; message: string }> => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return { ok: false, message: 'cwd is outside known workspaces' }
     try {
       await execFileAsync('git', ['fetch'], { cwd, encoding: 'utf-8', timeout: 15000 })
       gitStatusCache.delete(cwd)
@@ -766,7 +798,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     return data.toString('utf-8')
   })
 
-  ipcMain.handle(IPC.GIT_WORKBENCH, async (_e, cwd: string): Promise<GitWorkbenchState> => {
+  ipcMain.handle(IPC.GIT_WORKBENCH, async (_e, rawCwd: string): Promise<GitWorkbenchState> => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return { branch: '', status: '', diff: '', isRepo: false }
     // A non-git folder is a normal state, not an error — detect it first and
     // return a friendly "not a repo" result instead of throwing a raw dump.
     try {
@@ -774,20 +808,50 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     } catch {
       return { branch: '', status: '', diff: '', isRepo: false }
     }
-    const [{ stdout: branch }, { stdout: status }, { stdout: diff }] = await Promise.all([
-      execFileAsync('git', ['branch', '--show-current'], { cwd, encoding: 'utf-8', timeout: 5000 }),
-      execFileAsync('git', ['status', '--short'], { cwd, encoding: 'utf-8', timeout: 5000 }),
-      execFileAsync('git', ['diff', '--no-ext-diff', '--stat', '--patch'], { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 2 * 1024 * 1024 })
-    ])
-    return { branch: branch.trim(), status, diff, isRepo: true }
+    try {
+      const [{ stdout: branch }, { stdout: status }, { stdout: diff }] = await Promise.all([
+        execFileAsync('git', ['branch', '--show-current'], { cwd, encoding: 'utf-8', timeout: 5000 }),
+        execFileAsync('git', ['status', '--short'], { cwd, encoding: 'utf-8', timeout: 5000 }),
+        execFileAsync('git', ['diff', '--no-ext-diff', '--stat', '--patch'], { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 2 * 1024 * 1024 })
+      ])
+      return { branch: branch.trim(), status, diff, isRepo: true }
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message.split('\n')[0] : 'git workbench failed')
+    }
   })
-  ipcMain.handle(IPC.GIT_STAGE, async (_e, cwd: string, paths: string[]) => { await execFileAsync('git', ['add', '--', ...paths], { cwd, timeout: 10000 }); gitStatusCache.delete(cwd) })
-  ipcMain.handle(IPC.GIT_UNSTAGE, async (_e, cwd: string, paths: string[]) => { await execFileAsync('git', ['restore', '--staged', '--', ...paths], { cwd, timeout: 10000 }); gitStatusCache.delete(cwd) })
-  ipcMain.handle(IPC.GIT_COMMIT, async (_e, cwd: string, message: string) => {
-    if (!message.trim() || message.length > 240) throw new Error('Commit message is invalid')
-    const { stdout } = await execFileAsync('git', ['commit', '-m', message.trim()], { cwd, encoding: 'utf-8', timeout: 30000 })
-    gitStatusCache.delete(cwd)
-    return stdout
+  ipcMain.handle(IPC.GIT_STAGE, async (_e, rawCwd: string, paths: string[]): Promise<{ ok: boolean; message: string }> => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return { ok: false, message: 'cwd is outside known workspaces' }
+    try {
+      await execFileAsync('git', ['add', '--', ...paths], { cwd, timeout: 10000 })
+      gitStatusCache.delete(cwd)
+      return { ok: true, message: '' }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message.split('\n')[0] : 'git add failed' }
+    }
+  })
+  ipcMain.handle(IPC.GIT_UNSTAGE, async (_e, rawCwd: string, paths: string[]): Promise<{ ok: boolean; message: string }> => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return { ok: false, message: 'cwd is outside known workspaces' }
+    try {
+      await execFileAsync('git', ['restore', '--staged', '--', ...paths], { cwd, timeout: 10000 })
+      gitStatusCache.delete(cwd)
+      return { ok: true, message: '' }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message.split('\n')[0] : 'git restore failed' }
+    }
+  })
+  ipcMain.handle(IPC.GIT_COMMIT, async (_e, rawCwd: string, message: string): Promise<{ ok: boolean; message: string }> => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return { ok: false, message: 'cwd is outside known workspaces' }
+    if (!message.trim() || message.length > 240) return { ok: false, message: 'Commit message is invalid' }
+    try {
+      const { stdout } = await execFileAsync('git', ['commit', '-m', message.trim()], { cwd, encoding: 'utf-8', timeout: 30000 })
+      gitStatusCache.delete(cwd)
+      return { ok: true, message: stdout }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message.split('\n')[0] : 'git commit failed' }
+    }
   })
 
   // ---- Agent Routing ----

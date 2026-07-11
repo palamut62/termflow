@@ -1,3 +1,5 @@
+import { useModalClose } from '../hooks/useModalClose'
+
 interface Props {
   name: string
   running: boolean
@@ -8,8 +10,9 @@ interface Props {
 
 // PRD FR-015 — Terminate / Detach / Cancel when closing a running terminal.
 export default function CloseModal({ name, running, onTerminate, onDetach, onClose }: Props): React.JSX.Element {
+  useModalClose(onClose)
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 420 }}>
         <h3>Close Terminal</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: 12.5, marginBottom: 4 }}>

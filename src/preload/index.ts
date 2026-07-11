@@ -205,9 +205,9 @@ const api = {
     status: (cwd: string): Promise<GitStatus | null> => ipcRenderer.invoke(IPC.GIT_STATUS, cwd),
     fetch: (cwd: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_FETCH, cwd),
     workbench: (cwd: string): Promise<GitWorkbenchState> => ipcRenderer.invoke(IPC.GIT_WORKBENCH, cwd),
-    stage: (cwd: string, paths: string[]): Promise<void> => ipcRenderer.invoke(IPC.GIT_STAGE, cwd, paths),
-    unstage: (cwd: string, paths: string[]): Promise<void> => ipcRenderer.invoke(IPC.GIT_UNSTAGE, cwd, paths),
-    commit: (cwd: string, message: string): Promise<string> => ipcRenderer.invoke(IPC.GIT_COMMIT, cwd, message)
+    stage: (cwd: string, paths: string[]): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_STAGE, cwd, paths),
+    unstage: (cwd: string, paths: string[]): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_UNSTAGE, cwd, paths),
+    commit: (cwd: string, message: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_COMMIT, cwd, message)
   },
   // ---- Agent Routing ----
   agent: {

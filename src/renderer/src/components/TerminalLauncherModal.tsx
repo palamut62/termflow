@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { ShellKind } from '../../../shared/types'
 import { PROFILES } from '../profiles'
 import { useAppStore } from '../store/appStore'
+import { useModalClose } from '../hooks/useModalClose'
 
 export default function TerminalLauncherModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const addTerminal = useAppStore((s) => s.addTerminal)
@@ -11,9 +12,10 @@ export default function TerminalLauncherModal({ onClose }: { onClose: () => void
   const [fullPermissions, setFullPermissions] = useState(false)
   const launchers = PROFILES.filter((profile) => !['custom', 'ssh', 'ollama'].includes(profile.kind))
   const selected = launchers.find((profile) => profile.kind === kind)
+  useModalClose(onClose)
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(event) => event.stopPropagation()}>
         <h3>Open terminal at folder</h3>
         <div className="field">

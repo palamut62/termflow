@@ -312,10 +312,13 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     set((s) => {
       const remaining = s.nodes.filter((n) => n.id !== nodeId)
       const computed = computeLayout('grid', remaining, s.canvasSize, s.connections)
+      const gitStatus = { ...s.gitStatus }
+      if (mode === 'terminate') for (const tid of termIds) delete gitStatus[tid]
       return {
       nodes: remaining.map((n) => ({ ...n, ...(computed[n.id] || {}) })),
       connections: s.connections.filter((c) => c.sourceNodeId !== nodeId && c.targetNodeId !== nodeId),
       terminals,
+      gitStatus,
       activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
     }})
     get().persist()
@@ -470,23 +473,31 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
 
     if (!newPane) {
       // All panes closed — remove node
-      set((s) => ({
+      set((s) => {
+        const gitStatus = { ...s.gitStatus }
+        if (mode === 'terminate') delete gitStatus[terminalId]
+        return {
         nodes: s.nodes.filter((n) => n.id !== nodeId),
         connections: s.connections.filter((c) => c.sourceNodeId !== nodeId && c.targetNodeId !== nodeId),
         terminals,
+        gitStatus,
         activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
-      }))
+      }})
     } else {
       const remainingLeaves = getLeafTerminalIds(newPane)
-      set((s) => ({
+      set((s) => {
+        const gitStatus = { ...s.gitStatus }
+        if (mode === 'terminate') delete gitStatus[terminalId]
+        return {
         terminals,
+        gitStatus,
         nodes: s.nodes.map((n) => n.id === nodeId ? {
           ...n,
           panes: newPane,
           activePaneId: remainingLeaves.includes(node.activePaneId || '') ? node.activePaneId : remainingLeaves[0],
           terminalId: newPane.type === 'leaf' ? newPane.terminalId : n.terminalId
         } : n)
-      }))
+      }})
     }
     get().persist()
   },

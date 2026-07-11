@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ConnectionType } from '../../../shared/types'
+import { useModalClose } from '../hooks/useModalClose'
 
 export interface ConnectionFormResult {
   type: ConnectionType
@@ -33,9 +34,10 @@ export default function ConnectionModal({ onSubmit, onClose }: Props): React.JSX
   const [routeDirection, setRouteDirection] = useState<'source_to_target' | 'bidirectional'>('source_to_target')
   const [triggerPattern, setTriggerPattern] = useState('@@HANDOFF@@([\\s\\S]*?)@@END@@')
   const [transform, setTransform] = useState('')
+  useModalClose(onClose)
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ maxHeight: '85vh', overflow: 'auto' }}>
         <h3>Create Connection</h3>
         <div className="field">

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useModalClose } from '../hooks/useModalClose'
 
 export interface PromptField {
   key: string
@@ -27,10 +28,13 @@ export default function PromptModal({
     Object.fromEntries(fields.map((f) => [f.key, f.defaultValue ?? '']))
   )
   const valid = fields.every((f) => !f.required || values[f.key]?.trim())
+  useModalClose(onClose)
 
   return (
     <div
       className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
       onMouseDown={(e) => {
         e.stopPropagation()
         onClose()

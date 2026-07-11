@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   onClose: () => void
@@ -12,6 +13,7 @@ export default function WorkspaceModal({ onClose }: Props): React.JSX.Element {
   const [path, setPath] = useState('')
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
+  useModalClose(onClose)
 
   const pick = async (): Promise<void> => {
     const dir = await window.termflow.dialog.openDir()
@@ -30,7 +32,7 @@ export default function WorkspaceModal({ onClose }: Props): React.JSX.Element {
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <h3>New Workspace</h3>
         <div className="field">

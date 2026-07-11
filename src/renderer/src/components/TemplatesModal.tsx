@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Trash2, LayoutTemplate } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   onClose: () => void
@@ -21,6 +22,7 @@ export default function TemplatesModal({ onClose }: Props): React.JSX.Element {
   const [templates, setTemplates] = useState<TemplateEntry[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  useModalClose(onClose)
 
   const reload = async (): Promise<void> => setTemplates(await window.termflow.templates.list())
 
@@ -54,7 +56,7 @@ export default function TemplatesModal({ onClose }: Props): React.JSX.Element {
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 480 }}>
         <h3>Workspace Templates</h3>
         {error && <div className="side-error" role="alert">{error}</div>}

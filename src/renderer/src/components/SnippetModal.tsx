@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useAppStore } from '../store/appStore'
 import type { Snippet, ShellKind } from '../../../shared/types'
 import { PROFILES } from '../profiles'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   snippet?: Snippet // if provided, edit mode
@@ -28,6 +29,7 @@ export default function SnippetModal({ snippet, onClose }: Props): React.JSX.Ele
   const [targetKind, setTargetKind] = useState<ShellKind | ''>(snippet?.targetKind || '')
   const [cwd, setCwd] = useState(snippet?.cwd || '')
   const [scope, setScope] = useState<'workspace' | 'global'>(snippet?.scope || 'workspace')
+  useModalClose(onClose)
 
   const params = useMemo(() => extractParams(command), [command])
 
@@ -51,7 +53,7 @@ export default function SnippetModal({ snippet, onClose }: Props): React.JSX.Ele
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 520 }}>
         <h3>{snippet ? 'Edit Snippet' : 'New Snippet'}</h3>
 

@@ -3,6 +3,7 @@ import { Trash2, Workflow } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import type { FlowTemplate } from '../../../shared/types'
 import PromptModal, { type PromptField } from './PromptModal'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   onClose: () => void
@@ -19,6 +20,7 @@ export default function FlowTemplatesModal({ onClose }: Props): React.JSX.Elemen
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showSave, setShowSave] = useState(false)
+  useModalClose(onClose)
 
   const reload = async (): Promise<void> => setTemplates(await window.termflow.flowTemplates.list())
 
@@ -43,7 +45,7 @@ export default function FlowTemplatesModal({ onClose }: Props): React.JSX.Elemen
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 480 }}>
         <h3>Agent Flow Templates</h3>
         {error && <div className="side-error" role="alert">{error}</div>}

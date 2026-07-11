@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { FileSearch, X } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { getLeafTerminalIds } from '../paneUtils'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   onClose: () => void
@@ -23,6 +24,7 @@ export default function GlobalSearchModal({ onClose }: Props): React.JSX.Element
   const [results, setResults] = useState<ResultRow[]>([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
+  useModalClose(onClose)
 
   const runSearch = async (): Promise<void> => {
     const q = query.trim()
@@ -57,7 +59,7 @@ export default function GlobalSearchModal({ onClose }: Props): React.JSX.Element
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 560 }}>
         <h3><FileSearch size={16} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />Search all terminals</h3>
         <div style={{ display: 'flex', gap: 6 }}>

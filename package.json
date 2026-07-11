@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "author": "TermFlow",
   "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/palamut62/termflow.git" },
   "scripts": {
     "dev": "electron-vite dev",
     "typecheck": "tsc --build --force",

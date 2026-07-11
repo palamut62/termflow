@@ -1,5 +1,6 @@
 import { Bot, Plus } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   sourceNodeId: string
@@ -13,6 +14,7 @@ export default function LogSummaryModal({ sourceNodeId, onClose }: Props): React
   const nodes = useAppStore((s) => s.nodes)
   const sendLogToAgent = useAppStore((s) => s.sendLogToAgent)
   const agentNodes = nodes.filter((n) => n.nodeType === 'agent' && n.id !== sourceNodeId)
+  useModalClose(onClose)
 
   const pick = (targetId: string | 'new'): void => {
     sendLogToAgent(sourceNodeId, targetId)
@@ -20,7 +22,7 @@ export default function LogSummaryModal({ sourceNodeId, onClose }: Props): React
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={(e) => { e.stopPropagation(); onClose() }}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 380 }}>
         <h3>Send log to an agent for summary</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>

@@ -3,6 +3,7 @@ import { useAppStore } from '../store/appStore'
 import { TERMINAL_THEMES } from '../themes'
 import type { EnvEntry, HighlightRule, SshProfile } from '../../../shared/types'
 import PromptModal, { type PromptField } from './PromptModal'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   onClose: () => void
@@ -46,6 +47,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const [sshKeyPath, setSshKeyPath] = useState('')
   const [sshJumpHost, setSshJumpHost] = useState('')
   const [updateStatus, setUpdateStatus] = useState<{ status: string; detail?: string }>({ status: 'idle' })
+  useModalClose(onClose)
 
   const reloadDeveloper = async (): Promise<void> => {
     if (!activeWorkspaceId) return
@@ -73,7 +75,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   ]
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 540, maxHeight: '85vh', overflow: 'auto' }}>
         <h3>Settings</h3>
 
