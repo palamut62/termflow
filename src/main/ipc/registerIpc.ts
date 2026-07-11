@@ -122,7 +122,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const win = getWindow()
     if (win && !win.isDestroyed()) {
       try {
-        win.setTitleBarOverlay({ color, symbolColor, height: 44 })
+        // 43px: 1px shorter than the toolbar so its bottom border shows through.
+        win.setTitleBarOverlay({ color, symbolColor, height: 43 })
       } catch {
         /* platform without overlay support */
       }

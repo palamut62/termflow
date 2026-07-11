@@ -59,7 +59,9 @@ function createWindow(): void {
     backgroundColor: '#00000000',
     icon: APP_ICON,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#20242c', symbolColor: '#a0a7b4', height: 44 },
+    // Overlay is 1px shorter than the 44px toolbar so the toolbar's bottom
+    // border stays visible under the native window controls.
+    titleBarOverlay: { color: '#20242c', symbolColor: '#a0a7b4', height: 43 },
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

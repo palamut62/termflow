@@ -114,9 +114,16 @@ export function applyTheme(theme: AppSettings['theme'], transparency: number): v
     const opacity = Math.max(45, Math.min(100, transparency))
     root.toggleAttribute('data-transparency', opacity < 100)
     root.style.setProperty('--user-opacity', String(opacity / 100))
-    // Keep the native Windows titlebar overlay (min/max/close) in sync.
-    if (isLight) window.termflow.window.setOverlay('#eaedf3', '#4a5162')
-    else window.termflow.window.setOverlay('#20242c', '#a0a7b4')
+    // Keep the native Windows titlebar overlay (min/max/close) in sync with the
+    // ACTIVE theme's real palette: read the computed CSS variables instead of
+    // hardcoding two colorways, so every theme matches the toolbar.
+    const css = getComputedStyle(root)
+    const bg = css.getPropertyValue('--bg-panel').trim()
+    const symbol = css.getPropertyValue('--text-secondary').trim()
+    window.termflow.window.setOverlay(
+      bg || (isLight ? '#eaedf3' : '#20242c'),
+      symbol || (isLight ? '#4a5162' : '#a0a7b4')
+    )
   }
   if (!systemThemeMql && window.matchMedia) {
     systemThemeMql = window.matchMedia('(prefers-color-scheme: dark)')
