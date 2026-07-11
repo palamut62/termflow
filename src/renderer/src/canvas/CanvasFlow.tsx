@@ -188,19 +188,22 @@ export default function CanvasFlow(): React.JSX.Element {
       {contextMenu && (
         <div className="menu canvas-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
           <div className="menu-label">Open AI provider</div>
-          {providerProfiles.map((provider) => (
-            <div className="menu-item" key={provider.id} onClick={() => {
+          {providerProfiles.map((provider) => {
+            const launchProvider = () => {
               const env: Record<string, string> = {}
               if (provider.baseUrlEnv && provider.baseUrl) env[provider.baseUrlEnv] = provider.baseUrl
               if (provider.modelEnv && provider.model) env[provider.modelEnv] = provider.model
               const command = provider.fullPermissionArgs ? `${provider.command} ${provider.fullPermissionArgs}` : provider.command
               addTerminal('custom', { name: provider.name, startupCommand: command, env })
               setContextMenu(null)
-            }}><Bot size={14} color={provider.color} />{provider.name}</div>
-          ))}
+            }
+            return (
+              <div className="menu-item" key={provider.id} role="menuitem" tabIndex={0} onClick={launchProvider} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); launchProvider() } }}><Bot size={14} color={provider.color} />{provider.name}</div>
+            )
+          })}
           <div className="menu-sep" />
-          <div className="menu-item" onClick={() => { setContextMenu(null); window.dispatchEvent(new CustomEvent('termflow:open-terminal-launcher')) }}><FolderOpen size={14} />Open terminal at folder...</div>
-          <div className="menu-item" onClick={() => { setContextMenu(null); window.dispatchEvent(new CustomEvent('termflow:open-provider-manager')) }}><Settings size={14} />Configure providers...</div>
+          <div className="menu-item" role="menuitem" tabIndex={0} onClick={() => { setContextMenu(null); window.dispatchEvent(new CustomEvent('termflow:open-terminal-launcher')) }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setContextMenu(null); window.dispatchEvent(new CustomEvent('termflow:open-terminal-launcher')) } }}><FolderOpen size={14} />Open terminal at folder...</div>
+          <div className="menu-item" role="menuitem" tabIndex={0} onClick={() => { setContextMenu(null); window.dispatchEvent(new CustomEvent('termflow:open-provider-manager')) }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setContextMenu(null); window.dispatchEvent(new CustomEvent('termflow:open-provider-manager')) } }}><Settings size={14} />Configure providers...</div>
         </div>
       )}
 

@@ -2,7 +2,8 @@ import { app, ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs'
+import { existsSync, statSync } from 'fs'
+import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'fs/promises'
 import { isAbsolute, join, relative, resolve } from 'path'
 import { nanoid } from 'nanoid'
 
@@ -51,8 +52,8 @@ const MAX_PREVIEW_BYTES = 512 * 1024
 
 interface StoredCredential extends CredentialMeta { encryptedValue: string }
 function vaultFile(): string { return join(app.getPath('userData'), 'credential-vault.json') }
-function readVault(): StoredCredential[] { try { return JSON.parse(readFileSync(vaultFile(), 'utf-8')) as StoredCredential[] } catch { return [] } }
-function writeVault(items: StoredCredential[]): void { writeFileSync(vaultFile(), JSON.stringify(items, null, 2), 'utf-8') }
+async function readVault(): Promise<StoredCredential[]> { try { return JSON.parse(await readFile(vaultFile(), 'utf-8')) as StoredCredential[] } catch { return [] } }
+async function writeVault(items: StoredCredential[]): Promise<void> { await writeFile(vaultFile(), JSON.stringify(items, null, 2), 'utf-8') }
 
 function pathInside(root: string, candidate: string): string {
   const base = resolve(root)
@@ -76,7 +77,7 @@ function validateCwd(cwd: unknown): string | null {
   }
 }
 
-function workspaceEnv(workspaceId: string): Record<string, string> {
+async function workspaceEnv(workspaceId: string): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   for (const entry of dbApi.listEnvVars(workspaceId)) {
     if (entry.masked && safeStorage.isEncryptionAvailable()) {
@@ -89,7 +90,7 @@ function workspaceEnv(workspaceId: string): Record<string, string> {
       out[entry.key] = entry.value
     }
   }
-  if (safeStorage.isEncryptionAvailable()) for (const credential of readVault()) {
+  if (safeStorage.isEncryptionAvailable()) for (const credential of await readVault()) {
     if (credential.workspaceId && credential.workspaceId !== workspaceId) continue
     try { out[credential.envKey] = safeStorage.decryptString(Buffer.from(credential.encryptedValue, 'base64')) } catch { /* ignore invalid credential */ }
   }
@@ -113,8 +114,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   pty.setPassiveInterval(s.passiveThrottleMs)
 
   // ---- PTY ----
-  ipcMain.handle(IPC.PTY_CREATE, (_e, id: string, input: CreateTerminalInput) =>
-    pty.create(id, { ...input, env: { ...workspaceEnv(input.workspaceId), ...(input.env || {}) } })
+  ipcMain.handle(IPC.PTY_CREATE, async (_e, id: string, input: CreateTerminalInput) =>
+    pty.create(id, { ...input, env: { ...(await workspaceEnv(input.workspaceId)), ...(input.env || {}) } })
   )
   ipcMain.on(IPC.PTY_WRITE, (_e, id: string, data: string) => pty.write(id, data))
   ipcMain.on(IPC.PTY_RESIZE, (_e, id: string, cols: number, rows: number) => pty.resize(id, cols, rows))
@@ -240,35 +241,42 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   })
   ipcMain.handle(IPC.ENV_DELETE, (_e, id: string) => dbApi.deleteEnvVar(id))
 
-  ipcMain.handle(IPC.VAULT_LIST, (_e, workspaceId?: string): CredentialMeta[] => readVault().filter((item) => !workspaceId || !item.workspaceId || item.workspaceId === workspaceId).map(({ encryptedValue: _secret, ...meta }) => meta))
-  ipcMain.handle(IPC.VAULT_SAVE, (_e, input: Omit<CredentialMeta, 'id' | 'updatedAt'> & { id?: string; value: string }): CredentialMeta => {
+  ipcMain.handle(IPC.VAULT_LIST, async (_e, workspaceId?: string): Promise<CredentialMeta[]> => (await readVault()).filter((item) => !workspaceId || !item.workspaceId || item.workspaceId === workspaceId).map(({ encryptedValue: _secret, ...meta }) => meta))
+  ipcMain.handle(IPC.VAULT_SAVE, async (_e, input: Omit<CredentialMeta, 'id' | 'updatedAt'> & { id?: string; value: string }): Promise<CredentialMeta> => {
     if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential encryption is unavailable')
     if (!input.name.trim() || !/^[A-Z_][A-Z0-9_]*$/i.test(input.envKey) || !input.value) throw new Error('Credential input is invalid')
-    const items = readVault()
+    const items = await readVault()
     const id = input.id || nanoid()
     const record: StoredCredential = { id, name: input.name.trim(), provider: input.provider.trim(), envKey: input.envKey.trim(), workspaceId: input.workspaceId, updatedAt: new Date().toISOString(), encryptedValue: safeStorage.encryptString(input.value).toString('base64') }
-    writeVault([...items.filter((item) => item.id !== id), record])
+    await writeVault([...items.filter((item) => item.id !== id), record])
     const { encryptedValue: _secret, ...meta } = record
     return meta
   })
-  ipcMain.handle(IPC.VAULT_DELETE, (_e, id: string) => writeVault(readVault().filter((item) => item.id !== id)))
+  ipcMain.handle(IPC.VAULT_DELETE, async (_e, id: string) => writeVault((await readVault()).filter((item) => item.id !== id)))
 
   const pluginsDir = join(app.getPath('userData'), 'plugins')
-  const ensurePlugins = (): void => { if (!existsSync(pluginsDir)) mkdirSync(pluginsDir, { recursive: true }) }
+  const ensurePlugins = async (): Promise<void> => { await mkdir(pluginsDir, { recursive: true }) }
   const validatePlugin = (value: unknown): TermFlowPluginManifest => {
     const item = value as Partial<TermFlowPluginManifest>
     if (item.schemaVersion !== 1 || !item.id?.match(/^[a-z0-9][a-z0-9._-]+$/i) || !item.name || !item.version || !Array.isArray(item.commands)) throw new Error('Invalid TermFlow plugin manifest')
     for (const command of item.commands) if (!command.id || !command.title || !command.command) throw new Error('Plugin command is invalid')
     return item as TermFlowPluginManifest
   }
-  ipcMain.handle(IPC.PLUGIN_LIST, (): TermFlowPluginManifest[] => { ensurePlugins(); return readdirSync(pluginsDir).filter((file) => file.endsWith('.json')).flatMap((file) => { try { return [validatePlugin(JSON.parse(readFileSync(join(pluginsDir, file), 'utf-8')))] } catch { return [] } }) })
+  ipcMain.handle(IPC.PLUGIN_LIST, async (): Promise<TermFlowPluginManifest[]> => {
+    await ensurePlugins()
+    const files = (await readdir(pluginsDir)).filter((file) => file.endsWith('.json'))
+    const results = await Promise.all(files.map(async (file) => {
+      try { return validatePlugin(JSON.parse(await readFile(join(pluginsDir, file), 'utf-8'))) } catch { return null }
+    }))
+    return results.filter((p): p is TermFlowPluginManifest => !!p)
+  })
   ipcMain.handle(IPC.PLUGIN_INSTALL, async (): Promise<TermFlowPluginManifest | null> => {
     const result = await dialog.showOpenDialog(getWindow()!, { title: 'Install TermFlow plugin', properties: ['openFile'], filters: [{ name: 'TermFlow Plugin', extensions: ['json'] }] })
     if (result.canceled || !result.filePaths[0]) return null
-    const stat = statSync(result.filePaths[0]); if (stat.size > MAX_JSON_FILE_BYTES) throw new Error('Plugin manifest is too large')
-    const plugin = validatePlugin(JSON.parse(readFileSync(result.filePaths[0], 'utf-8'))); ensurePlugins(); writeFileSync(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return plugin
+    const info = await stat(result.filePaths[0]); if (info.size > MAX_JSON_FILE_BYTES) throw new Error('Plugin manifest is too large')
+    const plugin = validatePlugin(JSON.parse(await readFile(result.filePaths[0], 'utf-8'))); await ensurePlugins(); await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return plugin
   })
-  ipcMain.handle(IPC.PLUGIN_DELETE, (_e, id: string) => { const file = join(pluginsDir, `${id}.json`); if (existsSync(file)) unlinkSync(file) })
+  ipcMain.handle(IPC.PLUGIN_DELETE, async (_e, id: string) => { const file = join(pluginsDir, `${id}.json`); try { await unlink(file) } catch { /* not present */ } })
 
   // ---- Workspace Export/Import (shared helpers also power templates + clone) ----
   function buildWorkspaceExport(workspaceId: string): WorkspaceExport | null {
@@ -382,7 +390,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       filters: [{ name: 'TermFlow Workspace', extensions: ['termflow.json'] }]
     })
     if (!res.canceled && res.filePath) {
-      writeFileSync(res.filePath, JSON.stringify(exp, null, 2), 'utf-8')
+      await writeFile(res.filePath, JSON.stringify(exp, null, 2), 'utf-8')
     }
   })
 
@@ -396,7 +404,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     if (res.canceled || !res.filePaths[0]) return null
     try {
       const file = res.filePaths[0]
-      const source = readFileSync(file, 'utf-8')
+      const source = await readFile(file, 'utf-8')
       if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) throw new Error('Import file is too large')
       const checked = validateWorkspaceExport(JSON.parse(source))
       if (!checked.data) throw new Error(checked.errors.join(' '))
@@ -416,8 +424,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- Workspace Templates (save current layout, reuse it for new workspaces) ----
   const templatesDir = join(app.getPath('userData'), 'templates')
-  function ensureTemplatesDir(): void {
-    if (!existsSync(templatesDir)) mkdirSync(templatesDir, { recursive: true })
+  async function ensureTemplatesDir(): Promise<void> {
+    await mkdir(templatesDir, { recursive: true })
   }
   function templateFile(id: string): string {
     return join(templatesDir, `${id}.termflow.json`)
@@ -426,28 +434,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.TEMPLATE_SAVE, async (_e, workspaceId: string, templateName: string) => {
     const exp = buildWorkspaceExport(workspaceId)
     if (!exp) return { error: 'Workspace not found' }
-    ensureTemplatesDir()
+    await ensureTemplatesDir()
     const id = nanoid()
     const payload = { ...exp, templateName: templateName || exp.workspace.name }
-    writeFileSync(templateFile(id), JSON.stringify(payload, null, 2), 'utf-8')
+    await writeFile(templateFile(id), JSON.stringify(payload, null, 2), 'utf-8')
     return { id }
   })
 
   ipcMain.handle(IPC.TEMPLATE_LIST, async () => {
-    ensureTemplatesDir()
+    await ensureTemplatesDir()
     try {
-      return readdirSync(templatesDir)
-        .filter((f) => f.endsWith('.termflow.json'))
-        .map((f) => {
-          const id = f.replace(/\.termflow\.json$/, '')
-          try {
-            const data = JSON.parse(readFileSync(join(templatesDir, f), 'utf-8'))
-            return { id, name: data.templateName || data.workspace?.name || id, savedAt: data.exportedAt || '' }
-          } catch {
-            return null
-          }
-        })
-        .filter((t): t is { id: string; name: string; savedAt: string } => !!t)
+      const files = (await readdir(templatesDir)).filter((f) => f.endsWith('.termflow.json'))
+      const entries = await Promise.all(files.map(async (f) => {
+        const id = f.replace(/\.termflow\.json$/, '')
+        try {
+          const data = JSON.parse(await readFile(join(templatesDir, f), 'utf-8'))
+          return { id, name: data.templateName || data.workspace?.name || id, savedAt: data.exportedAt || '' }
+        } catch {
+          return null
+        }
+      }))
+      return entries.filter((t): t is { id: string; name: string; savedAt: string } => !!t)
     } catch {
       return []
     }
@@ -455,7 +462,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   ipcMain.handle(IPC.TEMPLATE_CREATE_WORKSPACE, async (_e, templateId: string, opts?: { name?: string; path?: string }) => {
     try {
-      const source = readFileSync(templateFile(templateId), 'utf-8')
+      const source = await readFile(templateFile(templateId), 'utf-8')
       const checked = validateWorkspaceExport(JSON.parse(source))
       if (!checked.data) throw new Error(checked.errors.join(' '))
       return instantiateWorkspaceExport(checked.data, opts)
@@ -466,7 +473,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   ipcMain.handle(IPC.TEMPLATE_DELETE, async (_e, templateId: string) => {
     try {
-      if (existsSync(templateFile(templateId))) unlinkSync(templateFile(templateId))
+      await unlink(templateFile(templateId))
     } catch {
       /* ignore */
     }
@@ -474,8 +481,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- Agent Flow Templates (multi-agent pipeline wiring, feature: agent flow templates) ----
   const flowTemplatesDir = join(app.getPath('userData'), 'flow-templates')
-  function ensureFlowTemplatesDir(): void {
-    if (!existsSync(flowTemplatesDir)) mkdirSync(flowTemplatesDir, { recursive: true })
+  async function ensureFlowTemplatesDir(): Promise<void> {
+    await mkdir(flowTemplatesDir, { recursive: true })
   }
   function flowTemplateFile(id: string): string {
     return join(flowTemplatesDir, `${id}.json`)
@@ -533,19 +540,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ]
 
   ipcMain.handle(IPC.FLOW_TEMPLATE_LIST, async () => {
-    ensureFlowTemplatesDir()
+    await ensureFlowTemplatesDir()
     let saved: unknown[] = []
     try {
-      saved = readdirSync(flowTemplatesDir)
-        .filter((f) => f.endsWith('.json'))
-        .map((f) => {
-          try {
-            return JSON.parse(readFileSync(join(flowTemplatesDir, f), 'utf-8'))
-          } catch {
-            return null
-          }
-        })
-        .filter(Boolean)
+      const files = (await readdir(flowTemplatesDir)).filter((f) => f.endsWith('.json'))
+      const parsed = await Promise.all(files.map(async (f) => {
+        try {
+          return JSON.parse(await readFile(join(flowTemplatesDir, f), 'utf-8'))
+        } catch {
+          return null
+        }
+      }))
+      saved = parsed.filter(Boolean)
     } catch {
       saved = []
     }
@@ -554,52 +560,52 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   ipcMain.handle(IPC.FLOW_TEMPLATE_SAVE, async (_e, name: string, nodes: unknown[], connections: unknown[]) => {
     if (!name?.trim() || !Array.isArray(nodes) || nodes.length < 2) return { error: 'At least 2 agent nodes are required' }
-    ensureFlowTemplatesDir()
+    await ensureFlowTemplatesDir()
     const id = nanoid()
     const payload = { id, name: name.trim(), builtin: false, nodes, connections: connections || [] }
-    writeFileSync(flowTemplateFile(id), JSON.stringify(payload, null, 2), 'utf-8')
+    await writeFile(flowTemplateFile(id), JSON.stringify(payload, null, 2), 'utf-8')
     return { id }
   })
 
   ipcMain.handle(IPC.FLOW_TEMPLATE_DELETE, async (_e, templateId: string) => {
     if (templateId.startsWith('builtin:')) return
     try {
-      if (existsSync(flowTemplateFile(templateId))) unlinkSync(flowTemplateFile(templateId))
+      await unlink(flowTemplateFile(templateId))
     } catch {
       /* ignore */
     }
   })
 
   ipcMain.handle(IPC.FLOW_PACKAGE_EXPORT, async () => {
-    ensureFlowTemplatesDir()
-    const templates = readdirSync(flowTemplatesDir).filter((file) => file.endsWith('.json')).flatMap((file) => { try { return [JSON.parse(readFileSync(join(flowTemplatesDir, file), 'utf-8'))] } catch { return [] } })
+    await ensureFlowTemplatesDir()
+    const files = (await readdir(flowTemplatesDir)).filter((file) => file.endsWith('.json'))
+    const parsed = await Promise.all(files.map(async (file) => { try { return JSON.parse(await readFile(join(flowTemplatesDir, file), 'utf-8')) } catch { return null } }))
+    const templates = parsed.filter(Boolean)
     const result = await dialog.showSaveDialog(getWindow()!, { title: 'Export workflow package', defaultPath: 'termflow-workflows.termflow-package.json', filters: [{ name: 'TermFlow Workflow Package', extensions: ['termflow-package.json'] }] })
-    if (!result.canceled && result.filePath) writeFileSync(result.filePath, JSON.stringify({ schemaVersion: 1, kind: 'termflow-workflows', exportedAt: new Date().toISOString(), templates }, null, 2), 'utf-8')
+    if (!result.canceled && result.filePath) await writeFile(result.filePath, JSON.stringify({ schemaVersion: 1, kind: 'termflow-workflows', exportedAt: new Date().toISOString(), templates }, null, 2), 'utf-8')
   })
   ipcMain.handle(IPC.FLOW_PACKAGE_IMPORT, async (): Promise<number> => {
     const result = await dialog.showOpenDialog(getWindow()!, { title: 'Import workflow package', properties: ['openFile'], filters: [{ name: 'TermFlow Workflow Package', extensions: ['json'] }] })
     if (result.canceled || !result.filePaths[0]) return 0
-    const stat = statSync(result.filePaths[0]); if (stat.size > MAX_JSON_FILE_BYTES) throw new Error('Workflow package is too large')
-    const data = JSON.parse(readFileSync(result.filePaths[0], 'utf-8')) as { schemaVersion?: number; kind?: string; templates?: unknown[] }
+    const info = await stat(result.filePaths[0]); if (info.size > MAX_JSON_FILE_BYTES) throw new Error('Workflow package is too large')
+    const data = JSON.parse(await readFile(result.filePaths[0], 'utf-8')) as { schemaVersion?: number; kind?: string; templates?: unknown[] }
     if (data.schemaVersion !== 1 || data.kind !== 'termflow-workflows' || !Array.isArray(data.templates)) throw new Error('Invalid workflow package')
-    ensureFlowTemplatesDir(); let count = 0
-    for (const raw of data.templates) { const template = raw as { id?: string; name?: string; nodes?: unknown[]; connections?: unknown[] }; if (!template.name || !Array.isArray(template.nodes) || !Array.isArray(template.connections)) continue; const id = nanoid(); writeFileSync(flowTemplateFile(id), JSON.stringify({ ...template, id, builtin: false }, null, 2), 'utf-8'); count++ }
+    await ensureFlowTemplatesDir(); let count = 0
+    for (const raw of data.templates) { const template = raw as { id?: string; name?: string; nodes?: unknown[]; connections?: unknown[] }; if (!template.name || !Array.isArray(template.nodes) || !Array.isArray(template.connections)) continue; const id = nanoid(); await writeFile(flowTemplateFile(id), JSON.stringify({ ...template, id, builtin: false }, null, 2), 'utf-8'); count++ }
     return count
   })
 
   // ---- Task Triggers (process_exit / timer, feature: expanded task triggers) ----
   const taskTriggersDir = join(app.getPath('userData'), 'task-triggers')
-  function ensureTaskTriggersDir(): void {
-    if (!existsSync(taskTriggersDir)) mkdirSync(taskTriggersDir, { recursive: true })
+  async function ensureTaskTriggersDir(): Promise<void> {
+    await mkdir(taskTriggersDir, { recursive: true })
   }
   function taskTriggersFile(workspaceId: string): string {
     return join(taskTriggersDir, `${workspaceId}.json`)
   }
-  function readTaskTriggers(workspaceId: string): unknown[] {
+  async function readTaskTriggers(workspaceId: string): Promise<unknown[]> {
     try {
-      const f = taskTriggersFile(workspaceId)
-      if (!existsSync(f)) return []
-      return JSON.parse(readFileSync(f, 'utf-8'))
+      return JSON.parse(await readFile(taskTriggersFile(workspaceId), 'utf-8'))
     } catch {
       return []
     }
@@ -611,20 +617,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   ipcMain.handle(IPC.TASK_TRIGGER_SAVE, async (_e, trigger: { id?: string; workspaceId: string }) => {
     if (!trigger?.workspaceId) return { error: 'Missing workspace' }
-    ensureTaskTriggersDir()
-    const existing = readTaskTriggers(trigger.workspaceId) as Array<{ id: string }>
+    await ensureTaskTriggersDir()
+    const existing = (await readTaskTriggers(trigger.workspaceId)) as Array<{ id: string }>
     const id = trigger.id || nanoid()
     const saved = { ...trigger, id }
     const next = existing.some((t) => t.id === id)
       ? existing.map((t) => (t.id === id ? saved : t))
       : [...existing, saved]
-    writeFileSync(taskTriggersFile(trigger.workspaceId), JSON.stringify(next, null, 2), 'utf-8')
+    await writeFile(taskTriggersFile(trigger.workspaceId), JSON.stringify(next, null, 2), 'utf-8')
     return { id }
   })
 
   ipcMain.handle(IPC.TASK_TRIGGER_DELETE, async (_e, workspaceId: string, id: string) => {
-    const existing = readTaskTriggers(workspaceId) as Array<{ id: string }>
-    writeFileSync(taskTriggersFile(workspaceId), JSON.stringify(existing.filter((t) => t.id !== id), null, 2), 'utf-8')
+    const existing = (await readTaskTriggers(workspaceId)) as Array<{ id: string }>
+    await writeFile(taskTriggersFile(workspaceId), JSON.stringify(existing.filter((t) => t.id !== id), null, 2), 'utf-8')
   })
 
   // ---- Project Manifest (.termflow.json) ----
@@ -632,9 +638,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const cwd = validateCwd(rawCwd)
     if (!cwd) return null
     const manifestPath = join(cwd, '.termflow.json')
-    if (!existsSync(manifestPath)) return null
     try {
-      const source = readFileSync(manifestPath, 'utf-8')
+      const source = await readFile(manifestPath, 'utf-8')
       if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) return null
       return validateManifest(JSON.parse(source)).data
     } catch {
@@ -647,9 +652,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const cwd = validateCwd(rawCwd)
     if (!cwd) return null
     const pkgPath = join(cwd, 'package.json')
-    if (!existsSync(pkgPath)) return null
     try {
-      const source = readFileSync(pkgPath, 'utf-8')
+      const source = await readFile(pkgPath, 'utf-8')
       if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) return null
       const pkg = JSON.parse(source)
       const scripts: Record<string, string> =
@@ -673,7 +677,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       checks.push({ id: 'manifest', label: 'TermFlow manifest', status: 'warning', detail: 'Optional .termflow.json is missing' })
     } else {
       try {
-        const result = validateManifest(JSON.parse(readFileSync(manifestPath, 'utf-8')))
+        const result = validateManifest(JSON.parse(await readFile(manifestPath, 'utf-8')))
         checks.push({ id: 'manifest', label: 'TermFlow manifest', status: result.data ? 'ok' : 'error', detail: result.data ? '.termflow.json is valid' : result.errors.join(' ') })
       } catch {
         checks.push({ id: 'manifest', label: 'TermFlow manifest', status: 'error', detail: '.termflow.json cannot be parsed' })
@@ -722,7 +726,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
     const win = getWindow()
     const res = await dialog.showSaveDialog(win!, { title: 'Export Diagnostics', defaultPath: `termflow-diagnostics-${Date.now()}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] })
-    if (!res.canceled && res.filePath) writeFileSync(res.filePath, JSON.stringify(diagnostics, null, 2), 'utf-8')
+    if (!res.canceled && res.filePath) await writeFile(res.filePath, JSON.stringify(diagnostics, null, 2), 'utf-8')
   })
 
   ipcMain.handle(IPC.DIALOG_CHECK_FILE, async (_e, path: string) => existsSync(path))
@@ -776,24 +780,30 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
   })
 
-  ipcMain.handle(IPC.FS_LIST, (_e, workspaceId: string, path?: string): WorkspaceFileEntry[] => {
+  ipcMain.handle(IPC.FS_LIST, async (_e, workspaceId: string, path?: string): Promise<WorkspaceFileEntry[]> => {
     const ws = dbApi.listWorkspaces().find((item) => item.id === workspaceId)
     if (!ws) return []
     const dir = pathInside(ws.path, path || ws.path)
-    return readdirSync(dir, { withFileTypes: true }).filter((item) => !['node_modules', '.git', 'dist', 'out'].includes(item.name)).map((item) => {
+    const items = (await readdir(dir, { withFileTypes: true })).filter((item) => !['node_modules', '.git', 'dist', 'out'].includes(item.name))
+    const entries = await Promise.all(items.map(async (item) => {
       const fullPath = join(dir, item.name)
-      const stat = statSync(fullPath)
-      return { name: item.name, path: fullPath, directory: item.isDirectory(), size: stat.size }
-    }).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name))
+      const directory = item.isDirectory()
+      let size = 0
+      if (!directory) {
+        try { size = (await stat(fullPath)).size } catch { size = 0 }
+      }
+      return { name: item.name, path: fullPath, directory, size }
+    }))
+    return entries.sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name))
   })
 
-  ipcMain.handle(IPC.FS_READ_TEXT, (_e, workspaceId: string, path: string): string => {
+  ipcMain.handle(IPC.FS_READ_TEXT, async (_e, workspaceId: string, path: string): Promise<string> => {
     const ws = dbApi.listWorkspaces().find((item) => item.id === workspaceId)
     if (!ws) throw new Error('Workspace not found')
     const target = pathInside(ws.path, path)
-    const stat = statSync(target)
-    if (stat.size > MAX_PREVIEW_BYTES) throw new Error('File is too large to preview')
-    const data = readFileSync(target)
+    const info = await stat(target)
+    if (info.size > MAX_PREVIEW_BYTES) throw new Error('File is too large to preview')
+    const data = await readFile(target)
     if (data.includes(0)) throw new Error('Binary files cannot be previewed')
     return data.toString('utf-8')
   })
@@ -878,7 +888,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       filters: [{ name: 'Asciinema Cast', extensions: ['cast'] }]
     })
     if (!res.canceled && res.filePath) {
-      writeFileSync(res.filePath, lines.join('\n') + '\n', 'utf-8')
+      await writeFile(res.filePath, lines.join('\n') + '\n', 'utf-8')
     }
   })
 

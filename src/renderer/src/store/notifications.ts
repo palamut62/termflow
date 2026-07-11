@@ -65,19 +65,19 @@ export function notifyLongCommandDone(terminalId: string, terminalName: string, 
   if (durationMs < s.longCommandThresholdMs) return
   ensurePermission()
   const seconds = Math.round(durationMs / 1000)
-  fire(`${terminalName} tamamlandı`, `Çıkış kodu ${exitCode} · ${seconds}s sürdü`, terminalId)
+  fire(`${terminalName} finished`, `Exit code ${exitCode} · took ${seconds}s`, terminalId)
 }
 
 export function notifyError(terminalId: string, terminalName: string): void {
   const s = store?.getState().settings
   if (!s?.notificationsEnabled || !s.notifyOnError) return
   ensurePermission()
-  fire(`${terminalName}: hata algılandı`, 'Terminal çıktısında bir hata deseni tespit edildi.', terminalId)
+  fire(`${terminalName}: error detected`, 'An error pattern was detected in the terminal output.', terminalId)
 }
 
 export function notifyAgentWaiting(terminalId: string, terminalName: string): void {
   const s = store?.getState().settings
   if (!s?.notificationsEnabled || !s.notifyOnAgentWaiting) return
   ensurePermission()
-  fire(`${terminalName}: onay bekliyor`, 'Agent bir onay/komut istemi ile duraklamış olabilir.', terminalId)
+  fire(`${terminalName}: waiting for confirmation`, 'The agent may have paused on a confirmation or command prompt.', terminalId)
 }

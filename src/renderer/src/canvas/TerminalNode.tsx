@@ -371,7 +371,7 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         <span className="kind-tag">{terminal.kind}</span>
         {recording && (
           <span
-            title="Kayıt sürüyor"
+            title="Recording in progress"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -387,7 +387,7 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         {node.bypass && (
           <span
             className="bypass-badge"
-            title="Bu düğüm izin-atlama (bypass) bayrağı ile başlatıldı"
+            title="This node was started with the permission-bypass flag"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -530,9 +530,9 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           }}
         >
           <span>
-            Kayıt {recordingLimitWarning.reason === 'duration' ? 'süre' : 'boyut'} sınırına ulaştı ve otomatik durduruldu.
+            Recording hit the {recordingLimitWarning.reason === 'duration' ? 'duration' : 'size'} limit and was stopped automatically.
           </span>
-          <button className="hbtn" onClick={() => dismissRecordingLimitWarning()} title="Kapat">
+          <button className="hbtn" onClick={() => dismissRecordingLimitWarning()} title="Dismiss">
             <X size={12} />
           </button>
         </div>
@@ -546,7 +546,7 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
       )}
       {node.isMinimized && (
         <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--text-muted)' }}>
-          {terminal.status} · pid {terminal.pid ?? '—'} {hasError && '· ⚠ hata'}
+          {terminal.status} · pid {terminal.pid ?? '—'} {hasError && '· ⚠ error'}
         </div>
       )}
       {!node.isMinimized && (
