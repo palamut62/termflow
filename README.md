@@ -88,6 +88,17 @@ Every terminal is backed by a real **prebuilt node-pty** process. The canvas is 
 - **Command palette** — Ctrl+K quick-launch for terminals, agents, and workspace commands
 - **Settings panel** — active border color, scrollback size, WebGL toggle, snap-to-grid, minimap
 
+### Developer Productivity
+- **Global terminal search** — search across all live terminal buffers from one modal
+- **Package task runner** — detect npm, pnpm, yarn, or bun scripts and launch them with one click
+- **Workspace templates** — clone a reusable workspace definition or save the current workspace as a template
+- **Agent flow templates** — apply Planner-to-Coder-to-Reviewer pipelines or save the current agent graph
+- **Task triggers** — run follow-up tasks on process exit or a timer schedule
+- **AI log summary** — send terminal output to a selected agent for analysis
+- **Deep Git integration** — follow OSC 7 working-directory changes and expose repository actions per terminal
+- **Desktop notifications** — notify on long command completion, error output, or an agent waiting for approval
+- **Duplicate and pin** — duplicate terminal configuration and pin nodes against automatic layout movement
+
 ## Tech Stack
 
 | Technology | Why it is used |
@@ -306,6 +317,8 @@ npm run verify
 - `npm run test` runs the Vitest unit suite.
 - `npm run typecheck` validates the Electron main, preload, shared, and renderer TypeScript projects.
 - `npm run verify` runs tests, type-checking, and a production Electron build in sequence.
+
+The current suite covers pane operations, validation, PTY routing/recording limits, and the refactored terminal/layout/developer-resource store slices.
 
 ## Packaging
 
