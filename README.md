@@ -89,6 +89,7 @@ Every terminal is backed by a real **prebuilt node-pty** process. The canvas is 
 - **Settings panel** — active border color, scrollback size, WebGL toggle, snap-to-grid, minimap
 
 ### Developer Productivity
+- **Developer Workbench** — browse workspace files, preview safe text files, inspect command history, and perform Git diff/stage/unstage/commit operations
 - **Global terminal search** — search across all live terminal buffers from one modal
 - **Package task runner** — detect npm, pnpm, yarn, or bun scripts and launch them with one click
 - **Workspace templates** — clone a reusable workspace definition or save the current workspace as a template
@@ -98,6 +99,12 @@ Every terminal is backed by a real **prebuilt node-pty** process. The canvas is 
 - **Deep Git integration** — follow OSC 7 working-directory changes and expose repository actions per terminal
 - **Desktop notifications** — notify on long command completion, error output, or an agent waiting for approval
 - **Duplicate and pin** — duplicate terminal configuration and pin nodes against automatic layout movement
+- **Agent operations** — track session duration, reported token counts and cost, then manage encrypted provider credentials
+- **Credential vault** — Windows `safeStorage` encryption with global or workspace scope; secret values never return to the renderer
+- **Plugin SDK** — install validated manifest-only plugins that expose explicit terminal commands without injecting renderer code
+- **Workflow packages** — export and import reusable agent-flow template collections as versioned JSON packages
+- **Crash recovery** — detect unclean shutdowns, recreate persisted terminal sessions, and choose restore or clean start
+- **Stable/beta updates** — GitHub Releases updater with channel selection, download progress, and restart-to-install flow
 
 ## Tech Stack
 
@@ -317,6 +324,7 @@ npm run verify
 - `npm run test` runs the Vitest unit suite.
 - `npm run typecheck` validates the Electron main, preload, shared, and renderer TypeScript projects.
 - `npm run verify` runs tests, type-checking, and a production Electron build in sequence.
+- `npm run test:e2e` builds the app and launches a real Electron window with Playwright to verify Help and Developer Workbench surfaces.
 
 The current suite covers pane operations, validation, PTY routing/recording limits, and the refactored terminal/layout/developer-resource store slices.
 
@@ -352,6 +360,24 @@ npm run package:verify
 ```
 
 Publish the verified NSIS installer and ZIP from `dist/` to a GitHub Release. Do not publish `win-unpacked/` as the primary download; it is intended for local smoke testing.
+
+For automatic updates, stable releases use normal semantic versions and the `latest` channel. Beta releases use prerelease versions such as `0.2.0-beta.1` and are offered only to users on the beta channel. Upload the generated installer, blockmap, and channel metadata (`latest.yml` or beta metadata) together.
+
+### Plugin SDK
+
+Plugins are declarative JSON manifests. They cannot inject JavaScript into the renderer; each command is shown to the user and runs in a TermFlow terminal:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "acme.dev-tools",
+  "name": "ACME Dev Tools",
+  "version": "1.0.0",
+  "commands": [
+    { "id": "test", "title": "Run tests", "command": "npm test", "shell": "cmd" }
+  ]
+}
+```
 
 ## Roadmap
 

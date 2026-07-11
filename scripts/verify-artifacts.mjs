@@ -18,4 +18,11 @@ for (const artifact of artifacts) {
   if (!header.equals(artifact.signature)) throw new Error(`${artifact.path} has an invalid signature`)
 }
 
-console.log('Windows installer and ZIP artifacts are valid.')
+const blockmap = await stat(resolve('dist', `${base}.exe.blockmap`))
+if (blockmap.size < 1024) throw new Error('Installer blockmap is unexpectedly small')
+const updateMetadata = await readFile(resolve('dist', 'latest.yml'), 'utf-8')
+if (!updateMetadata.includes(`version: ${pkg.version}`) || !updateMetadata.includes(`${base}.exe`) || !updateMetadata.includes('sha512:')) {
+  throw new Error('latest.yml does not describe the current installer')
+}
+
+console.log('Windows installer, ZIP, blockmap, and updater metadata are valid.')
