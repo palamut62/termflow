@@ -6,6 +6,8 @@ import { resolveShell } from './shells'
 
 const ACTIVE_INTERVAL_MS = 16 // PRD §11.6 IPC batching for the focused terminal
 const DEFAULT_SCROLLBACK_LINES = 10000 // PRD §10.9.1
+const MAX_RECORDING_MS = 30 * 60 * 1000 // recording buffer cap: 30 minutes
+const MAX_RECORDING_BYTES = 50 * 1024 * 1024 // recording buffer cap: 50MB
 
 // Error/activity detection patterns (PRD §10.9.5)
 const ERROR_RE = /\b(error|exception|failed|fatal|traceback|npm ERR|ModuleNotFound|SyntaxError|TypeError|Permission denied)\b/i
@@ -41,6 +43,7 @@ interface ManagedPty {
   recording: boolean
   recordingStart: number
   recordedChunks: RecordingEntry[]
+  recordedBytes: number
 }
 
 /**
@@ -86,7 +89,8 @@ export class PtyManager {
       lastRouteAt: new Map(),
       recording: false,
       recordingStart: 0,
-      recordedChunks: []
+      recordedChunks: [],
+      recordedBytes: 0
     }
     this.terminals.set(id, managed)
 
@@ -123,9 +127,20 @@ export class PtyManager {
       managed.bufferLines -= this.countNewlines(removed)
     }
 
-    // Recording
+    // Recording (bounded by duration and total size to keep memory flat)
     if (managed.recording) {
-      managed.recordedChunks.push({ ts: Date.now() - managed.recordingStart, data })
+      const elapsed = Date.now() - managed.recordingStart
+      const nextBytes = managed.recordedBytes + Buffer.byteLength(data, 'utf8')
+      if (elapsed > MAX_RECORDING_MS || nextBytes > MAX_RECORDING_BYTES) {
+        managed.recording = false
+        this.getSender()?.send(IPC.REC_LIMIT, {
+          id: managed.id,
+          reason: elapsed > MAX_RECORDING_MS ? 'duration' : 'size'
+        })
+      } else {
+        managed.recordedChunks.push({ ts: elapsed, data })
+        managed.recordedBytes = nextBytes
+      }
     }
 
     // Error/activity detection — signal once until cleared. PRD §10.9.5
@@ -274,6 +289,7 @@ export class PtyManager {
       t.recording = true
       t.recordingStart = Date.now()
       t.recordedChunks = []
+      t.recordedBytes = 0
     }
   }
 

@@ -133,6 +133,8 @@ interface AppState {
   startRecording: (terminalId: string) => void
   stopRecording: (terminalId: string) => Promise<unknown[]>
   saveRecording: (terminalId: string) => Promise<void>
+  recordingLimitWarning: { terminalId: string; reason: 'duration' | 'size' } | null
+  dismissRecordingLimitWarning: () => void
   clearAgentActivities: () => void
 
   startRuntimeListeners: () => void
@@ -967,6 +969,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         })
       }))
     })
+    window.termflow.recording.onLimit((id, reason) => {
+      set({ recordingLimitWarning: { terminalId: id, reason } })
+    })
     // Poll process CPU/RAM. Large workspaces need a slower cadence to avoid UI stalls.
     const poll = (): void => {
       get().refreshStats()
@@ -1243,6 +1248,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   startRecording: (terminalId) => window.termflow.recording.start(terminalId),
   stopRecording: (terminalId) => window.termflow.recording.stop(terminalId),
   saveRecording: (terminalId) => window.termflow.recording.save(terminalId),
+  recordingLimitWarning: null,
+  dismissRecordingLimitWarning: () => set({ recordingLimitWarning: null }),
   clearAgentActivities: () => set({ agentActivities: [], detectedAgents: {} }),
 
   persist: () => {

@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import {
   Minus,
@@ -288,6 +288,8 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const startRecording = useAppStore((s) => s.startRecording)
   const stopRecording = useAppStore((s) => s.stopRecording)
   const saveRecording = useAppStore((s) => s.saveRecording)
+  const recordingLimitWarning = useAppStore((s) => s.recordingLimitWarning)
+  const dismissRecordingLimitWarning = useAppStore((s) => s.dismissRecordingLimitWarning)
   const gitStatus = useAppStore((s) => s.gitStatus)
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const broadcastGroup = useAppStore((s) => s.broadcastGroup)
@@ -295,6 +297,15 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [closing, setClosing] = useState(false)
   const [recording, setRecording] = useState(false)
+
+  useEffect(() => {
+    if (recordingLimitWarning && recordingLimitWarning.terminalId === termId) {
+      setRecording(false)
+      const t = setTimeout(() => dismissRecordingLimitWarning(), 8000)
+      return () => clearTimeout(t)
+    }
+    return undefined
+  }, [recordingLimitWarning, termId, dismissRecordingLimitWarning])
 
   if (!node || !terminal) return <div />
 
@@ -345,6 +356,21 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         )}
         {node.agentRole && <span className="kind-tag">{node.agentRole}</span>}
         <span className="kind-tag">{terminal.kind}</span>
+        {recording && (
+          <span
+            title="Kayıt sürüyor"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 10,
+              fontWeight: 600,
+              color: 'var(--danger)'
+            }}
+          >
+            <span style={{ color: 'var(--danger)' }}>&#9679;</span> REC
+          </span>
+        )}
         {node.bypass && (
           <span
             className="bypass-badge"
@@ -439,6 +465,29 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
               </div>
             )
           })}
+        </div>
+      )}
+      {recordingLimitWarning && recordingLimitWarning.terminalId === termId && (
+        <div
+          className="nodrag"
+          style={{
+            padding: '4px 10px',
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'var(--danger)',
+            background: 'color-mix(in srgb, var(--danger) 14%, transparent)',
+            borderTop: '1px solid var(--danger)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
+        >
+          <span>
+            Kayıt {recordingLimitWarning.reason === 'duration' ? 'süre' : 'boyut'} sınırına ulaştı ve otomatik durduruldu.
+          </span>
+          <button className="hbtn" onClick={() => dismissRecordingLimitWarning()} title="Kapat">
+            <X size={12} />
+          </button>
         </div>
       )}
       </div>

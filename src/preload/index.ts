@@ -137,7 +137,13 @@ const api = {
   recording: {
     start: (id: string): void => ipcRenderer.send(IPC.REC_START, id),
     stop: (id: string): Promise<unknown[]> => ipcRenderer.invoke(IPC.REC_STOP, id),
-    save: (id: string): Promise<void> => ipcRenderer.invoke(IPC.REC_SAVE, id)
+    save: (id: string): Promise<void> => ipcRenderer.invoke(IPC.REC_SAVE, id),
+    onLimit: (cb: (id: string, reason: 'duration' | 'size') => void): (() => void) => {
+      const h = (_e: unknown, payload: { id: string; reason: 'duration' | 'size' }): void =>
+        cb(payload.id, payload.reason)
+      ipcRenderer.on(IPC.REC_LIMIT, h)
+      return () => ipcRenderer.removeListener(IPC.REC_LIMIT, h)
+    }
   },
   diagnostics: {
     export: (workspaceId: string): Promise<void> => ipcRenderer.invoke(IPC.DIAGNOSTICS_EXPORT, workspaceId)

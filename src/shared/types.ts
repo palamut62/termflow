@@ -421,6 +421,7 @@ export const IPC = {
   REC_START: 'rec:start',
   REC_STOP: 'rec:stop',
   REC_SAVE: 'rec:save',
+  REC_LIMIT: 'rec:limit', // main -> renderer: recording auto-stopped (duration/size limit reached)
   // agent routing
   AGENT_SET_ROUTING: 'agent:setRouting'
 } as const
