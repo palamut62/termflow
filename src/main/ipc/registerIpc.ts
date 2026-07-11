@@ -767,12 +767,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   })
 
   ipcMain.handle(IPC.GIT_WORKBENCH, async (_e, cwd: string): Promise<GitWorkbenchState> => {
+    // A non-git folder is a normal state, not an error — detect it first and
+    // return a friendly "not a repo" result instead of throwing a raw dump.
+    try {
+      await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf-8', timeout: 5000 })
+    } catch {
+      return { branch: '', status: '', diff: '', isRepo: false }
+    }
     const [{ stdout: branch }, { stdout: status }, { stdout: diff }] = await Promise.all([
       execFileAsync('git', ['branch', '--show-current'], { cwd, encoding: 'utf-8', timeout: 5000 }),
       execFileAsync('git', ['status', '--short'], { cwd, encoding: 'utf-8', timeout: 5000 }),
       execFileAsync('git', ['diff', '--no-ext-diff', '--stat', '--patch'], { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 2 * 1024 * 1024 })
     ])
-    return { branch: branch.trim(), status, diff }
+    return { branch: branch.trim(), status, diff, isRepo: true }
   })
   ipcMain.handle(IPC.GIT_STAGE, async (_e, cwd: string, paths: string[]) => { await execFileAsync('git', ['add', '--', ...paths], { cwd, timeout: 10000 }); gitStatusCache.delete(cwd) })
   ipcMain.handle(IPC.GIT_UNSTAGE, async (_e, cwd: string, paths: string[]) => { await execFileAsync('git', ['restore', '--staged', '--', ...paths], { cwd, timeout: 10000 }); gitStatusCache.delete(cwd) })
