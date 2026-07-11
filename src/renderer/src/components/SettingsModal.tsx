@@ -130,6 +130,14 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
 
             <div className="field" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.startAtLogin} style={{ width: 'auto' }} onChange={(e) => update({ startAtLogin: e.target.checked })} />
+                Start TermFlow with Windows
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.minimizeToTray} style={{ width: 'auto' }} onChange={(e) => update({ minimizeToTray: e.target.checked })} />
+                Keep running in the system tray when closed
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input type="checkbox" checked={settings.webgl} style={{ width: 'auto' }} onChange={(e) => update({ webgl: e.target.checked })} />
                 GPU (WebGL) acceleration
               </label>

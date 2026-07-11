@@ -11,7 +11,10 @@ import {
   Settings,
   Search,
   ChevronDown,
-  Radio
+  Radio,
+  Activity
+  ,FolderOpen
+  ,CircleHelp
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
@@ -22,6 +25,9 @@ interface Props {
   canvasSize: () => { width: number; height: number }
   onOpenSettings: () => void
   onOpenPalette: () => void
+  onOpenHelp: () => void
+  onOpenTerminalLauncher: () => void
+  onOpenProviderManager: () => void
 }
 
 const LAYOUTS: { mode: LayoutMode; label: string; icon: React.JSX.Element }[] = [
@@ -46,7 +52,7 @@ function useOutside(cb: () => void): React.RefObject<HTMLDivElement> {
   return ref
 }
 
-export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: Props): React.JSX.Element {
+export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onOpenHelp, onOpenTerminalLauncher, onOpenProviderManager }: Props): React.JSX.Element {
   const addTerminal = useAppStore((s) => s.addTerminal)
   const setLayoutMode = useAppStore((s) => s.setLayoutMode)
   const layoutMode = useAppStore((s) => s.layoutMode)
@@ -55,6 +61,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
   const toggleBroadcast = useAppStore((s) => s.toggleBroadcast)
   const sshProfiles = useAppStore((s) => s.sshProfiles)
   const launchSshProfile = useAppStore((s) => s.launchSshProfile)
+  const providerProfiles = useAppStore((s) => s.settings.providerProfiles)
 
   const [termMenu, setTermMenu] = useState(false)
   const [agentMenu, setAgentMenu] = useState(false)
@@ -110,6 +117,11 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
         {termMenu && (
           <div className="menu" style={{ top: 36, left: 0 }}>
             <div className="menu-label">Shells</div>
+            <div className="menu-item" onClick={() => { setTermMenu(false); onOpenTerminalLauncher() }}>
+              <FolderOpen size={14} color="var(--accent)" />
+              Open terminal at folder...
+            </div>
+            <div className="menu-sep" />
             {shells.map((p) => (
               <div key={p.kind} className="menu-item" onClick={() => create(p.kind)}>
                 <span style={{ width: 8, height: 8, borderRadius: 4, background: p.color }} />
@@ -140,6 +152,23 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
                 {p.label}
               </div>
             ))}
+            <div className="menu-sep" />
+            <div className="menu-label">AI Providers</div>
+            {providerProfiles.map((provider) => (
+              <div key={provider.id} className="menu-item" onClick={() => {
+                setTermMenu(false)
+                const env: Record<string, string> = {}
+                if (provider.baseUrlEnv && provider.baseUrl) env[provider.baseUrlEnv] = provider.baseUrl
+                if (provider.modelEnv && provider.model) env[provider.modelEnv] = provider.model
+                addTerminal('custom', { name: provider.name, startupCommand: provider.command, env })
+              }}>
+                <Bot size={14} color={provider.color} />
+                {provider.name}
+              </div>
+            ))}
+            <div className="menu-item" onClick={() => { setTermMenu(false); onOpenProviderManager() }}>
+              <Settings size={14} /> Configure providers...
+            </div>
           </div>
         )}
       </div>
@@ -211,6 +240,18 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
 
       <button className="tb-btn" title="Command Palette (Ctrl+K)" onClick={onOpenPalette}>
         <Search size={15} />
+      </button>
+      <button
+        className="tb-btn"
+        disabled={disabled}
+        title="Developer Center"
+        aria-label="Open Developer Center"
+        onClick={() => window.dispatchEvent(new CustomEvent('termflow:open-developer-center'))}
+      >
+        <Activity size={15} />
+      </button>
+      <button className="tb-btn" title="Help" aria-label="Open help" onClick={onOpenHelp}>
+        <CircleHelp size={15} />
       </button>
       <button className="tb-btn" title="Settings" onClick={onOpenSettings}>
         <Settings size={15} />

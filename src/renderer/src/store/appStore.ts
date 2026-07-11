@@ -33,6 +33,7 @@ interface NewTerminalOpts {
   args?: string[]
   name?: string
   agentRole?: string
+  env?: Record<string, string>
 }
 
 export interface AgentActivity {
@@ -506,6 +507,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       shell: opts?.customShell || kind,
       args: opts?.args || [],
       cwd,
+      env: opts?.env,
       status: 'stopped',
       createdAt: ts,
       updatedAt: ts
@@ -547,6 +549,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         shell: opts?.customShell,
         args: opts?.args,
         cwd,
+        env: opts?.env,
         startupCommand: session.startupCommand
       })
       pid = res.pid

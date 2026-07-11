@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
+import { app, ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
 import { execSync, execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
@@ -107,6 +107,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.SETTINGS_GET, () => dbApi.getSettings())
   ipcMain.handle(IPC.SETTINGS_SET, (_e, patch: Partial<AppSettings>) => {
     const next = dbApi.setSettings(patch)
+    if (patch.startAtLogin !== undefined) {
+      app.setLoginItemSettings({ openAtLogin: next.startAtLogin, path: process.execPath })
+    }
     pty.setScrollback(next.scrollback)
     pty.setPassiveInterval(next.passiveThrottleMs)
     return next

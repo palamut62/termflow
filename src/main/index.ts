@@ -1,16 +1,38 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, Menu, shell, Tray } from 'electron'
 import { join } from 'path'
 
 // Dev: project resources/. Packaged: extraResources under process.resourcesPath.
 const APP_ICON = app.isPackaged
   ? join(process.resourcesPath, 'resources', 'icon.ico')
   : join(__dirname, '../../resources/icon.ico')
-import { initDatabase } from './db/database'
+import { getSettings, initDatabase } from './db/database'
 import { registerIpc } from './ipc/registerIpc'
 import type { PtyManager } from './pty/PtyManager'
 
 let mainWindow: BrowserWindow | null = null
 let ptyManager: PtyManager | null = null
+let tray: Tray | null = null
+let isQuitting = false
+
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function createTray(): void {
+  if (tray) return
+  tray = new Tray(APP_ICON)
+  tray.setToolTip('TermFlow')
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open TermFlow', click: showMainWindow },
+    { type: 'separator' },
+    { label: 'Quit TermFlow', click: () => { isQuitting = true; app.quit() } }
+  ]))
+  tray.on('double-click', showMainWindow)
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -45,9 +67,13 @@ function createWindow(): void {
   mainWindow.webContents.once('did-finish-load', reveal)
   setTimeout(reveal, 3000)
 
-  // Stop PTYs first, then drop the reference so nothing sends to a dead window.
+  mainWindow.on('close', (event) => {
+    if (isQuitting || !getSettings().minimizeToTray) return
+    event.preventDefault()
+    mainWindow?.hide()
+  })
+
   mainWindow.on('closed', () => {
-    ptyManager?.killAll()
     mainWindow = null
   })
 
@@ -79,16 +105,16 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
+    showMainWindow()
   })
 }
 
 app.whenReady().then(() => {
   initDatabase()
+  const settings = getSettings()
+  app.setLoginItemSettings({ openAtLogin: settings.startAtLogin, path: process.execPath })
   ptyManager = registerIpc(() => mainWindow)
+  createTray()
   createWindow()
 
   app.on('activate', () => {
@@ -97,10 +123,10 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  ptyManager?.killAll()
-  if (process.platform !== 'darwin') app.quit()
+  if (isQuitting && process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
+  isQuitting = true
   ptyManager?.killAll()
 })

@@ -11,6 +11,9 @@ import AgentActivityPanel from './components/AgentActivityPanel'
 import ProjectManifestPanel from './components/ProjectManifestPanel'
 import DetachedSessionsPanel from './components/DetachedSessionsPanel'
 import DeveloperCenter from './components/DeveloperCenter'
+import HelpModal from './components/HelpModal'
+import TerminalLauncherModal from './components/TerminalLauncherModal'
+import ProviderManagerModal from './components/ProviderManagerModal'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
@@ -98,6 +101,9 @@ export default function App(): React.JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [showSnippetModal, setShowSnippetModal] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
+  const [showProviderManager, setShowProviderManager] = useState(false)
   const [confirm, setConfirm] = useState<{
     title: string
     message: string
@@ -112,6 +118,17 @@ export default function App(): React.JSX.Element {
     onSubmit: (values: Record<string, string>) => void
   } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const openLauncher = (): void => setShowTerminalLauncher(true)
+    const openProviders = (): void => setShowProviderManager(true)
+    window.addEventListener('termflow:open-terminal-launcher', openLauncher)
+    window.addEventListener('termflow:open-provider-manager', openProviders)
+    return () => {
+      window.removeEventListener('termflow:open-terminal-launcher', openLauncher)
+      window.removeEventListener('termflow:open-provider-manager', openProviders)
+    }
+  }, [])
 
   const loadSnippets = useAppStore((s) => s.loadSnippets)
   const loadHighlightRules = useAppStore((s) => s.loadHighlightRules)
@@ -304,6 +321,9 @@ export default function App(): React.JSX.Element {
         canvasSize={canvasSize}
         onOpenSettings={() => setShowSettings(true)}
         onOpenPalette={() => setShowPalette(true)}
+        onOpenHelp={() => setShowHelp(true)}
+        onOpenTerminalLauncher={() => setShowTerminalLauncher(true)}
+        onOpenProviderManager={() => setShowProviderManager(true)}
       />
       <div className="canvas-wrap" ref={canvasRef}>
         <ReactFlowProvider>
@@ -325,6 +345,9 @@ export default function App(): React.JSX.Element {
       <StatusBar />
       {showWsModal && <WorkspaceModal onClose={() => setShowWsModal(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showTerminalLauncher && <TerminalLauncherModal onClose={() => setShowTerminalLauncher(false)} />}
+      {showProviderManager && <ProviderManagerModal onClose={() => setShowProviderManager(false)} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
       {confirm && (

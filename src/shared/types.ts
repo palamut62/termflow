@@ -280,6 +280,21 @@ export interface AppSettings {
   cursorBlink: boolean
   terminalTheme: string
   ligatures: boolean
+  startAtLogin: boolean
+  minimizeToTray: boolean
+  providerProfiles: AiProviderProfile[]
+}
+
+export interface AiProviderProfile {
+  id: string
+  name: string
+  command: string
+  model: string
+  baseUrl: string
+  apiKeyEnv: string
+  modelEnv: string
+  baseUrlEnv: string
+  color: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -297,7 +312,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cursorStyle: 'block',
   cursorBlink: true,
   terminalTheme: 'TermFlow Dark',
-  ligatures: true
+  ligatures: true,
+  startAtLogin: true,
+  minimizeToTray: true,
+  providerProfiles: [
+    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827' },
+    { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead' }
+  ]
 }
 
 export interface CanvasViewport {

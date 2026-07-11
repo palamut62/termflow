@@ -1,4 +1,4 @@
-import { Activity, CheckCircle2, Download, Play, RefreshCw, TriangleAlert, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, Play, RefreshCw, TriangleAlert, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { WorkspaceHealthCheck } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
@@ -11,6 +11,12 @@ export default function DeveloperCenter(): React.JSX.Element | null {
   const manifest = useAppStore((s) => s.projectManifest)
   const runTask = useAppStore((s) => s.runManifestTask)
 
+  useEffect(() => {
+    const openDeveloperCenter = (): void => setOpen(true)
+    window.addEventListener('termflow:open-developer-center', openDeveloperCenter)
+    return () => window.removeEventListener('termflow:open-developer-center', openDeveloperCenter)
+  }, [])
+
   const refresh = async (): Promise<void> => {
     if (!workspaceId) return
     setLoading(true)
@@ -18,7 +24,7 @@ export default function DeveloperCenter(): React.JSX.Element | null {
   }
   useEffect(() => { if (open) void refresh() }, [open, workspaceId])
   if (!workspaceId) return null
-  if (!open) return <button className="developer-trigger" onClick={() => setOpen(true)}><Activity size={13} /> Developer Center</button>
+  if (!open) return null
 
   return (
     <aside className="developer-center">

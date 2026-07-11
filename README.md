@@ -78,6 +78,9 @@ Every terminal is backed by a real **prebuilt node-pty** process. The canvas is 
 - **Workspace persistence** — terminals, canvas nodes, connections, snippets, profiles, viewport, and settings all survive restart
 - **Developer Center** — manifest task runner, Git/runtime/project health checks, and secret-free diagnostics export
 - **Developer tools** — workspace environment variables, validated SSH profiles, terminal recording, snippets, project manifests, and import/export
+- **Provider profiles** — configure DeepSeek, Ollama, or any CLI/API-compatible provider without storing API keys in profile data
+- **System tray lifecycle** — optionally start with Windows, keep PTYs running when the window closes, and quit explicitly from the tray
+- **Folder launcher and help** — open any supported shell at a chosen path and learn the main workflows from the in-app help page
 - **Detached sessions** — remove a running terminal from the canvas and reattach it later without losing the process
 - **Command palette** — Ctrl+K quick-launch for terminals, agents, and workspace commands
 - **Settings panel** — active border color, scrollback size, WebGL toggle, snap-to-grid, minimap
@@ -258,6 +261,8 @@ All settings are editable via the in-app Settings modal (gear icon in toolbar).
 14. **Minimize/Maximize** — use the card header buttons to collapse or expand terminal panels.
 15. **Developer Center** — run project tasks, inspect workspace health, and export sanitized diagnostics.
 16. **Detach/Reattach** — detach a live session from its close dialog and restore it from the detached-session panel.
+17. **Provider context menu** — right-click empty canvas space to launch a configured provider, open a terminal at a folder, or edit provider profiles.
+18. **System tray** — closing the window keeps TermFlow and its PTYs running when tray mode is enabled; use the tray menu to reopen or quit.
 
 ### Project Manifest
 
