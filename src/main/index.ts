@@ -1,5 +1,7 @@
-import { app, BrowserWindow, Menu, shell, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, shell, Tray } from 'electron'
 import { join } from 'path'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { IPC } from '../shared/types'
 
 // Dev: project resources/. Packaged: extraResources under process.resourcesPath.
 const APP_ICON = app.isPackaged
@@ -13,6 +15,8 @@ let mainWindow: BrowserWindow | null = null
 let ptyManager: PtyManager | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let recoveryFile = ''
+let previousSessionCrashed = false
 
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow()
@@ -111,6 +115,11 @@ if (!gotLock) {
 }
 
 app.whenReady().then(() => {
+  recoveryFile = join(app.getPath('userData'), 'session-state.json')
+  if (existsSync(recoveryFile)) { try { previousSessionCrashed = !(JSON.parse(readFileSync(recoveryFile, 'utf-8')) as { cleanExit?: boolean }).cleanExit } catch { previousSessionCrashed = true } }
+  writeFileSync(recoveryFile, JSON.stringify({ cleanExit: false, startedAt: new Date().toISOString() }), 'utf-8')
+  ipcMain.handle(IPC.RECOVERY_STATUS, () => ({ crashed: previousSessionCrashed }))
+  ipcMain.handle(IPC.RECOVERY_ACK, () => { previousSessionCrashed = false })
   initDatabase()
   const settings = getSettings()
   if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: settings.startAtLogin, path: process.execPath })
@@ -129,5 +138,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  if (recoveryFile) { try { writeFileSync(recoveryFile, JSON.stringify({ cleanExit: true, endedAt: new Date().toISOString() }), 'utf-8') } catch { /* ignore shutdown write failure */ } }
   ptyManager?.killAll()
 })

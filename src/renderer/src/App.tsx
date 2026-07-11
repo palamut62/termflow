@@ -14,6 +14,7 @@ import DeveloperCenter from './components/DeveloperCenter'
 import HelpModal from './components/HelpModal'
 import TerminalLauncherModal from './components/TerminalLauncherModal'
 import ProviderManagerModal from './components/ProviderManagerModal'
+import RecoveryModal from './components/RecoveryModal'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
@@ -104,6 +105,7 @@ export default function App(): React.JSX.Element {
   const [showHelp, setShowHelp] = useState(false)
   const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
   const [showProviderManager, setShowProviderManager] = useState(false)
+  const [showRecovery, setShowRecovery] = useState(false)
   const [confirm, setConfirm] = useState<{
     title: string
     message: string
@@ -148,6 +150,7 @@ export default function App(): React.JSX.Element {
     loadSettings()
     startRuntimeListeners()
     loadWorkspaces().then(() => {
+      void window.termflow.recovery.status().then((status) => setShowRecovery(status.crashed))
       loadSnippets()
       loadHighlightRules()
       startGitPolling()
@@ -351,6 +354,7 @@ export default function App(): React.JSX.Element {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showTerminalLauncher && <TerminalLauncherModal onClose={() => setShowTerminalLauncher(false)} />}
       {showProviderManager && <ProviderManagerModal onClose={() => setShowProviderManager(false)} />}
+      {showRecovery && <RecoveryModal onRestore={() => { void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} onDiscard={() => { useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')); void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
       {confirm && (

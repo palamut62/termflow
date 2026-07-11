@@ -101,6 +101,10 @@ const api = {
     export: (): Promise<void> => ipcRenderer.invoke(IPC.FLOW_PACKAGE_EXPORT),
     import: (): Promise<number> => ipcRenderer.invoke(IPC.FLOW_PACKAGE_IMPORT)
   },
+  recovery: {
+    status: (): Promise<{ crashed: boolean }> => ipcRenderer.invoke(IPC.RECOVERY_STATUS),
+    acknowledge: (): Promise<void> => ipcRenderer.invoke(IPC.RECOVERY_ACK)
+  },
   workspaces: {
     list: (): Promise<Workspace[]> => ipcRenderer.invoke(IPC.WS_LIST),
     create: (input: {

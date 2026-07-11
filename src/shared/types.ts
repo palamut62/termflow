@@ -453,6 +453,8 @@ export const IPC = {
   PLUGIN_DELETE: 'plugin:delete',
   FLOW_PACKAGE_EXPORT: 'flowPackage:export',
   FLOW_PACKAGE_IMPORT: 'flowPackage:import',
+  RECOVERY_STATUS: 'recovery:status',
+  RECOVERY_ACK: 'recovery:ack',
   // shells
   SHELLS_DISCOVER: 'shells:discover',
   // settings
