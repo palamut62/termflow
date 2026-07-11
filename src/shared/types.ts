@@ -351,6 +351,8 @@ export interface AppSettings {
   longCommandThresholdMs: number
   autoUpdate: boolean
   updateChannel: 'stable' | 'beta'
+  // New terminal nodes open with the right-side info panel (process/context) visible
+  infoPanelDefaultOpen: boolean
 }
 
 export interface AiProviderProfile {
@@ -394,7 +396,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyOnAgentWaiting: true,
   longCommandThresholdMs: 30000,
   autoUpdate: true,
-  updateChannel: 'stable'
+  updateChannel: 'stable',
+  infoPanelDefaultOpen: false
 }
 
 export interface CanvasViewport {

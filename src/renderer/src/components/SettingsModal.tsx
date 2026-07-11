@@ -180,6 +180,10 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 <input type="checkbox" checked={settings.minimap} style={{ width: 'auto' }} onChange={(e) => update({ minimap: e.target.checked })} />
                 Mini-map
               </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.infoPanelDefaultOpen} style={{ width: 'auto' }} onChange={(e) => update({ infoPanelDefaultOpen: e.target.checked })} />
+                Open info panel (process/context) by default on new terminals
+              </label>
             </div>
 
             <div className="field">

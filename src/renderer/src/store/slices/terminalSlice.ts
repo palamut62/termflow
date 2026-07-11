@@ -127,7 +127,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       isMinimized: false,
       isMaximized: false,
       status: 'running',
-      showInfo: true,
+      showInfo: get().settings.infoPanelDefaultOpen,
       bypass: useBypass
     }
 
