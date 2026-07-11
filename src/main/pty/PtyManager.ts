@@ -12,6 +12,10 @@ const MAX_RECORDING_BYTES = 50 * 1024 * 1024 // recording buffer cap: 50MB
 // Error/activity detection patterns (PRD §10.9.5)
 const ERROR_RE = /\b(error|exception|failed|fatal|traceback|npm ERR|ModuleNotFound|SyntaxError|TypeError|Permission denied)\b/i
 
+// Confirmation-prompt detection for the "agent awaiting approval" desktop
+// notification — matches common y/n and tool-permission style prompts.
+const AWAITING_RE = /(\(y\/n\)|\[y\/n\]|yes\/no|do you want to proceed|do you want to continue|allow this action|press enter to continue|waiting for (?:approval|confirmation)|confirm\?)/i
+
 // Agent-to-agent routing loop/echo guards. Routing writes one process's output
 // into another's input, so an A->B->A topology (or a terminal echoing its own
 // input) can otherwise spin into an infinite feedback loop.
@@ -47,6 +51,8 @@ interface ManagedPty {
   exitCode?: number
   mode: RenderMode
   errorSignalled: boolean
+  awaitingSignalled: boolean
+  createdAt: number
   routingRules?: RoutingRule[]
   lastRouteAt: Map<string, number>
   // Routing loop/echo protection + continuous queue (per connection)
@@ -101,6 +107,8 @@ export class PtyManager {
       exited: false,
       mode: 'active',
       errorSignalled: false,
+      awaitingSignalled: false,
+      createdAt: Date.now(),
       lastRouteAt: new Map(),
       recentInbound: [],
       routeHops: new Map(),
@@ -118,7 +126,8 @@ export class PtyManager {
       managed.exited = true
       managed.exitCode = exitCode
       this.flush(managed, true)
-      this.getSender()?.send(IPC.PTY_EXIT, { id, exitCode })
+      const durationMs = Date.now() - managed.createdAt
+      this.getSender()?.send(IPC.PTY_EXIT, { id, exitCode, durationMs })
     })
 
     // Type the startup command into the interactive shell (agents/services).
@@ -166,6 +175,13 @@ export class PtyManager {
     if (!managed.errorSignalled && ERROR_RE.test(data)) {
       managed.errorSignalled = true
       this.getSender()?.send(IPC.PTY_ACTIVITY, { id: managed.id, error: true })
+    }
+
+    // Confirmation-prompt detection — signal once until the user responds
+    // (cleared on the next write() to this terminal, see below).
+    if (!managed.awaitingSignalled && AWAITING_RE.test(data)) {
+      managed.awaitingSignalled = true
+      this.getSender()?.send(IPC.PTY_AWAITING, { id: managed.id })
     }
 
     // Agent-to-agent routing (opt-in). Continuous routing is intentionally
@@ -341,7 +357,10 @@ export class PtyManager {
 
   write(id: string, data: string): void {
     const t = this.terminals.get(id)
-    if (t && !t.exited) t.proc.write(data)
+    if (t && !t.exited) {
+      t.proc.write(data)
+      t.awaitingSignalled = false // user responded — clear the confirmation-prompt badge
+    }
   }
 
   resize(id: string, cols: number, rows: number): void {

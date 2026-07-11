@@ -107,6 +107,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
   })
 
+  // ---- Window focus (desktop notification click) ----
+  ipcMain.on(IPC.WINDOW_FOCUS, () => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore()
+      if (!win.isVisible()) win.show()
+      win.focus()
+    }
+  })
+
   // ---- Shells ----
   ipcMain.handle(IPC.SHELLS_DISCOVER, () => discoverShells())
 

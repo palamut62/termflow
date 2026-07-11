@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { registerThemeStore } from './storeShared'
+import { registerNotificationStore } from './notifications'
 import { createLayoutSlice, type LayoutSlice } from './slices/layoutSlice'
 import { createTerminalSlice, type TerminalSlice } from './slices/terminalSlice'
 import { createDevResourcesSlice, type DevResourcesSlice } from './slices/devResourcesSlice'
@@ -20,3 +21,4 @@ export const useAppStore = create<AppState>()((...a) => ({
 // Lets the system-theme media listener read the current theme without a
 // circular import back into this module.
 registerThemeStore(useAppStore)
+registerNotificationStore(useAppStore)

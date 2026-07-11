@@ -34,9 +34,9 @@ const api = {
       ipcRenderer.on(IPC.PTY_DATA, h)
       return () => ipcRenderer.removeListener(IPC.PTY_DATA, h)
     },
-    onExit: (cb: (id: string, exitCode: number) => void): (() => void) => {
-      const h = (_e: unknown, payload: { id: string; exitCode: number }): void =>
-        cb(payload.id, payload.exitCode)
+    onExit: (cb: (id: string, exitCode: number, durationMs: number) => void): (() => void) => {
+      const h = (_e: unknown, payload: { id: string; exitCode: number; durationMs: number }): void =>
+        cb(payload.id, payload.exitCode, payload.durationMs)
       ipcRenderer.on(IPC.PTY_EXIT, h)
       return () => ipcRenderer.removeListener(IPC.PTY_EXIT, h)
     },
@@ -44,6 +44,11 @@ const api = {
       const h = (_e: unknown, payload: { id: string; error: boolean }): void => cb(payload.id, payload.error)
       ipcRenderer.on(IPC.PTY_ACTIVITY, h)
       return () => ipcRenderer.removeListener(IPC.PTY_ACTIVITY, h)
+    },
+    onAwaiting: (cb: (id: string) => void): (() => void) => {
+      const h = (_e: unknown, payload: { id: string }): void => cb(payload.id)
+      ipcRenderer.on(IPC.PTY_AWAITING, h)
+      return () => ipcRenderer.removeListener(IPC.PTY_AWAITING, h)
     }
   },
   proc: {
@@ -55,7 +60,8 @@ const api = {
   },
   window: {
     setOverlay: (color: string, symbolColor: string): void =>
-      ipcRenderer.send(IPC.WINDOW_OVERLAY, color, symbolColor)
+      ipcRenderer.send(IPC.WINDOW_OVERLAY, color, symbolColor),
+    focus: (): void => ipcRenderer.send(IPC.WINDOW_FOCUS)
   },
   shells: {
     discover: () => ipcRenderer.invoke(IPC.SHELLS_DISCOVER)

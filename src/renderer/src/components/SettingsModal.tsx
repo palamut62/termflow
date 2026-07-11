@@ -175,6 +175,45 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 <code>--dangerously-bypass-approvals-and-sandbox</code>
               </p>
             </div>
+
+            <div className="field">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.notificationsEnabled} style={{ width: 'auto' }}
+                  onChange={(e) => update({ notificationsEnabled: e.target.checked })} />
+                Desktop notifications
+              </label>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Fires even while TermFlow is minimized or running in the tray. Click a notification to jump to its terminal.
+              </p>
+              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginTop: 8, opacity: settings.notificationsEnabled ? 1 : 0.5 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={settings.notifyOnLongCommand} disabled={!settings.notificationsEnabled} style={{ width: 'auto' }}
+                    onChange={(e) => update({ notifyOnLongCommand: e.target.checked })} />
+                  Long command finished
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={settings.notifyOnError} disabled={!settings.notificationsEnabled} style={{ width: 'auto' }}
+                    onChange={(e) => update({ notifyOnError: e.target.checked })} />
+                  Error detected
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={settings.notifyOnAgentWaiting} disabled={!settings.notificationsEnabled} style={{ width: 'auto' }}
+                    onChange={(e) => update({ notifyOnAgentWaiting: e.target.checked })} />
+                  Agent awaiting approval
+                </label>
+              </div>
+              {settings.notifyOnLongCommand && (
+                <div style={{ marginTop: 8, opacity: settings.notificationsEnabled ? 1 : 0.5 }}>
+                  <label>Long command threshold</label>
+                  <select value={settings.longCommandThresholdMs} disabled={!settings.notificationsEnabled}
+                    onChange={(e) => update({ longCommandThresholdMs: Number(e.target.value) })}>
+                    {[10000, 30000, 60000, 120000, 300000].map((n) => (
+                      <option key={n} value={n}>{n < 60000 ? `${n / 1000}s` : `${n / 60000}dk`}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </>
         )}
 

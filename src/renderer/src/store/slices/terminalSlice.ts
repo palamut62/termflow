@@ -17,6 +17,7 @@ import {
   type AgentActivity,
   type NewTerminalOpts
 } from '../storeShared'
+import { initNotifications, notifyLongCommandDone, notifyError, notifyAgentWaiting } from '../notifications'
 import type { AppState } from '../appStore'
 
 export interface TerminalSlice {
@@ -375,6 +376,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   startRuntimeListeners: () => {
     if (listenersStarted) return
     listenersStarted = true
+    initNotifications()
     window.termflow.pty.onData((id, data) => {
       const st = get()
       const events = parseAgentActivities(id, data, st.nodes, st.terminals)
@@ -398,7 +400,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         }
       })
     })
-    window.termflow.pty.onExit((id) => {
+    window.termflow.pty.onExit((id, exitCode, durationMs) => {
+      const st = get()
+      const t = st.terminals[id]
+      if (t) notifyLongCommandDone(id, t.name, exitCode, durationMs)
       set((s) => {
         const t = s.terminals[id]
         if (!t) return {}
@@ -441,12 +446,18 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     })
     window.termflow.pty.onActivity((id, error) => {
       if (!error) return
+      const t = get().terminals[id]
+      if (t) notifyError(id, t.name)
       set((s) => ({
         nodes: s.nodes.map((n) => {
           const isMatch = n.terminalId === id || (n.panes ? getLeafTerminalIds(n.panes).includes(id) : false)
           return isMatch && n.id !== s.activeNodeId ? { ...n, status: 'error' } : n
         })
       }))
+    })
+    window.termflow.pty.onAwaiting((id) => {
+      const t = get().terminals[id]
+      if (t) notifyAgentWaiting(id, t.name)
     })
     window.termflow.recording.onLimit((id, reason) => {
       set({ recordingLimitWarning: { terminalId: id, reason } })

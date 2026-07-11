@@ -283,6 +283,12 @@ export interface AppSettings {
   minimizeToTray: boolean
   providerProfiles: AiProviderProfile[]
   transparency: number
+  // Desktop notifications (P2-13)
+  notificationsEnabled: boolean
+  notifyOnLongCommand: boolean
+  notifyOnError: boolean
+  notifyOnAgentWaiting: boolean
+  longCommandThresholdMs: number
 }
 
 export interface AiProviderProfile {
@@ -319,7 +325,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '' },
     { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead', fullPermissionArgs: '' }
   ],
-  transparency: 100
+  transparency: 100,
+  notificationsEnabled: true,
+  notifyOnLongCommand: true,
+  notifyOnError: true,
+  notifyOnAgentWaiting: true,
+  longCommandThresholdMs: 30000
 }
 
 export interface CanvasViewport {
@@ -363,6 +374,7 @@ export const IPC = {
   PTY_BUFFER: 'pty:buffer', // request full buffer on attach
   PTY_MODE: 'pty:mode', // renderer -> main: set render mode (active/passive/buffer)
   PTY_ACTIVITY: 'pty:activity', // main -> renderer: error/activity signal
+  PTY_AWAITING: 'pty:awaiting', // main -> renderer: process output looks like it's waiting on a y/n confirmation
   PTY_ROUTE: 'pty:route', // main -> renderer: agent-to-agent data routed over a connection
   PROC_STATS: 'proc:stats', // renderer -> main: get cpu/mem for pids
   // shells
@@ -372,6 +384,7 @@ export const IPC = {
   SETTINGS_SET: 'settings:set',
   // window
   WINDOW_OVERLAY: 'window:overlay', // renderer -> main: set titlebar overlay colors
+  WINDOW_FOCUS: 'window:focus', // renderer -> main: restore/focus the main window (notification click)
   // dialog
   DIALOG_OPEN_DIR: 'dialog:openDir',
   DIALOG_CHECK_FILE: 'dialog:checkFile',
