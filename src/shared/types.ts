@@ -183,6 +183,41 @@ export interface SshProfile {
   createdAt: string
 }
 
+// ---- Project Manifest (.termflow.json) ----
+export interface TermflowManifestTask {
+  name: string
+  command: string
+  cwd?: string
+  shell?: ShellKind
+}
+
+export interface TermflowManifestAgent {
+  name: string
+  role?: string
+  kind?: ShellKind
+  command?: string
+}
+
+export interface TermflowManifestEnv {
+  key: string
+  value?: string
+  masked?: boolean
+}
+
+export interface TermflowManifestSnippet {
+  name: string
+  command: string
+  scope?: 'workspace' | 'global'
+}
+
+export interface TermflowManifest {
+  name?: string
+  tasks?: TermflowManifestTask[]
+  agents?: TermflowManifestAgent[]
+  env?: TermflowManifestEnv[]
+  snippets?: TermflowManifestSnippet[]
+}
+
 // ---- Env Vars (P2-11) ----
 export interface EnvEntry {
   id: string
@@ -196,6 +231,13 @@ export interface EnvEntry {
 export interface GitStatus {
   branch: string
   dirty: boolean
+}
+
+export interface WorkspaceHealthCheck {
+  id: string
+  label: string
+  status: 'ok' | 'warning' | 'error'
+  detail: string
 }
 
 // ---- Workspace Export (P0-3) ----
@@ -318,6 +360,8 @@ export const IPC = {
   WS_EXPORT: 'ws:export',
   WS_IMPORT: 'ws:import',
   WS_CHECK_MANIFEST: 'ws:checkManifest',
+  WS_HEALTH: 'ws:health',
+  DIAGNOSTICS_EXPORT: 'diagnostics:export',
   // layout
   LAYOUT_GET: 'layout:get',
   LAYOUT_SAVE: 'layout:save',

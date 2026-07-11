@@ -13,7 +13,7 @@ extraResources:
       - 'icon.ico'
       - 'icon.png'
 asarUnpack:
-  - '**/node_modules/node-pty/**'
+  - '**/node_modules/@lydell/node-pty*/**'
 win:
   icon: build/icon.ico
   target:

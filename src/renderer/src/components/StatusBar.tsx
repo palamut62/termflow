@@ -8,8 +8,10 @@ export default function StatusBar(): React.JSX.Element {
   const layoutMode = useAppStore((s) => s.layoutMode)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const workspaces = useAppStore((s) => s.workspaces)
+  const detectedAgents = useAppStore((s) => s.detectedAgents)
   const ws = workspaces.find((w) => w.id === activeWorkspaceId)
   const running = Object.values(terminals).filter((t) => t.status === 'running').length
+  const agentCount = Object.keys(detectedAgents).length
 
   return (
     <div className="statusbar">
@@ -21,6 +23,9 @@ export default function StatusBar(): React.JSX.Element {
       </span>
       <span className="sb-item">
         <Layers size={12} /> {connections.length} connection{connections.length !== 1 ? 's' : ''}
+      </span>
+      <span className="sb-item">
+        <Layers size={12} /> {agentCount} detected agent{agentCount !== 1 ? 's' : ''}
       </span>
       <span className="sb-item" style={{ marginLeft: 'auto' }}>
         <Cpu size={12} /> layout: {layoutMode}

@@ -43,6 +43,13 @@ function gitBashPath(): string | undefined {
   ])
 }
 
+function sshPath(): string | undefined {
+  return firstExisting([
+    join(winDir, 'System32', 'OpenSSH', 'ssh.exe'),
+    join(programFiles, 'Git', 'usr', 'bin', 'ssh.exe')
+  ])
+}
+
 /** Discover which shells are available on this machine (PRD FR-010). */
 export function discoverShells(): ShellCandidate[] {
   const pwsh = pwshPath()
@@ -107,8 +114,11 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
       return { shell: wsl, args: input.args ?? [], cwd, env }
     case 'gitbash':
       return { shell: gitBash ?? psPath, args: gitBash ? ['--login', '-i'] : ['-NoLogo'], cwd, env }
-    case 'ssh':
-      return host()
+    case 'ssh': {
+      const ssh = sshPath()
+      if (!ssh) return host()
+      return { shell: ssh, args: input.args ?? [], cwd, env }
+    }
     case 'claude':
     case 'codex':
     case 'opencode':

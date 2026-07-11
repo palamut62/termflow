@@ -52,8 +52,17 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      const url = new URL(details.url)
+      if (url.protocol === 'https:' || url.protocol === 'http:') shell.openExternal(url.toString())
+    } catch {
+      // Invalid and non-web URLs stay blocked.
+    }
     return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const current = mainWindow?.webContents.getURL()
+    if (url !== current) event.preventDefault()
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {

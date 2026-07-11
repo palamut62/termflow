@@ -27,6 +27,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
   const closeNode = useAppStore((s) => s.closeNode)
   const [filter, setFilter] = useState('')
   const [editingWs, setEditingWs] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{
     title: string
     message: string
@@ -48,12 +49,14 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
         <span>Workspaces</span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button title="Import workspace" onClick={async () => {
-            const wsId = await window.termflow.workspaces.import()
-            if (wsId) {
+            setImportError(null)
+            const result = await window.termflow.workspaces.import()
+            if (result?.id) {
               const workspaces = await window.termflow.workspaces.list()
               useAppStore.setState({ workspaces })
-              await openWorkspace(wsId)
+              await openWorkspace(result.id)
             }
+            if (result?.error) setImportError(result.error)
           }}>
             <Upload size={14} />
           </button>
@@ -68,6 +71,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
           </button>
         </div>
       </div>
+      {importError && <div className="side-error" role="alert">{importError}</div>}
 
       <div className="ws-list">
         {filtered.map((ws) => {

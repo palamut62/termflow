@@ -13,7 +13,8 @@ import {
   type HighlightRule,
   type SshProfile,
   type EnvEntry,
-  type GitStatus
+  type GitStatus,
+  type WorkspaceHealthCheck
 } from '../shared/types'
 
 const api = {
@@ -76,8 +77,9 @@ const api = {
       ipcRenderer.invoke(IPC.WS_UPDATE, id, patch),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.WS_DELETE, id),
     export: (workspaceId: string): Promise<void> => ipcRenderer.invoke(IPC.WS_EXPORT, workspaceId),
-    import: (): Promise<string | null> => ipcRenderer.invoke(IPC.WS_IMPORT),
-    checkManifest: (cwd: string): Promise<unknown> => ipcRenderer.invoke(IPC.WS_CHECK_MANIFEST, cwd)
+    import: (): Promise<{ id?: string; error?: string } | null> => ipcRenderer.invoke(IPC.WS_IMPORT),
+    checkManifest: (cwd: string): Promise<unknown> => ipcRenderer.invoke(IPC.WS_CHECK_MANIFEST, cwd),
+    health: (workspaceId: string): Promise<WorkspaceHealthCheck[]> => ipcRenderer.invoke(IPC.WS_HEALTH, workspaceId)
   },
   terminals: {
     list: (workspaceId: string): Promise<TerminalSession[]> =>
@@ -136,6 +138,9 @@ const api = {
     start: (id: string): void => ipcRenderer.send(IPC.REC_START, id),
     stop: (id: string): Promise<unknown[]> => ipcRenderer.invoke(IPC.REC_STOP, id),
     save: (id: string): Promise<void> => ipcRenderer.invoke(IPC.REC_SAVE, id)
+  },
+  diagnostics: {
+    export: (workspaceId: string): Promise<void> => ipcRenderer.invoke(IPC.DIAGNOSTICS_EXPORT, workspaceId)
   }
 }
 

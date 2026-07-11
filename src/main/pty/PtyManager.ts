@@ -1,4 +1,4 @@
-import * as pty from 'node-pty'
+import * as pty from '@lydell/node-pty'
 import type { WebContents } from 'electron'
 import type { CreateTerminalInput, RenderMode } from '../../shared/types'
 import { IPC } from '../../shared/types'
@@ -36,6 +36,7 @@ interface ManagedPty {
   mode: RenderMode
   errorSignalled: boolean
   routingRules?: RoutingRule[]
+  lastRouteAt: Map<string, number>
   // Recording
   recording: boolean
   recordingStart: number
@@ -82,6 +83,7 @@ export class PtyManager {
       exited: false,
       mode: 'active',
       errorSignalled: false,
+      lastRouteAt: new Map(),
       recording: false,
       recordingStart: 0,
       recordedChunks: []
@@ -132,11 +134,19 @@ export class PtyManager {
       this.getSender()?.send(IPC.PTY_ACTIVITY, { id: managed.id, error: true })
     }
 
-    // Agent-to-agent routing (opt-in)
+    // Agent-to-agent routing (opt-in). Continuous routing is intentionally
+    // sanitized and rate-limited because it writes process output into another
+    // process input stream.
     if (managed.routingRules?.length) {
       for (const rule of managed.routingRules) {
         if (rule.routeBehavior === 'continuous') {
-          for (const tid of rule.targetTerminalIds) this.write(tid, data)
+          const now = Date.now()
+          const key = rule.connectionId
+          if (now - (managed.lastRouteAt.get(key) ?? 0) < 80) continue
+          managed.lastRouteAt.set(key, now)
+          const clean = this.sanitizeRouteData(data)
+          if (!clean.trim()) continue
+          for (const tid of rule.targetTerminalIds) this.write(tid, clean.slice(0, 4000))
         } else {
           try {
             const re = new RegExp(rule.triggerPattern, 'gs')
@@ -146,6 +156,7 @@ export class PtyManager {
               if (rule.transform) {
                 output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
               }
+              output = this.sanitizeRouteData(output).slice(0, 4000)
               for (const tid of rule.targetTerminalIds) this.write(tid, output + '\r')
             }
           } catch {
@@ -162,6 +173,13 @@ export class PtyManager {
       const interval = managed.mode === 'active' ? ACTIVE_INTERVAL_MS : this.passiveIntervalMs
       managed.flushTimer = setTimeout(() => this.flush(managed), interval)
     }
+  }
+
+  private sanitizeRouteData(data: string): string {
+    return data
+      .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+      .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
   }
 
   private flush(managed: ManagedPty, force = false): void {

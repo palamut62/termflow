@@ -14,10 +14,13 @@ import type {
   Snippet,
   HighlightRule,
   GitStatus,
-  PaneNode
+  PaneNode,
+  SshProfile,
+  TermflowManifest
 } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/types'
 import { profileFor } from '../profiles'
+import { isValidSshProfile } from '../../../shared/validation'
 import { computeLayout } from '../autolayout'
 import { getLeafTerminalIds, getActiveTerminalId, splitPane, closePane, countLeaves } from '../paneUtils'
 
@@ -27,8 +30,19 @@ interface NewTerminalOpts {
   cwd?: string
   startupCommand?: string
   customShell?: string
+  args?: string[]
   name?: string
   agentRole?: string
+}
+
+export interface AgentActivity {
+  id: string
+  terminalId: string
+  nodeId?: string
+  agentName: string
+  kind: 'subagent' | 'task' | 'tool' | 'handoff' | 'status'
+  message: string
+  createdAt: string
 }
 
 interface AppState {
@@ -43,6 +57,8 @@ interface AppState {
   viewport: CanvasViewport
   settings: AppSettings
   procStats: Record<string, ProcStats>
+  agentActivities: AgentActivity[]
+  detectedAgents: Record<string, { name: string; terminalId: string; nodeId?: string; lastSeenAt: string }>
   termEpoch: Record<string, number> // bump to force xterm remount on restart
   zCounter: number
   canvasSize: { width: number; height: number }
@@ -61,6 +77,7 @@ interface AppState {
   selectConnection: (id: string | null) => void
   updateNode: (nodeId: string, patch: Partial<CanvasNode>) => void
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
+  reattachTerminal: (terminalId: string) => Promise<void>
   restartNode: (nodeId: string) => Promise<void>
   toggleMinimize: (nodeId: string) => void
   toggleMaximize: (nodeId: string) => void
@@ -72,6 +89,7 @@ interface AppState {
 
   setLayoutMode: (mode: LayoutMode, vp?: { width: number; height: number }) => void
   applyAutoLayout: (vp: { width: number; height: number }) => void
+  resizeFocusedNode: (nodeId: string, width: number) => void
   resolveCollisions: (anchorId: string) => void
   setViewport: (vp: CanvasViewport) => void
 
@@ -91,12 +109,20 @@ interface AppState {
 
   // Pane operations (P0-1)
   splitNode: (nodeId: string, dir: 'horizontal' | 'vertical') => Promise<void>
-  closePaneInNode: (nodeId: string, terminalId: string) => Promise<void>
+  closePaneInNode: (nodeId: string, terminalId: string, mode?: 'terminate' | 'detach') => Promise<void>
   setActivePane: (nodeId: string, terminalId: string) => void
 
   // Highlight rules (P1-8)
   highlightRules: HighlightRule[]
   loadHighlightRules: () => Promise<void>
+  sshProfiles: SshProfile[]
+  projectManifest: TermflowManifest | null
+  projectManifestApplied: boolean
+  loadDeveloperResources: () => Promise<void>
+  launchSshProfile: (profile: SshProfile) => Promise<void>
+  runManifestTask: (taskName: string) => Promise<void>
+  applyProjectManifest: () => Promise<void>
+  dismissProjectManifest: () => void
 
   // Git status (P2-9)
   gitStatus: Record<string, { branch: string; dirty: boolean } | null>
@@ -106,6 +132,7 @@ interface AppState {
   startRecording: (terminalId: string) => void
   stopRecording: (terminalId: string) => Promise<unknown[]>
   saveRecording: (terminalId: string) => Promise<void>
+  clearAgentActivities: () => void
 
   startRuntimeListeners: () => void
   refreshStats: () => Promise<void>
@@ -117,6 +144,67 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 let listenersStarted = false
 let gitPollingStarted = false
 let systemThemeMql: MediaQueryList | null = null
+let workspaceRequest = 0
+
+const AGENT_PATTERNS: { kind: AgentActivity['kind']; re: RegExp; nameGroup?: number; messageGroup?: number }[] = [
+  { kind: 'subagent', re: /\b(?:sub-?agent|agent team|team agent)\b[:\s-]*([A-Za-z0-9 _.-]+)?/i, nameGroup: 1 },
+  { kind: 'task', re: /\b(?:Task|Todo|Plan|Delegating|Assigned)\b[:\s-]+(.+)/i, messageGroup: 1 },
+  { kind: 'tool', re: /\b(?:Tool|Using tool|Running tool|Bash|Edit|Read|Write)\b[:\s-]+(.+)/i, messageGroup: 1 },
+  { kind: 'handoff', re: /@@HANDOFF@@([\s\S]*?)@@END@@/i, messageGroup: 1 },
+  { kind: 'status', re: /\b(?:started|completed|failed|reviewing|coding|testing|debugging)\b[:\s-]*(.+)?/i, messageGroup: 1 }
+]
+
+function parseAgentActivities(
+  terminalId: string,
+  data: string,
+  nodes: CanvasNode[],
+  terminals: Record<string, TerminalSession>
+): AgentActivity[] {
+  const node = nodes.find((n) => n.terminalId === terminalId || (n.panes ? getLeafTerminalIds(n.panes).includes(terminalId) : false))
+  const terminal = terminals[terminalId]
+  if (!node?.agentType && !node?.agentRole) return []
+  const sourceName = node?.agentRole || node?.title || terminal?.name || 'Agent'
+  const lines = data
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').trim())
+    .filter(Boolean)
+  const events: AgentActivity[] = []
+
+  for (const line of lines.slice(-40)) {
+    if (line.startsWith('@@TERMFLOW_EVENT@@')) {
+      try {
+        const payload = JSON.parse(line.slice('@@TERMFLOW_EVENT@@'.length)) as { kind?: AgentActivity['kind']; name?: string; message?: string }
+        if (payload.kind && ['subagent', 'task', 'tool', 'handoff', 'status'].includes(payload.kind)) {
+          events.push({ id: nanoid(), terminalId, nodeId: node?.id, agentName: (payload.name || sourceName).slice(0, 60), kind: payload.kind, message: (payload.message || payload.kind).slice(0, 220), createdAt: new Date().toISOString() })
+          continue
+        }
+      } catch {
+        // Fall through to conservative text detection.
+      }
+    }
+    if (!/\b(agent|subagent|team|task|todo|tool|handoff|delegat|assigned|started|completed|failed|review|coding|testing|debug)\b|@@HANDOFF@@/i.test(line)) {
+      continue
+    }
+    for (const pattern of AGENT_PATTERNS) {
+      const match = pattern.re.exec(line)
+      if (!match) continue
+      const name = (pattern.nameGroup ? match[pattern.nameGroup] : '')?.trim() || sourceName
+      const message = (pattern.messageGroup ? match[pattern.messageGroup] : '')?.trim() || line
+      events.push({
+        id: nanoid(),
+        terminalId,
+        nodeId: node?.id,
+        agentName: name.slice(0, 60),
+        kind: pattern.kind,
+        message: message.slice(0, 220),
+        createdAt: new Date().toISOString()
+      })
+      break
+    }
+  }
+
+  return events
+}
 
 // Apply light/dark/system theme by toggling the root data-theme attribute.
 function applyTheme(theme: 'dark' | 'light' | 'system'): void {
@@ -191,6 +279,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   viewport: { zoom: 1, x: 0, y: 0 },
   settings: { ...DEFAULT_SETTINGS },
   procStats: {},
+  agentActivities: [],
+  detectedAgents: {},
   termEpoch: {},
   zCounter: 1,
   canvasSize: { width: 1200, height: 800 },
@@ -204,11 +294,47 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Highlight rules
   highlightRules: [],
+  sshProfiles: [],
+  projectManifest: null,
+  projectManifestApplied: false,
 
   // Git status
   gitStatus: {},
 
-  setCanvasSize: (size) => set({ canvasSize: size }),
+  setCanvasSize: (size) => {
+    const st = get()
+    if (st.layoutMode === 'manual' || st.layoutMode === 'agent_graph') {
+      set({ canvasSize: size })
+      return
+    }
+    const previousFocusWidth = st.activeNodeId
+      ? st.nodes.find((n) => n.id === st.activeNodeId)?.size.width
+      : undefined
+    const focusRatio = previousFocusWidth && st.canvasSize.width > 0
+      ? previousFocusWidth / st.canvasSize.width
+      : 0.68
+    const ordered = st.activeNodeId
+      ? [...st.nodes.filter((n) => n.id === st.activeNodeId), ...st.nodes.filter((n) => n.id !== st.activeNodeId)]
+      : st.nodes
+    const mode = st.activeNodeId && st.nodes.length > 1 ? 'focus' : 'grid'
+    const computed = computeLayout(mode, ordered, size, st.connections)
+    if (st.activeNodeId && ordered.length > 1) {
+      const focusWidth = Math.round(Math.max(size.width * 0.35, Math.min(size.width * 0.7, size.width * focusRatio)))
+      const rest = ordered.filter((n) => n.id !== st.activeNodeId)
+      const restHeight = (size.height + rest.length - 1) / rest.length
+      computed[st.activeNodeId] = { position: { x: 0, y: 0 }, size: { width: focusWidth, height: size.height } }
+      rest.forEach((node, index) => {
+        computed[node.id] = {
+          position: { x: focusWidth - 1, y: Math.round(index * (restHeight - 1)) },
+          size: { width: size.width - focusWidth + 1, height: Math.round(restHeight) }
+        }
+      })
+    }
+    set({
+      canvasSize: size,
+      nodes: st.nodes.map((n) => (computed[n.id] ? { ...n, ...computed[n.id] } : n))
+    })
+  },
 
   loadSettings: async () => {
     const settings = await window.termflow.settings.get()
@@ -233,6 +359,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   openWorkspace: async (id) => {
+    const request = ++workspaceRequest
     // Kill terminals from the previously open workspace before switching.
     const prev = get()
     if (prev.activeWorkspaceId && prev.activeWorkspaceId !== id) {
@@ -241,6 +368,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const layout = await window.termflow.layout.get(id)
     const terms = await window.termflow.terminals.list(id)
+    if (request !== workspaceRequest) return
     const terminals: Record<string, TerminalSession> = {}
     for (const t of terms) terminals[t.id] = t
 
@@ -255,6 +383,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     for (const tid of termIds) {
+      if (request !== workspaceRequest) return
       const t = terminals[tid]
       if (!t) {
         // Create a terminal session for this pane if it doesn't exist
@@ -300,6 +429,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
+    if (request !== workspaceRequest) return
+    const [snippets, highlightRules, sshProfiles] = await Promise.all([
+      window.termflow.snippets.list(id),
+      window.termflow.highlightRules.list(id),
+      window.termflow.sshProfiles.list(id)
+    ])
+    if (request !== workspaceRequest) return
+    const ws = get().workspaces.find((w) => w.id === id)
+    const manifest = ws?.path ? await window.termflow.workspaces.checkManifest(ws.path) as TermflowManifest | null : null
+    if (request !== workspaceRequest) return
     set({
       activeWorkspaceId: id,
       nodes: layout.nodes.map((n) => ({ ...n, isMaximized: false })),
@@ -311,11 +450,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? layout.activeNodeId
         : layout.nodes[0]?.id ?? null,
       selectedConnectionId: null,
-      zCounter: layout.nodes.length + 1
+      zCounter: layout.nodes.length + 1,
+      snippets,
+      highlightRules,
+      sshProfiles,
+      projectManifest: manifest,
+      projectManifestApplied: false,
+      agentActivities: [],
+      detectedAgents: {}
     })
     syncAgentRouting(layout.nodes, layout.connections)
     await window.termflow.workspaces.update(id, { lastOpenedAt: new Date().toISOString() })
-    await Promise.all([get().loadSnippets(), get().loadHighlightRules()])
   },
 
   createWorkspace: async (input) => {
@@ -359,7 +504,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       name,
       kind,
       shell: opts?.customShell || kind,
-      args: [],
+      args: opts?.args || [],
       cwd,
       status: 'stopped',
       createdAt: ts,
@@ -400,6 +545,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         name,
         kind,
         shell: opts?.customShell,
+        args: opts?.args,
         cwd,
         startupCommand: session.startupCommand
       })
@@ -416,12 +562,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       // the canvas (bigger when few, smaller when many). Manual mode tiles as a
       // grid; an active layout mode re-runs itself. (user request)
       const all = [...s.nodes, node]
-      const mode = s.layoutMode === 'manual' ? 'grid' : s.layoutMode
-      const computed = computeLayout(mode, all, s.canvasSize, s.connections)
+      const computed = computeLayout('grid', all, s.canvasSize, s.connections)
       const nodes = all.map((n) => (computed[n.id] ? { ...n, ...computed[n.id] } : n))
       return {
         terminals: { ...s.terminals, [termId]: persisted },
         nodes,
+        layoutMode: 'grid',
         activeNodeId: nodeId,
         zCounter: z
       }
@@ -430,17 +576,45 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveNode: (nodeId) => {
-    if (!nodeId) {
-      set({ activeNodeId: null })
+    const current = get()
+    const isTiled = current.layoutMode !== 'manual' && current.layoutMode !== 'agent_graph'
+    if (!isTiled) {
+      const z = current.zCounter + 1
+      set((s) => ({
+        activeNodeId: nodeId,
+        selectedConnectionId: null,
+        zCounter: nodeId ? z : s.zCounter,
+        nodes: nodeId
+          ? s.nodes.map((n) => n.id === nodeId ? { ...n, zIndex: z } : n)
+          : s.nodes
+      }))
       return
     }
-    // Bring the active node to front (PRD: active panel on top).
-    const z = get().zCounter + 1
+    if (nodeId && nodeId === current.activeNodeId) {
+      set({ selectedConnectionId: null })
+      return
+    }
+    if (!nodeId) {
+      set({ activeNodeId: null, selectedConnectionId: null })
+      return
+    }
+    const st = get()
+    const z = st.zCounter + 1
+    const ordered = [
+      ...st.nodes.filter((n) => n.id === nodeId),
+      ...st.nodes.filter((n) => n.id !== nodeId && !n.isMinimized)
+    ]
+    const computed = computeLayout('focus', ordered, st.canvasSize, st.connections)
     set((s) => ({
       activeNodeId: nodeId,
       selectedConnectionId: null,
       zCounter: z,
-      nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, zIndex: z, status: n.status === 'error' ? 'idle' : n.status } : n))
+      nodes: s.nodes.map((n) => ({
+        ...n,
+        isMaximized: false,
+        ...(computed[n.id] || {}),
+        ...(n.id === nodeId ? { zIndex: z, status: n.status === 'error' ? 'idle' as const : n.status } : {})
+      }))
     }))
     get().persist()
   },
@@ -461,7 +635,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (node.panes && countLeaves(node.panes) > 1) {
       const activeTermId = node.activePaneId || getLeafTerminalIds(node.panes)[0]
       if (activeTermId) {
-        return get().closePaneInNode(nodeId, activeTermId)
+        return get().closePaneInNode(nodeId, activeTermId, mode)
       }
     }
 
@@ -472,19 +646,68 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.termflow.pty.kill(tid)
         await window.termflow.terminals.remove(tid)
       }
-    } else {
-      for (const tid of termIds) {
-        await window.termflow.terminals.remove(tid)
-      }
     }
     const terminals = { ...st.terminals }
-    for (const tid of termIds) delete terminals[tid]
-    set((s) => ({
-      nodes: s.nodes.filter((n) => n.id !== nodeId),
+    if (mode === 'terminate') for (const tid of termIds) delete terminals[tid]
+    set((s) => {
+      const remaining = s.nodes.filter((n) => n.id !== nodeId)
+      const computed = computeLayout('grid', remaining, s.canvasSize, s.connections)
+      return {
+      nodes: remaining.map((n) => ({ ...n, ...(computed[n.id] || {}) })),
       connections: s.connections.filter((c) => c.sourceNodeId !== nodeId && c.targetNodeId !== nodeId),
       terminals,
       activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
+    }})
+    get().persist()
+  },
+
+  reattachTerminal: async (terminalId) => {
+    const st = get()
+    const terminal = st.terminals[terminalId]
+    if (!terminal || !st.activeWorkspaceId || terminal.workspaceId !== st.activeWorkspaceId) return
+    let nextTerminal = terminal
+    if (terminal.status !== 'running') {
+      try {
+        const { pid } = await window.termflow.pty.create(terminal.id, {
+          workspaceId: terminal.workspaceId,
+          name: terminal.name,
+          kind: terminal.kind,
+          shell: terminal.shell,
+          args: terminal.args,
+          cwd: terminal.cwd,
+          env: terminal.env,
+          startupCommand: terminal.startupCommand
+        })
+        nextTerminal = { ...terminal, pid, status: 'running', updatedAt: new Date().toISOString() }
+      } catch {
+        nextTerminal = { ...terminal, status: 'error', updatedAt: new Date().toISOString() }
+      }
+    }
+    const nodeId = nanoid()
+    const z = st.zCounter + 1
+    const node: CanvasNode = {
+      id: nodeId,
+      workspaceId: terminal.workspaceId,
+      terminalId,
+      panes: { type: 'leaf', terminalId, title: terminal.name },
+      activePaneId: terminalId,
+      title: terminal.name,
+      nodeType: profileFor(terminal.kind).nodeType,
+      position: { x: 36 + st.nodes.length * 24, y: 36 + st.nodes.length * 24 },
+      size: DEFAULT_SIZE,
+      zIndex: z,
+      isMinimized: false,
+      isMaximized: false,
+      status: nextTerminal.status === 'running' ? 'running' : 'error',
+      showInfo: false
+    }
+    set((s) => ({
+      terminals: { ...s.terminals, [terminalId]: nextTerminal },
+      nodes: [...s.nodes, node],
+      activeNodeId: nodeId,
+      zCounter: z
     }))
+    await window.termflow.terminals.upsert(nextTerminal)
     get().persist()
   },
 
@@ -612,6 +835,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
+  resizeFocusedNode: (nodeId, requestedWidth) => {
+    const st = get()
+    const active = st.nodes.find((n) => n.id === nodeId)
+    const rest = st.nodes.filter((n) => n.id !== nodeId && !n.isMinimized)
+    if (!active || !rest.length) return
+
+    const minActiveWidth = Math.min(280, Math.round(st.canvasSize.width * 0.35))
+    const minRestWidth = Math.min(240, Math.round(st.canvasSize.width * 0.3))
+    const width = Math.round(Math.max(minActiveWidth, Math.min(requestedWidth, st.canvasSize.width - minRestWidth)))
+    const restWidth = st.canvasSize.width - width + 1
+    const restHeight = (st.canvasSize.height + rest.length - 1) / rest.length
+
+    set((s) => ({
+      nodes: s.nodes.map((n) => {
+        if (n.id === nodeId) return { ...n, position: { x: 0, y: 0 }, size: { width, height: st.canvasSize.height } }
+        const index = rest.findIndex((item) => item.id === n.id)
+        if (index === -1) return n
+        return {
+          ...n,
+          position: { x: width - 1, y: Math.round(index * (restHeight - 1)) },
+          size: { width: restWidth, height: Math.round(restHeight) }
+        }
+      })
+    }))
+  },
+
   // Push neighbours out of the way so a resized/dragged node never overlaps
   // another; the anchor stays put and everything else slides to fit. (user)
   resolveCollisions: (anchorId) => {
@@ -662,6 +911,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   startRuntimeListeners: () => {
     if (listenersStarted) return
     listenersStarted = true
+    window.termflow.pty.onData((id, data) => {
+      const st = get()
+      const events = parseAgentActivities(id, data, st.nodes, st.terminals)
+      if (!events.length) return
+      set((s) => {
+        const detectedAgents = { ...s.detectedAgents }
+        for (const event of events) {
+          detectedAgents[`${event.terminalId}:${event.agentName}`] = {
+            name: event.agentName,
+            terminalId: event.terminalId,
+            nodeId: event.nodeId,
+            lastSeenAt: event.createdAt
+          }
+        }
+        const existingKeys = new Set(s.agentActivities.slice(0, 30).map((event) => `${event.terminalId}:${event.kind}:${event.message}`))
+        const uniqueEvents = events.filter((event) => !existingKeys.has(`${event.terminalId}:${event.kind}:${event.message}`))
+        if (!uniqueEvents.length) return s
+        return {
+          detectedAgents,
+          agentActivities: [...uniqueEvents, ...s.agentActivities].slice(0, 120)
+        }
+      })
+    })
     window.termflow.pty.onExit((id) => {
       set((s) => {
         const t = s.terminals[id]
@@ -744,21 +1016,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const activeTermId = node.activePaneId || (node.panes ? getLeafTerminalIds(node.panes)[0] : node.terminalId)
     if (!activeTermId) return
 
-    // Create new terminal
     const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)!
-    const profile = profileFor('powershell')
+    const activeTerminal = st.terminals[activeTermId]
     const newTermId = nanoid()
-    const newName = `Terminal ${st.nodes.length + 2}`
-    const cwd = ws.path
+    const inheritedKind = activeTerminal?.kind ?? 'cmd'
+    const newName = `${activeTerminal?.name || 'Terminal'} split`
+    const cwd = activeTerminal?.cwd || ws.path
     const ts = new Date().toISOString()
 
     const session: TerminalSession = {
       id: newTermId,
       workspaceId: st.activeWorkspaceId!,
       name: newName,
-      kind: 'powershell',
-      shell: 'powershell.exe',
-      args: [],
+      kind: inheritedKind,
+      shell: activeTerminal?.shell || inheritedKind,
+      args: activeTerminal?.args || [],
       cwd,
       status: 'stopped',
       createdAt: ts,
@@ -766,7 +1038,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      const res = await window.termflow.pty.create(newTermId, { workspaceId: st.activeWorkspaceId!, name: newName, kind: 'powershell', cwd })
+      const res = await window.termflow.pty.create(newTermId, {
+        workspaceId: st.activeWorkspaceId!,
+        name: newName,
+        kind: inheritedKind,
+        shell: activeTerminal?.shell,
+        args: activeTerminal?.args,
+        cwd
+      })
       session.pid = res.pid
       session.status = 'running'
     } catch {
@@ -785,17 +1064,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
-  closePaneInNode: async (nodeId, terminalId) => {
+  closePaneInNode: async (nodeId, terminalId, mode = 'terminate') => {
     const st = get()
     const node = st.nodes.find((n) => n.id === nodeId)
     if (!node?.panes) return
 
-    window.termflow.pty.kill(terminalId)
-    await window.termflow.terminals.remove(terminalId)
+    if (mode === 'terminate') {
+      window.termflow.pty.kill(terminalId)
+      await window.termflow.terminals.remove(terminalId)
+    }
 
     const newPane = closePane(node.panes, terminalId)
     const terminals = { ...st.terminals }
-    delete terminals[terminalId]
+    if (mode === 'terminate') delete terminals[terminalId]
 
     if (!newPane) {
       // All panes closed — remove node
@@ -831,6 +1112,90 @@ export const useAppStore = create<AppState>((set, get) => ({
     const highlightRules = await window.termflow.highlightRules.list(wsId || undefined)
     set({ highlightRules })
   },
+
+  loadDeveloperResources: async () => {
+    const wsId = get().activeWorkspaceId
+    if (!wsId) {
+      set({ sshProfiles: [] })
+      return
+    }
+    const sshProfiles = await window.termflow.sshProfiles.list(wsId)
+    set({ sshProfiles })
+  },
+
+  launchSshProfile: async (profile) => {
+    if (!isValidSshProfile(profile)) throw new Error('Invalid SSH profile')
+    const args: string[] = []
+    if (profile.port && profile.port !== 22) args.push('-p', String(profile.port))
+    if (profile.keyPath) args.push('-i', profile.keyPath)
+    if (profile.jumpHost) args.push('-J', profile.jumpHost)
+    args.push(`${profile.user}@${profile.host}`)
+    await get().addTerminal('ssh', {
+      name: `SSH: ${profile.name}`,
+      args
+    })
+  },
+
+  runManifestTask: async (taskName) => {
+    const st = get()
+    const task = st.projectManifest?.tasks?.find((t) => t.name === taskName)
+    const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
+    if (!task || !ws) return
+    await get().addTerminal(task.shell ?? 'cmd', {
+      name: task.name,
+      cwd: task.cwd || ws.path,
+      startupCommand: task.command
+    })
+  },
+
+  applyProjectManifest: async () => {
+    const st = get()
+    const manifest = st.projectManifest
+    const wsId = st.activeWorkspaceId
+    if (!manifest || !wsId) return
+
+    const existingEnv = await window.termflow.envVars.list(wsId)
+    const existingEnvKeys = new Set(existingEnv.map((item) => item.key.toUpperCase()))
+    for (const item of manifest.env ?? []) {
+      if (!item.key.trim()) continue
+      if (existingEnvKeys.has(item.key.trim().toUpperCase())) continue
+      await window.termflow.envVars.create({
+        workspaceId: wsId,
+        key: item.key.trim(),
+        value: item.value ?? '',
+        masked: item.masked ?? true
+      })
+    }
+
+    const existingSnippetNames = new Set(st.snippets.map((item) => item.name.toLowerCase()))
+    for (const sn of manifest.snippets ?? []) {
+      if (!sn.name.trim() || !sn.command.trim()) continue
+      if (existingSnippetNames.has(sn.name.trim().toLowerCase())) continue
+      const params = [...sn.command.matchAll(/\{\{([a-zA-Z0-9_-]+)\}\}/g)].map((m) => m[1])
+      await get().createSnippet({
+        workspaceId: sn.scope === 'global' ? null : wsId,
+        name: sn.name.trim(),
+        command: sn.command,
+        params: [...new Set(params)],
+        scope: sn.scope ?? 'workspace'
+      })
+    }
+
+    const existingAgentNames = new Set(st.nodes.map((node) => node.title.toLowerCase()))
+    for (const agent of manifest.agents ?? []) {
+      if (existingAgentNames.has(agent.name.toLowerCase())) continue
+      await get().addTerminal(agent.kind ?? 'claude', {
+        name: agent.name,
+        agentRole: agent.role,
+        startupCommand: agent.command
+      })
+    }
+
+    set({ projectManifestApplied: true })
+    await Promise.all([get().loadDeveloperResources(), get().loadSnippets()])
+  },
+
+  dismissProjectManifest: () => set({ projectManifest: null, projectManifestApplied: false }),
 
   // ---- Git Status ----
   startGitPolling: () => {
@@ -870,6 +1235,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   startRecording: (terminalId) => window.termflow.recording.start(terminalId),
   stopRecording: (terminalId) => window.termflow.recording.stop(terminalId),
   saveRecording: (terminalId) => window.termflow.recording.save(terminalId),
+  clearAgentActivities: () => set({ agentActivities: [], detectedAgents: {} }),
 
   persist: () => {
     const st = get()

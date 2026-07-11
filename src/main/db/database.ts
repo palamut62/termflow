@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync } from 'fs'
 import { nanoid } from 'nanoid'
 import type {
   Workspace,
@@ -64,6 +64,7 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
 function persist(): void {
   const tmp = filePath + '.tmp'
   writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8')
+  if (existsSync(filePath)) copyFileSync(filePath, filePath + '.bak')
   renameSync(tmp, filePath)
 }
 
@@ -79,6 +80,18 @@ export function initDatabase(): void {
     try {
       store = { ...empty(), ...JSON.parse(readFileSync(filePath, 'utf-8')) }
     } catch {
+      const corruptPath = filePath.replace(/\.json$/, `.corrupt-${Date.now()}.json`)
+      renameSync(filePath, corruptPath)
+      const backupPath = filePath + '.bak'
+      if (existsSync(backupPath)) {
+        try {
+          store = { ...empty(), ...JSON.parse(readFileSync(backupPath, 'utf-8')) }
+          persist()
+          return
+        } catch {
+          // Keep the corrupt primary file and fall back to a new store.
+        }
+      }
       store = empty()
     }
   } else {
@@ -139,6 +152,10 @@ export function deleteWorkspace(id: string): void {
   store.terminals = store.terminals.filter((t) => t.workspaceId !== id)
   store.nodes = store.nodes.filter((n) => n.workspaceId !== id)
   store.connections = store.connections.filter((c) => c.workspaceId !== id)
+  store.snippets = store.snippets.filter((s) => s.workspaceId !== id)
+  store.highlightRules = store.highlightRules.filter((r) => r.workspaceId !== id)
+  store.sshProfiles = store.sshProfiles.filter((p) => p.workspaceId !== id)
+  store.envVars = store.envVars.filter((e) => e.workspaceId !== id)
   delete store.viewports[id]
   persist()
 }
@@ -292,6 +309,10 @@ export function deleteSshProfile(id: string): void {
 
 export function listEnvVars(workspaceId: string): EnvEntry[] {
   return store.envVars.filter((e) => e.workspaceId === workspaceId)
+}
+
+export function getEnvVar(id: string): EnvEntry | undefined {
+  return store.envVars.find((e) => e.id === id)
 }
 
 export function createEnvVar(input: Omit<EnvEntry, 'id'>): EnvEntry {

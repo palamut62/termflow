@@ -5,8 +5,10 @@ interface Viewport {
   height: number
 }
 
-const GAP = 24
-const PAD = 40
+// Tiled terminal layouts use the whole canvas. The one-pixel overlap keeps
+// adjacent borders from becoming a visually heavy double line.
+const GAP = -1
+const PAD = 0
 
 /**
  * Compute node positions/sizes for the automatic layout modes (PRD §10.4).
@@ -26,8 +28,8 @@ export function computeLayout(
 
   if (mode === 'agent_graph') return agentGraphLayout(visible, connections)
 
-  const areaW = Math.max(vp.width - PAD * 2, 600)
-  const areaH = Math.max(vp.height - PAD * 2, 400)
+  const areaW = Math.max(vp.width - PAD * 2, 1)
+  const areaH = Math.max(vp.height - PAD * 2, 1)
 
   let cols = 1
   let rows = 1
@@ -126,16 +128,21 @@ function focusLayout(
   areaH: number
 ): Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> {
   const result: Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> = {}
-  const stripW = 300
-  const mainW = areaW - stripW - GAP
+  if (nodes.length === 1) {
+    result[nodes[0].id] = { position: { x: 0, y: 0 }, size: { width: areaW, height: areaH } }
+    return result
+  }
+
+  const mainW = Math.round(areaW * 0.68)
+  const stripW = areaW - mainW - GAP
   const active = nodes[0]
-  result[active.id] = { position: { x: PAD, y: PAD }, size: { width: mainW, height: areaH } }
+  result[active.id] = { position: { x: 0, y: 0 }, size: { width: mainW, height: areaH } }
   const rest = nodes.slice(1)
   const miniH = rest.length ? (areaH - GAP * (rest.length - 1)) / rest.length : areaH
   rest.forEach((node, i) => {
     result[node.id] = {
-      position: { x: PAD + mainW + GAP, y: PAD + i * (miniH + GAP) },
-      size: { width: stripW, height: Math.max(140, Math.round(miniH)) }
+      position: { x: mainW + GAP, y: i * (miniH + GAP) },
+      size: { width: stripW, height: Math.round(miniH) }
     }
   })
   return result

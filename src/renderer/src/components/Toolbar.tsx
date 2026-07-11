@@ -53,6 +53,8 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const toggleBroadcast = useAppStore((s) => s.toggleBroadcast)
+  const sshProfiles = useAppStore((s) => s.sshProfiles)
+  const launchSshProfile = useAppStore((s) => s.launchSshProfile)
 
   const [termMenu, setTermMenu] = useState(false)
   const [agentMenu, setAgentMenu] = useState(false)
@@ -112,6 +114,22 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette }: P
               <div key={p.kind} className="menu-item" onClick={() => create(p.kind)}>
                 <span style={{ width: 8, height: 8, borderRadius: 4, background: p.color }} />
                 {p.label}
+              </div>
+            ))}
+            <div className="menu-sep" />
+            <div className="menu-label">SSH Profiles</div>
+            {sshProfiles.length === 0 && <div className="menu-empty">No SSH profiles</div>}
+            {sshProfiles.map((profile) => (
+              <div
+                key={profile.id}
+                className="menu-item"
+                onClick={() => {
+                  setTermMenu(false)
+                  launchSshProfile(profile)
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: '#7b68ee' }} />
+                {profile.name}
               </div>
             ))}
             <div className="menu-sep" />

@@ -7,6 +7,10 @@ import StatusBar from './components/StatusBar'
 import WorkspaceModal from './components/WorkspaceModal'
 import SettingsModal from './components/SettingsModal'
 import SnippetModal from './components/SnippetModal'
+import AgentActivityPanel from './components/AgentActivityPanel'
+import ProjectManifestPanel from './components/ProjectManifestPanel'
+import DetachedSessionsPanel from './components/DetachedSessionsPanel'
+import DeveloperCenter from './components/DeveloperCenter'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
@@ -86,6 +90,9 @@ export default function App(): React.JSX.Element {
   const flushPersist = useAppStore((s) => s.flushPersist)
   const nodes = useAppStore((s) => s.nodes)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
+  const snippets = useAppStore((s) => s.snippets)
+  const sshProfiles = useAppStore((s) => s.sshProfiles)
+  const projectManifest = useAppStore((s) => s.projectManifest)
 
   const [showWsModal, setShowWsModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -152,6 +159,21 @@ export default function App(): React.JSX.Element {
       { id: 'new-claude', title: 'Open Claude Code', run: () => s().addTerminal('claude') },
       { id: 'new-codex', title: 'Open Codex', run: () => s().addTerminal('codex') },
       { id: 'new-opencode', title: 'Open OpenCode', run: () => s().addTerminal('opencode') },
+      ...s().sshProfiles.map((profile) => ({
+        id: `ssh:${profile.id}`,
+        title: `SSH: ${profile.name} (${profile.user}@${profile.host})`,
+        run: () => s().launchSshProfile(profile)
+      })),
+      ...((s().projectManifest?.tasks ?? []).map((task) => ({
+        id: `manifest-task:${task.name}`,
+        title: `Task: ${task.name}`,
+        run: () => s().runManifestTask(task.name)
+      }))),
+      {
+        id: 'apply-manifest',
+        title: 'Apply .termflow.json Manifest',
+        run: () => s().applyProjectManifest()
+      },
       { id: 'autofit', title: 'Auto Fit Terminals', run: () => s().setLayoutMode('auto_fit', canvasSize()) },
       { id: 'grid', title: 'Layout: Grid', run: () => s().setLayoutMode('grid', canvasSize()) },
       { id: 'focus', title: 'Layout: Focus + Mini', run: () => s().setLayoutMode('focus', canvasSize()) },
@@ -230,7 +252,7 @@ export default function App(): React.JSX.Element {
       { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
     ]
     return cmds
-  }, [canvasSize])
+  }, [canvasSize, snippets, sshProfiles, projectManifest])
 
   // Keyboard shortcuts (PRD §21). Ctrl+Alt combos avoid clashing with terminal input.
   useEffect(() => {
@@ -288,6 +310,10 @@ export default function App(): React.JSX.Element {
           <CanvasFlow />
         </ReactFlowProvider>
         <ConnectionInspector />
+        <ProjectManifestPanel />
+        <AgentActivityPanel />
+        <DetachedSessionsPanel />
+        <DeveloperCenter />
         {nodes.length === 0 && (
           <div className="empty-canvas">
             <TerminalSquare size={40} strokeWidth={1.3} />

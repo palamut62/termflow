@@ -129,6 +129,8 @@ const HANDLES: [string, number, number][] = [
  */
 function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
   const updateNode = useAppStore((s) => s.updateNode)
+  const tiled = useAppStore((s) => s.layoutMode !== 'manual' && s.layoutMode !== 'agent_graph')
+  const resizeFocusedNode = useAppStore((s) => s.resizeFocusedNode)
 
   const start = useCallback(
     (dirX: number, dirY: number) => (e: React.PointerEvent) => {
@@ -144,10 +146,15 @@ function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
       const startY = e.clientY
       const p0 = { ...node.position }
       const s0 = { ...node.size }
+      const isTiledDivider = tiled && dirX === 1 && dirY === 0
 
       const onMove = (ev: PointerEvent): void => {
         const dx = (ev.clientX - startX) / zoom
         const dy = (ev.clientY - startY) / zoom
+        if (isTiledDivider) {
+          resizeFocusedNode(nodeId, s0.width + dx)
+          return
+        }
         let x = p0.x
         let y = p0.y
         let width = s0.width
@@ -182,18 +189,21 @@ function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
         el.removeEventListener('pointermove', onMove)
         el.removeEventListener('pointerup', onUp)
         // Resolve collisions once, on release — stable, single pass (no drift).
-        useAppStore.getState().resolveCollisions(nodeId)
+        if (isTiledDivider) useAppStore.getState().persist()
+        else useAppStore.getState().resolveCollisions(nodeId)
       }
       el.addEventListener('pointermove', onMove)
       el.addEventListener('pointerup', onUp)
     },
-    [nodeId, updateNode]
+    [nodeId, resizeFocusedNode, tiled, updateNode]
   )
+
+  const handles = tiled ? HANDLES.filter(([dir]) => dir === 'e') : HANDLES
 
   return (
     <>
-      {HANDLES.map(([dir, dx, dy]) => (
-        <div key={dir} className={`rz rz-${dir} nodrag nowheel`} onPointerDown={start(dx, dy)} />
+      {handles.map(([dir, dx, dy]) => (
+        <div key={dir} className={`rz rz-${dir} ${tiled ? 'rz-tiled-divider' : ''} nodrag nowheel`} onPointerDown={start(dx, dy)} />
       ))}
     </>
   )

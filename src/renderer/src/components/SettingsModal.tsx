@@ -42,6 +42,9 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const [sshName, setSshName] = useState('')
   const [sshHost, setSshHost] = useState('')
   const [sshUser, setSshUser] = useState('')
+  const [sshPort, setSshPort] = useState('22')
+  const [sshKeyPath, setSshKeyPath] = useState('')
+  const [sshJumpHost, setSshJumpHost] = useState('')
 
   const reloadDeveloper = async (): Promise<void> => {
     if (!activeWorkspaceId) return
@@ -51,6 +54,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
     ])
     setEnvVars(nextEnv)
     setSshProfiles(nextSsh)
+    useAppStore.setState({ sshProfiles: nextSsh })
   }
 
   useEffect(() => {
@@ -294,10 +298,11 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
 
             <div className="field">
               <label>SSH Profiles</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 72px auto', gap: 8 }}>
                 <input value={sshName} onChange={(e) => setSshName(e.target.value)} placeholder="Name" />
                 <input value={sshHost} onChange={(e) => setSshHost(e.target.value)} placeholder="Host" />
                 <input value={sshUser} onChange={(e) => setSshUser(e.target.value)} placeholder="User" />
+                <input value={sshPort} onChange={(e) => setSshPort(e.target.value)} placeholder="Port" />
                 <button
                   className="btn"
                   disabled={!activeWorkspaceId || !sshName.trim() || !sshHost.trim() || !sshUser.trim()}
@@ -308,17 +313,26 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                       name: sshName.trim(),
                       host: sshHost.trim(),
                       user: sshUser.trim(),
-                      port: 22,
-                      authType: 'agent'
+                      port: Number(sshPort) || 22,
+                      authType: sshKeyPath.trim() ? 'key' : 'agent',
+                      keyPath: sshKeyPath.trim() || undefined,
+                      jumpHost: sshJumpHost.trim() || undefined
                     })
                     setSshName('')
                     setSshHost('')
                     setSshUser('')
+                    setSshPort('22')
+                    setSshKeyPath('')
+                    setSshJumpHost('')
                     await reloadDeveloper()
                   }}
                 >
                   Add
                 </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                <input value={sshKeyPath} onChange={(e) => setSshKeyPath(e.target.value)} placeholder="Key path (optional)" />
+                <input value={sshJumpHost} onChange={(e) => setSshJumpHost(e.target.value)} placeholder="Jump host (optional)" />
               </div>
               <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
                 {sshProfiles.map((profile) => (

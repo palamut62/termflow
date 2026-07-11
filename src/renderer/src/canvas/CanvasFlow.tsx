@@ -44,6 +44,7 @@ export default function CanvasFlow(): React.JSX.Element {
   const setViewport = useAppStore((s) => s.setViewport)
   const wrapRef = useRef<HTMLDivElement>(null)
   const activeNodeId = useAppStore((s) => s.activeNodeId)
+  const tiled = useAppStore((s) => s.layoutMode !== 'manual' && s.layoutMode !== 'agent_graph')
   const [pending, setPending] = useState<{ source: string; target: string } | null>(null)
   const [deleteEdgeId, setDeleteEdgeId] = useState<string | null>(null)
 
@@ -123,13 +124,17 @@ export default function CanvasFlow(): React.JSX.Element {
           selectConnection(null)
         }}
         onMoveEnd={(_e, vp) => setViewport({ zoom: vp.zoom, x: vp.x, y: vp.y })}
-        minZoom={0.2}
-        maxZoom={2}
+        minZoom={tiled ? 1 : 0.2}
+        maxZoom={tiled ? 1 : 2}
+        zoomOnScroll={!tiled}
+        zoomOnPinch={!tiled}
+        zoomOnDoubleClick={!tiled}
+        panOnDrag={!tiled}
         snapToGrid={snapToGrid}
         snapGrid={[22, 22]}
         onlyRenderVisibleElements
         proOptions={{ hideAttribution: true }}
-        defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
+        defaultViewport={{ x: 0, y: 0, zoom: tiled ? 1 : 0.85 }}
         deleteKeyCode={null}
         nodesFocusable={false}
       >

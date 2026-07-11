@@ -1,6 +1,6 @@
 import { ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { nanoid } from 'nanoid'
@@ -17,11 +17,15 @@ import {
   type SshProfile,
   type EnvEntry,
   type WorkspaceExport,
-  type GitStatus
+  type GitStatus,
+  type WorkspaceHealthCheck
 } from '../../shared/types'
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
 import * as dbApi from '../db/database'
+import { validateManifest, validateWorkspaceExport } from '../../shared/validation'
+
+const MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
 
 function workspaceEnv(workspaceId: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -162,7 +166,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   })
   ipcMain.handle(IPC.ENV_UPDATE, (_e, id: string, patch: Partial<EnvEntry>) => {
     if (patch.value && safeStorage.isEncryptionAvailable()) {
-      const existing = dbApi.listEnvVars('').find((e) => e.id === id) || dbApi.listEnvVars(patch.workspaceId || '').find((e) => e.id === id)
+      const existing = dbApi.getEnvVar(id)
       if (existing?.masked) patch.value = safeStorage.encryptString(patch.value).toString('base64')
     }
     dbApi.updateEnvVar(id, patch)
@@ -190,7 +194,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       snippets: data.snippets,
       highlightRules: data.highlightRules,
       sshProfiles: data.sshProfiles,
-      envVars: data.envVars
+      envVars: data.envVars.map((v) => v.masked ? { ...v, value: '' } : v)
     }
     const win = getWindow()
     const res = await dialog.showSaveDialog(win!, {
@@ -212,8 +216,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     })
     if (res.canceled || !res.filePaths[0]) return null
     try {
-      const raw = JSON.parse(readFileSync(res.filePaths[0], 'utf-8'))
-      if (!raw.schemaVersion || !raw.workspace) throw new Error('Invalid format')
+      const file = res.filePaths[0]
+      const source = readFileSync(file, 'utf-8')
+      if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) throw new Error('Import file is too large')
+      const checked = validateWorkspaceExport(JSON.parse(source))
+      if (!checked.data) throw new Error(checked.errors.join(' '))
+      const raw = checked.data
 
       // Generate new IDs via remap
       const idMap = new Map<string, string>()
@@ -283,10 +291,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
         wsEnvVars,
         raw.viewport || { zoom: 1, x: 0, y: 0 }
       )
-      return ws.id
+      return { id: ws.id }
     } catch (err) {
       console.error('Import failed:', err)
-      return null
+      return { error: err instanceof Error ? err.message : 'Import failed' }
     }
   })
 
@@ -295,10 +303,72 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const manifestPath = join(cwd, '.termflow.json')
     if (!existsSync(manifestPath)) return null
     try {
-      return JSON.parse(readFileSync(manifestPath, 'utf-8'))
+      const source = readFileSync(manifestPath, 'utf-8')
+      if (Buffer.byteLength(source, 'utf-8') > MAX_JSON_FILE_BYTES) return null
+      return validateManifest(JSON.parse(source)).data
     } catch {
       return null
     }
+  })
+
+  ipcMain.handle(IPC.WS_HEALTH, async (_e, workspaceId: string): Promise<WorkspaceHealthCheck[]> => {
+    const ws = dbApi.listWorkspaces().find((item) => item.id === workspaceId)
+    if (!ws) return [{ id: 'workspace', label: 'Workspace', status: 'error', detail: 'Workspace not found' }]
+    const checks: WorkspaceHealthCheck[] = []
+    checks.push({ id: 'path', label: 'Workspace path', status: existsSync(ws.path) ? 'ok' : 'error', detail: ws.path })
+    const manifestPath = join(ws.path, '.termflow.json')
+    if (!existsSync(manifestPath)) {
+      checks.push({ id: 'manifest', label: 'TermFlow manifest', status: 'warning', detail: 'Optional .termflow.json is missing' })
+    } else {
+      try {
+        const result = validateManifest(JSON.parse(readFileSync(manifestPath, 'utf-8')))
+        checks.push({ id: 'manifest', label: 'TermFlow manifest', status: result.data ? 'ok' : 'error', detail: result.data ? '.termflow.json is valid' : result.errors.join(' ') })
+      } catch {
+        checks.push({ id: 'manifest', label: 'TermFlow manifest', status: 'error', detail: '.termflow.json cannot be parsed' })
+      }
+    }
+    checks.push({ id: 'package', label: 'Node project', status: existsSync(join(ws.path, 'package.json')) ? 'ok' : 'warning', detail: existsSync(join(ws.path, 'package.json')) ? 'package.json found' : 'No package.json' })
+    for (const command of ['git', 'node', 'npm']) {
+      try {
+        const found = execFileSync('where.exe', [command], { encoding: 'utf-8', timeout: 2000 }).split(/\r?\n/)[0]
+        checks.push({ id: `runtime:${command}`, label: command, status: 'ok', detail: found })
+      } catch {
+        checks.push({ id: `runtime:${command}`, label: command, status: 'warning', detail: `${command} is not on PATH` })
+      }
+    }
+    try {
+      const branch = execFileSync('git', ['branch', '--show-current'], { cwd: ws.path, encoding: 'utf-8', timeout: 3000 }).trim()
+      checks.push({ id: 'git', label: 'Git repository', status: 'ok', detail: branch || 'detached HEAD' })
+    } catch {
+      checks.push({ id: 'git', label: 'Git repository', status: 'warning', detail: 'Not a Git repository' })
+    }
+    return checks
+  })
+
+  ipcMain.handle(IPC.DIAGNOSTICS_EXPORT, async (_e, workspaceId: string) => {
+    const ws = dbApi.listWorkspaces().find((item) => item.id === workspaceId)
+    if (!ws) return
+    const layout = dbApi.getLayout(workspaceId)
+    const diagnostics = {
+      generatedAt: new Date().toISOString(),
+      platform: process.platform,
+      arch: process.arch,
+      electron: process.versions.electron,
+      node: process.versions.node,
+      workspace: { name: ws.name, pathExists: existsSync(ws.path) },
+      counts: {
+        terminals: dbApi.listTerminals(workspaceId).length,
+        nodes: layout.nodes.length,
+        connections: layout.connections.length,
+        snippets: dbApi.listSnippets(workspaceId).length,
+        sshProfiles: dbApi.listSshProfiles(workspaceId).length,
+        envVars: dbApi.listEnvVars(workspaceId).length
+      },
+      settings: dbApi.getSettings()
+    }
+    const win = getWindow()
+    const res = await dialog.showSaveDialog(win!, { title: 'Export Diagnostics', defaultPath: `termflow-diagnostics-${Date.now()}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] })
+    if (!res.canceled && res.filePath) writeFileSync(res.filePath, JSON.stringify(diagnostics, null, 2), 'utf-8')
   })
 
   ipcMain.handle(IPC.DIALOG_CHECK_FILE, async (_e, path: string) => existsSync(path))
