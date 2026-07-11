@@ -1,9 +1,16 @@
 import { app, ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
-import { execSync, execFileSync } from 'child_process'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { nanoid } from 'nanoid'
+
+const execFileAsync = promisify(execFile)
+
+// Kısa süreli cache: aynı cwd için ardışık git:status çağrılarında gereksiz process spawn'ı önler.
+const GIT_STATUS_CACHE_TTL_MS = 1500
+const gitStatusCache = new Map<string, { result: GitStatus | null; timestamp: number }>()
 import {
   IPC,
   type CreateTerminalInput,
@@ -333,14 +340,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     checks.push({ id: 'package', label: 'Node project', status: existsSync(join(ws.path, 'package.json')) ? 'ok' : 'warning', detail: existsSync(join(ws.path, 'package.json')) ? 'package.json found' : 'No package.json' })
     for (const command of ['git', 'node', 'npm']) {
       try {
-        const found = execFileSync('where.exe', [command], { encoding: 'utf-8', timeout: 2000 }).split(/\r?\n/)[0]
+        const { stdout } = await execFileAsync('where.exe', [command], { encoding: 'utf-8', timeout: 2000 })
+        const found = stdout.split(/\r?\n/)[0]
         checks.push({ id: `runtime:${command}`, label: command, status: 'ok', detail: found })
       } catch {
         checks.push({ id: `runtime:${command}`, label: command, status: 'warning', detail: `${command} is not on PATH` })
       }
     }
     try {
-      const branch = execFileSync('git', ['branch', '--show-current'], { cwd: ws.path, encoding: 'utf-8', timeout: 3000 }).trim()
+      const { stdout } = await execFileAsync('git', ['branch', '--show-current'], { cwd: ws.path, encoding: 'utf-8', timeout: 3000 })
+      const branch = stdout.trim()
       checks.push({ id: 'git', label: 'Git repository', status: 'ok', detail: branch || 'detached HEAD' })
     } catch {
       checks.push({ id: 'git', label: 'Git repository', status: 'warning', detail: 'Not a Git repository' })
@@ -378,13 +387,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- Git Status ----
   ipcMain.handle(IPC.GIT_STATUS, async (_e, cwd: string): Promise<GitStatus | null> => {
-    try {
-      const branch = execSync('git branch --show-current', { cwd, encoding: 'utf-8', timeout: 3000 }).trim()
-      const status = execSync('git status --porcelain', { cwd, encoding: 'utf-8', timeout: 3000 })
-      return { branch, dirty: status.length > 0 }
-    } catch {
-      return null
+    const cached = gitStatusCache.get(cwd)
+    if (cached && Date.now() - cached.timestamp < GIT_STATUS_CACHE_TTL_MS) {
+      return cached.result
     }
+    let result: GitStatus | null
+    try {
+      const [{ stdout: branchOut }, { stdout: statusOut }] = await Promise.all([
+        execFileAsync('git', ['branch', '--show-current'], { cwd, encoding: 'utf-8', timeout: 3000 }),
+        execFileAsync('git', ['status', '--porcelain'], { cwd, encoding: 'utf-8', timeout: 3000 })
+      ])
+      result = { branch: branchOut.trim(), dirty: statusOut.length > 0 }
+    } catch {
+      result = null
+    }
+    gitStatusCache.set(cwd, { result, timestamp: Date.now() })
+    return result
   })
 
   // ---- Agent Routing ----
