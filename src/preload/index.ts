@@ -21,6 +21,7 @@ import {
   type TaskTrigger
   ,type WorkspaceFileEntry
   ,type GitWorkbenchState
+  ,type CredentialMeta
 } from '../shared/types'
 
 const api = {
@@ -84,6 +85,11 @@ const api = {
   files: {
     list: (workspaceId: string, path?: string): Promise<WorkspaceFileEntry[]> => ipcRenderer.invoke(IPC.FS_LIST, workspaceId, path),
     readText: (workspaceId: string, path: string): Promise<string> => ipcRenderer.invoke(IPC.FS_READ_TEXT, workspaceId, path)
+  },
+  vault: {
+    list: (workspaceId?: string): Promise<CredentialMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST, workspaceId),
+    save: (input: Omit<CredentialMeta, 'id' | 'updatedAt'> & { id?: string; value: string }): Promise<CredentialMeta> => ipcRenderer.invoke(IPC.VAULT_SAVE, input),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_DELETE, id)
   },
   workspaces: {
     list: (): Promise<Workspace[]> => ipcRenderer.invoke(IPC.WS_LIST),

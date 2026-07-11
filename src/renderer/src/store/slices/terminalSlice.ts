@@ -19,6 +19,7 @@ import {
   type NewTerminalOpts
 } from '../storeShared'
 import { initNotifications, notifyLongCommandDone, notifyError, notifyAgentWaiting } from '../notifications'
+import { captureAgentMetric, finishAgentMetric } from '../../agentMetrics'
 import type { AppState } from '../appStore'
 
 export interface TerminalSlice {
@@ -501,6 +502,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     initNotifications()
     window.termflow.pty.onData((id, data) => {
       const st = get()
+      const metricNode = st.nodes.find((node) => node.terminalId === id || (node.panes ? getLeafTerminalIds(node.panes).includes(id) : false))
+      if (st.activeWorkspaceId && (metricNode?.agentType || metricNode?.agentRole)) captureAgentMetric(st.activeWorkspaceId, id, metricNode.agentRole || metricNode.title, data)
       const events = parseAgentActivities(id, data, st.nodes, st.terminals)
       if (!events.length) return
       set((s) => {
@@ -524,6 +527,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     })
     window.termflow.pty.onExit((id, exitCode, durationMs) => {
       const st = get()
+      if (st.activeWorkspaceId) finishAgentMetric(st.activeWorkspaceId, id)
       const t = st.terminals[id]
       if (t) notifyLongCommandDone(id, t.name, exitCode, durationMs)
       // Check if this terminalId belongs to any node (pane-tree aware)

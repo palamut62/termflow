@@ -28,6 +28,7 @@ import {
   type WorkspaceHealthCheck
   ,type WorkspaceFileEntry
   ,type GitWorkbenchState
+  ,type CredentialMeta
 } from '../../shared/types'
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
@@ -36,6 +37,11 @@ import { validateManifest, validateWorkspaceExport } from '../../shared/validati
 
 const MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
 const MAX_PREVIEW_BYTES = 512 * 1024
+
+interface StoredCredential extends CredentialMeta { encryptedValue: string }
+function vaultFile(): string { return join(app.getPath('userData'), 'credential-vault.json') }
+function readVault(): StoredCredential[] { try { return JSON.parse(readFileSync(vaultFile(), 'utf-8')) as StoredCredential[] } catch { return [] } }
+function writeVault(items: StoredCredential[]): void { writeFileSync(vaultFile(), JSON.stringify(items, null, 2), 'utf-8') }
 
 function pathInside(root: string, candidate: string): string {
   const base = resolve(root)
@@ -57,6 +63,10 @@ function workspaceEnv(workspaceId: string): Record<string, string> {
     } else if (!entry.masked) {
       out[entry.key] = entry.value
     }
+  }
+  if (safeStorage.isEncryptionAvailable()) for (const credential of readVault()) {
+    if (credential.workspaceId && credential.workspaceId !== workspaceId) continue
+    try { out[credential.envKey] = safeStorage.decryptString(Buffer.from(credential.encryptedValue, 'base64')) } catch { /* ignore invalid credential */ }
   }
   return out
 }
@@ -203,6 +213,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     dbApi.updateEnvVar(id, patch)
   })
   ipcMain.handle(IPC.ENV_DELETE, (_e, id: string) => dbApi.deleteEnvVar(id))
+
+  ipcMain.handle(IPC.VAULT_LIST, (_e, workspaceId?: string): CredentialMeta[] => readVault().filter((item) => !workspaceId || !item.workspaceId || item.workspaceId === workspaceId).map(({ encryptedValue: _secret, ...meta }) => meta))
+  ipcMain.handle(IPC.VAULT_SAVE, (_e, input: Omit<CredentialMeta, 'id' | 'updatedAt'> & { id?: string; value: string }): CredentialMeta => {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential encryption is unavailable')
+    if (!input.name.trim() || !/^[A-Z_][A-Z0-9_]*$/i.test(input.envKey) || !input.value) throw new Error('Credential input is invalid')
+    const items = readVault()
+    const id = input.id || nanoid()
+    const record: StoredCredential = { id, name: input.name.trim(), provider: input.provider.trim(), envKey: input.envKey.trim(), workspaceId: input.workspaceId, updatedAt: new Date().toISOString(), encryptedValue: safeStorage.encryptString(input.value).toString('base64') }
+    writeVault([...items.filter((item) => item.id !== id), record])
+    const { encryptedValue: _secret, ...meta } = record
+    return meta
+  })
+  ipcMain.handle(IPC.VAULT_DELETE, (_e, id: string) => writeVault(readVault().filter((item) => item.id !== id)))
 
   // ---- Workspace Export/Import (shared helpers also power templates + clone) ----
   function buildWorkspaceExport(workspaceId: string): WorkspaceExport | null {

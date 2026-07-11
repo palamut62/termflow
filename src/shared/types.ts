@@ -289,6 +289,8 @@ export interface GitStatus {
 
 export interface WorkspaceFileEntry { name: string; path: string; directory: boolean; size: number }
 export interface GitWorkbenchState { branch: string; status: string; diff: string }
+export interface CredentialMeta { id: string; name: string; provider: string; envKey: string; workspaceId: string | null; updatedAt: string }
+export interface AgentMetric { terminalId: string; agentName: string; startedAt: string; endedAt?: string; durationMs: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number }
 
 export interface WorkspaceHealthCheck {
   id: string
@@ -442,6 +444,9 @@ export const IPC = {
   GIT_COMMIT: 'git:commit',
   FS_LIST: 'fs:list',
   FS_READ_TEXT: 'fs:readText',
+  VAULT_LIST: 'vault:list',
+  VAULT_SAVE: 'vault:save',
+  VAULT_DELETE: 'vault:delete',
   // shells
   SHELLS_DISCOVER: 'shells:discover',
   // settings
