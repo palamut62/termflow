@@ -165,7 +165,6 @@ export interface HighlightRule {
   pattern: string
   flags: string
   color: string
-  fullPermissionArgs: string
   label?: string
   notifyOnMatch?: boolean
 }
@@ -297,6 +296,7 @@ export interface AiProviderProfile {
   modelEnv: string
   baseUrlEnv: string
   color: string
+  fullPermissionArgs: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

@@ -345,7 +345,7 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         )}
         {node.agentRole && <span className="kind-tag">{node.agentRole}</span>}
         <span className="kind-tag">{terminal.kind}</span>
-        {terminal.cwd && gitStatus[termId] && (
+        {termId && terminal.cwd && gitStatus[termId] && (
           <span className="git-badge" title={`${gitStatus[termId]!.branch}${gitStatus[termId]!.dirty ? ' (dirty)' : ''}`}>
             <GitBranch size={11} />
             {gitStatus[termId]!.branch}

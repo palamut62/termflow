@@ -1,4 +1,4 @@
-import { Bot, FolderOpen, Grid2X2, HeartPulse, Keyboard, Radio, Search, Settings, TerminalSquare, X } from 'lucide-react'
+import { Bot, FolderOpen, Grid2X2, HeartPulse, Keyboard, Radio, Search, Settings, TerminalSquare, X, type LucideIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 interface HelpTopic {
@@ -26,7 +26,7 @@ const topics: HelpTopic[] = [
   { id: 'errors', category: 'Troubleshooting', title: 'Terminal shows error or PID 0', summary: 'The requested shell or provider command could not start.', steps: ['Confirm the CLI is installed and available in PATH.', 'Confirm the selected working directory exists.', 'Check provider command and environment variable names.', 'Use Restart after correcting the configuration.', 'Open Developer Center to verify Node, npm, Git, and manifest health.'] }
 ]
 
-const categoryIcons: Record<string, React.ComponentType<{ size?: number }>> = {
+const categoryIcons: Record<string, LucideIcon> = {
   'Getting started': Grid2X2, Terminals: TerminalSquare, Layout: Grid2X2,
   'AI providers': Bot, Workflows: Radio, 'Developer tools': HeartPulse,
   Application: Settings, Reference: Keyboard, Troubleshooting: HeartPulse

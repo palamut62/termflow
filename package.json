@@ -7,9 +7,9 @@
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --build --force",
     "test": "vitest run",
-    "verify": "npm run test && tsc --noEmit && electron-vite build",
+    "verify": "npm run test && npm run typecheck && electron-vite build",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "package": "electron-vite build && electron-builder --win",
