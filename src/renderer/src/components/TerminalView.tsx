@@ -69,6 +69,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const nudgeRef = useRef<(() => void) | null>(null)
+  const webglRef = useRef<WebglAddon | null>(null)
   const activeRef = useRef(active)
   const useWebgl = useAppStore((s) => s.settings.webgl)
   const scrollback = useAppStore((s) => s.settings.scrollback)
@@ -119,14 +120,12 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       scrollback,
       theme: getTheme(terminalThemeName).theme,
       allowProposedApi: true,
-      // ConPTY re-renders the viewport itself on resize; if xterm ALSO reflows
-      // its buffer the two rewraps mangle TUI output (broken banners/borders
-      // when a node shrinks). xterm only disables its own reflow when
-      // windowsPty.buildNumber < 21376 (see _isReflowEnabled in xterm core) —
-      // pass a value below that threshold on purpose: old lines get cleanly
-      // clipped instead of rewrapped, and ConPTY's own repaint redraws the
-      // live screen at the new size.
-      windowsPty: { backend: 'conpty', buildNumber: 18309 }
+      // VS Code parity: tell xterm the real ConPTY build so its reflow
+      // behaviour matches what the backend actually does. On modern builds
+      // (>= 21376) ConPTY forwards wrapped-line state and xterm's reflow is
+      // correct; lying about the build (or omitting it) causes the mangled /
+      // clipped TUI output seen with claude & co.
+      windowsPty: { backend: 'conpty', buildNumber: window.termflow.system.osBuildNumber }
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
@@ -135,20 +134,22 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.loadAddon(searchAddon)
     searchAddonRef.current = searchAddon
     term.open(host)
-    // WebGL off for now — causes orange-block corruption on resize (GPU texture
-    // atlas invalidation on some Windows drivers). DOM renderer is stable.
-    // Re-enable by restoring `useWebgl &&` once the atlas bug is resolved.
-    const WEBGL_DISABLED = true
+    // WebGL renderer: needed for solid box-drawing glyphs (the DOM renderer
+    // draws │─╭╮ from the font, which looks dashed at lineHeight > 1). The
+    // "orange block" artifacts seen earlier are stale texture-atlas tiles —
+    // cleared explicitly after resizes and theme changes below.
     let webgl: WebglAddon | null = null
-    if (!WEBGL_DISABLED && useWebgl) {
+    if (useWebgl) {
       try {
         const addon = new WebglAddon()
         addon.onContextLoss(() => {
           addon.dispose()
           webgl = null
+          webglRef.current = null
         })
         term.loadAddon(addon)
         webgl = addon
+        webglRef.current = addon
       } catch {
         webgl = null // fall back to DOM renderer
       }
@@ -267,6 +268,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
             prevCols = term.cols
             prevRows = term.rows
           }
+          // Stale texture-atlas tiles show up as colored blocks after resizes
+          // on some GPUs — rebuild the atlas once the resize settles.
+          try { webglRef.current?.clearTextureAtlas() } catch { /* ignore */ }
         } catch {
           /* ignore */
         }
@@ -297,6 +301,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       term.dispose()
       termRef.current = null
       nudgeRef.current = null
+      webglRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId])
@@ -339,6 +344,8 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       cursor: css.getPropertyValue('--active-border').trim(),
       selectionBackground: css.getPropertyValue('--accent-soft').trim()
     }
+    // Theme/font changes invalidate glyph colors baked into the WebGL atlas.
+    try { webglRef.current?.clearTextureAtlas() } catch { /* ignore */ }
   }, [fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, terminalThemeName, appTheme, transparency])
 
   // Re-apply highlight decorations when the rule set changes.

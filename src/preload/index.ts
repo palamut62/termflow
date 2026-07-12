@@ -25,7 +25,24 @@ import {
   ,type TermFlowPluginManifest
 } from '../shared/types'
 
+// Windows OS build number (e.g. 26200 for current Win11). xterm's windowsPty
+// option keys its reflow behaviour on this; fall back to a modern build when
+// the API is unavailable.
+function osBuildNumber(): number {
+  try {
+    const v = process.getSystemVersion()
+    const n = parseInt(v.split('.')[2] ?? '', 10)
+    return Number.isFinite(n) && n > 0 ? n : 21376
+  } catch {
+    return 21376
+  }
+}
+
 const api = {
+  // ---- System ----
+  system: {
+    osBuildNumber: osBuildNumber()
+  },
   // ---- PTY ----
   pty: {
     create: (id: string, input: CreateTerminalInput): Promise<{ pid: number }> =>
