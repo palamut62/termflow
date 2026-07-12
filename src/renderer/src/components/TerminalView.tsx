@@ -118,7 +118,11 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       cursorStyle,
       scrollback,
       theme: getTheme(terminalThemeName).theme,
-      allowProposedApi: true
+      allowProposedApi: true,
+      // ConPTY re-renders the viewport itself on resize; without this flag
+      // xterm ALSO reflows its buffer and the two rewraps mangle TUI output
+      // (broken shapes when a node shrinks). Let the backend own reflow.
+      windowsPty: { backend: 'conpty' }
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
