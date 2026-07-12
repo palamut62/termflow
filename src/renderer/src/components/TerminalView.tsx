@@ -120,8 +120,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       theme: getTheme(terminalThemeName).theme,
       allowProposedApi: true,
       // ConPTY re-renders the viewport itself on resize; without this flag
-      // xterm ALSO reflows its buffer and the two rewraps mangle TUI output
-      // (broken shapes when a node shrinks). Let the backend own reflow.
+      // xterm ALSO reflows its buffer and the two rewraps mangle TUI output.
       windowsPty: { backend: 'conpty' }
     })
     const fit = new FitAddon()
@@ -131,15 +130,20 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.loadAddon(searchAddon)
     searchAddonRef.current = searchAddon
     term.open(host)
+    // WebGL off for now — causes orange-block corruption on resize (GPU texture
+    // atlas invalidation on some Windows drivers). DOM renderer is stable.
+    // Re-enable by restoring `useWebgl &&` once the atlas bug is resolved.
+    const WEBGL_DISABLED = true
     let webgl: WebglAddon | null = null
-    if (useWebgl) {
+    if (!WEBGL_DISABLED && useWebgl) {
       try {
-        webgl = new WebglAddon()
-        webgl.onContextLoss(() => {
-          webgl?.dispose()
+        const addon = new WebglAddon()
+        addon.onContextLoss(() => {
+          addon.dispose()
           webgl = null
         })
-        term.loadAddon(webgl)
+        term.loadAddon(addon)
+        webgl = addon
       } catch {
         webgl = null // fall back to DOM renderer
       }
@@ -161,9 +165,13 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // resize to the child when dimensions actually change, so bounce one column
     // and restore it. Used after buffer replays, which may contain frames drawn
     // at older sizes (the source of the "broken shapes until focused" artifact).
+    // Force ConPTY to emit a SIGWINCH by bouncing rows instead of columns.
+    // Column bounce causes the child to redraw at cols-1 width; that output
+    // wraps incorrectly when written to xterm at full width (broken layouts).
+    // Row bounce keeps the same wrapping width — far less visual disruption.
     const nudgeRepaint = (): void => {
-      if (disposed || term.cols <= 2) return
-      window.termflow.pty.resize(terminalId, term.cols - 1, term.rows)
+      if (disposed || term.rows < 3) return
+      window.termflow.pty.resize(terminalId, term.cols, term.rows - 1)
       setTimeout(() => {
         if (!disposed) window.termflow.pty.resize(terminalId, term.cols, term.rows)
       }, 50)
@@ -195,8 +203,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       queue.length = 0
       ready = true
       scheduleHighlights(term)
-      // Replayed frames may predate the current size — have the app redraw.
-      if (data) nudgeRepaint()
     })
     nudgeRef.current = nudgeRepaint
 
@@ -226,19 +232,40 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // happens in the separate effect below).
     window.termflow.pty.setMode(terminalId, active ? 'active' : (terminalCount > 6 ? 'buffer' : 'passive'))
 
-    // Debounced resize -> compute cols/rows -> resize PTY. (PRD §11.7)
+    // Debounced resize. The xterm canvas refits quickly (visual smoothness),
+    // but the PTY resize waits for the drag to END: every ConPTY resize
+    // rewraps its buffer lossily, so a stream of intermediate resizes
+    // compounds into mangled TUI output (broken banners/borders in claude &
+    // co). One final resize = one rewrap. No extra nudge here — the resize
+    // itself already makes live TUIs redraw. (PRD §11.7)
     let resizeTimer: ReturnType<typeof setTimeout> | null = null
+    let ptyResizeTimer: ReturnType<typeof setTimeout> | null = null
+    let prevCols = term.cols
+    let prevRows = term.rows
     const doFit = (): void => {
       if (resizeTimer) clearTimeout(resizeTimer)
       resizeTimer = setTimeout(() => {
         if (disposed) return
         try {
           fit.fit()
-          window.termflow.pty.resize(terminalId, term.cols, term.rows)
         } catch {
           /* ignore */
         }
       }, 60)
+      if (ptyResizeTimer) clearTimeout(ptyResizeTimer)
+      ptyResizeTimer = setTimeout(() => {
+        if (disposed) return
+        try {
+          fit.fit()
+          if (term.cols !== prevCols || term.rows !== prevRows) {
+            window.termflow.pty.resize(terminalId, term.cols, term.rows)
+            prevCols = term.cols
+            prevRows = term.rows
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 300)
     }
     const ro = new ResizeObserver(doFit)
     ro.observe(host)
@@ -246,6 +273,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     return () => {
       disposed = true
       if (resizeTimer) clearTimeout(resizeTimer)
+      if (ptyResizeTimer) clearTimeout(ptyResizeTimer)
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       ro.disconnect()
       dataSub.dispose()
@@ -280,25 +308,11 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       } catch {
         /* ignore */
       }
-      window.termflow.pty.bufferInfo(terminalId).then(({ data, total }) => {
-        const term = termRef.current
-        if (!term) return
-        const missed = total - lastTotalRef.current
-        if (missed <= 0) return
-        if (missed <= data.length) {
-          // Kaçırılan kuyruk hâlâ ring buffer'da — sadece onu yaz.
-          term.write(data.slice(data.length - missed), () => scheduleHighlights(term))
-        } else {
-          // Ring buffer kırpılmış; ortadan başlayan yazım escape dizilerini bozar.
-          // Tam repaint: reset + tüm buffer, sonra uygulamaya yeniden-çiz tetiği.
-          term.reset()
-          term.write(data, () => {
-            scheduleHighlights(term)
-            nudgeRef.current?.()
-          })
-        }
-        lastTotalRef.current = total
-      })
+      // Nudge forces ConPTY to emit SIGWINCH so the TUI redraws at the
+      // current terminal size. No buffer replay — ring buffer data may
+      // still be at old dimensions; replaying it would place ANSI-
+      // positioned content at wrong coordinates (the remaining corruption).
+      nudgeRef.current?.()
     }
   }, [active, terminalId, terminalCount])
 
