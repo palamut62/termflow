@@ -68,6 +68,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const nudgeRef = useRef<(() => void) | null>(null)
   const activeRef = useRef(active)
   const useWebgl = useAppStore((s) => s.settings.webgl)
   const scrollback = useAppStore((s) => s.settings.scrollback)
@@ -144,8 +145,24 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
 
     try {
       fit.fit()
+      // Sync the PTY to the real cell size immediately — the PTY spawns at a
+      // 120x30 default, and TUI apps that draw their first frames at that
+      // width leave permanently-wrapped garbage in the ring buffer otherwise.
+      window.termflow.pty.resize(terminalId, term.cols, term.rows)
     } catch {
       /* not visible yet */
+    }
+
+    // Ask the running TUI to repaint at the current size: ConPTY only emits a
+    // resize to the child when dimensions actually change, so bounce one column
+    // and restore it. Used after buffer replays, which may contain frames drawn
+    // at older sizes (the source of the "broken shapes until focused" artifact).
+    const nudgeRepaint = (): void => {
+      if (disposed || term.cols <= 2) return
+      window.termflow.pty.resize(terminalId, term.cols - 1, term.rows)
+      setTimeout(() => {
+        if (!disposed) window.termflow.pty.resize(terminalId, term.cols, term.rows)
+      }, 50)
     }
 
     // Rehydrate from the main-process ring buffer, queueing any live chunks that
@@ -174,7 +191,10 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       queue.length = 0
       ready = true
       scheduleHighlights(term)
+      // Replayed frames may predate the current size — have the app redraw.
+      if (data) nudgeRepaint()
     })
+    nudgeRef.current = nudgeRepaint
 
     // Forward input to the PTY only when this terminal is the active one.
     const dataSub = term.onData((data) => {
@@ -239,6 +259,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       }
       term.dispose()
       termRef.current = null
+      nudgeRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId])
@@ -265,9 +286,12 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
           term.write(data.slice(data.length - missed), () => scheduleHighlights(term))
         } else {
           // Ring buffer kırpılmış; ortadan başlayan yazım escape dizilerini bozar.
-          // Tam repaint: reset + tüm buffer.
+          // Tam repaint: reset + tüm buffer, sonra uygulamaya yeniden-çiz tetiği.
           term.reset()
-          term.write(data, () => scheduleHighlights(term))
+          term.write(data, () => {
+            scheduleHighlights(term)
+            nudgeRef.current?.()
+          })
         }
         lastTotalRef.current = total
       })
