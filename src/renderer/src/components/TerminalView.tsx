@@ -119,9 +119,14 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       scrollback,
       theme: getTheme(terminalThemeName).theme,
       allowProposedApi: true,
-      // ConPTY re-renders the viewport itself on resize; without this flag
-      // xterm ALSO reflows its buffer and the two rewraps mangle TUI output.
-      windowsPty: { backend: 'conpty' }
+      // ConPTY re-renders the viewport itself on resize; if xterm ALSO reflows
+      // its buffer the two rewraps mangle TUI output (broken banners/borders
+      // when a node shrinks). xterm only disables its own reflow when
+      // windowsPty.buildNumber < 21376 (see _isReflowEnabled in xterm core) —
+      // pass a value below that threshold on purpose: old lines get cleanly
+      // clipped instead of rewrapped, and ConPTY's own repaint redraws the
+      // live screen at the new size.
+      windowsPty: { backend: 'conpty', buildNumber: 18309 }
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
