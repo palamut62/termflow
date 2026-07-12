@@ -37,6 +37,7 @@ const api = {
     setMode: (id: string, mode: RenderMode): void => ipcRenderer.send(IPC.PTY_MODE, id, mode),
     restart: (id: string): Promise<{ pid: number } | null> => ipcRenderer.invoke(IPC.PTY_RESTART, id),
     buffer: (id: string): Promise<string> => ipcRenderer.invoke(IPC.PTY_BUFFER, id),
+    bufferInfo: (id: string): Promise<{ data: string; total: number }> => ipcRenderer.invoke(IPC.PTY_BUFFER_INFO, id),
     onData: (cb: (id: string, data: string) => void): (() => void) => {
       const h = (_e: unknown, payload: { id: string; data: string }): void => cb(payload.id, payload.data)
       ipcRenderer.on(IPC.PTY_DATA, h)

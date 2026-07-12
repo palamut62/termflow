@@ -342,6 +342,7 @@ export interface AppSettings {
   startAtLogin: boolean
   minimizeToTray: boolean
   providerProfiles: AiProviderProfile[]
+  customAgents: CustomAgentDef[]
   transparency: number
   // Desktop notifications (P2-13)
   notificationsEnabled: boolean
@@ -353,6 +354,14 @@ export interface AppSettings {
   updateChannel: 'stable' | 'beta'
   // New terminal nodes open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
+}
+
+export interface CustomAgentDef {
+  id: string
+  name: string
+  command: string
+  fullPermissionArgs?: string
+  color: string
 }
 
 export interface AiProviderProfile {
@@ -387,8 +396,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   minimizeToTray: true,
   providerProfiles: [
     { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '' },
+    { id: 'openrouter', name: 'OpenRouter', command: 'claude', model: 'anthropic/claude-3.5-sonnet', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#6467f2', fullPermissionArgs: '' },
     { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead', fullPermissionArgs: '' }
   ],
+  customAgents: [],
   transparency: 100,
   notificationsEnabled: true,
   notifyOnLongCommand: true,
@@ -439,6 +450,7 @@ export const IPC = {
   PTY_DATA: 'pty:data', // main -> renderer (batched)
   PTY_EXIT: 'pty:exit',
   PTY_BUFFER: 'pty:buffer', // request full buffer on attach
+  PTY_BUFFER_INFO: 'pty:bufferInfo',
   PTY_MODE: 'pty:mode', // renderer -> main: set render mode (active/passive/buffer)
   PTY_ACTIVITY: 'pty:activity', // main -> renderer: error/activity signal
   PTY_AWAITING: 'pty:awaiting', // main -> renderer: process output looks like it's waiting on a y/n confirmation

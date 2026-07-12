@@ -89,7 +89,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const existingDecorsRef = useRef<IDecoration[]>([])
-  const writtenBufferLengthRef = useRef(0)
+  const lastTotalRef = useRef(0)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const scheduleHighlights = (term: Terminal): void => {
@@ -156,19 +156,19 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     const unregister = registerWriter(terminalId, (data) => {
       if (ready) {
         term.write(data, () => {
-          writtenBufferLengthRef.current += data.length
+          lastTotalRef.current += data.length
           scheduleHighlights(term)
         })
       } else {
         queue.push(data)
       }
     })
-    window.termflow.pty.buffer(terminalId).then((buf) => {
+    window.termflow.pty.bufferInfo(terminalId).then(({ data, total }) => {
       if (disposed) return
-      if (buf) term.write(buf)
-      writtenBufferLengthRef.current = buf.length
+      if (data) term.write(data)
+      lastTotalRef.current = total
       for (const q of queue) {
-        writtenBufferLengthRef.current += q.length
+        lastTotalRef.current += q.length
         term.write(q)
       }
       queue.length = 0
@@ -255,12 +255,21 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       } catch {
         /* ignore */
       }
-      window.termflow.pty.buffer(terminalId).then((buf) => {
+      window.termflow.pty.bufferInfo(terminalId).then(({ data, total }) => {
         const term = termRef.current
-        if (!term || buf.length <= writtenBufferLengthRef.current) return
-        const next = buf.slice(writtenBufferLengthRef.current)
-        writtenBufferLengthRef.current = buf.length
-        term.write(next, () => scheduleHighlights(term))
+        if (!term) return
+        const missed = total - lastTotalRef.current
+        if (missed <= 0) return
+        if (missed <= data.length) {
+          // Kaçırılan kuyruk hâlâ ring buffer'da — sadece onu yaz.
+          term.write(data.slice(data.length - missed), () => scheduleHighlights(term))
+        } else {
+          // Ring buffer kırpılmış; ortadan başlayan yazım escape dizilerini bozar.
+          // Tam repaint: reset + tüm buffer.
+          term.reset()
+          term.write(data, () => scheduleHighlights(term))
+        }
+        lastTotalRef.current = total
       })
     }
   }, [active, terminalId, terminalCount])
@@ -280,7 +289,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.options.theme = {
       ...base,
       background: transparency < 100 ? 'rgba(0,0,0,0)' : css.getPropertyValue('--bg-terminal').trim(),
-      foreground: css.getPropertyValue('--text-primary').trim(),
       cursor: css.getPropertyValue('--active-border').trim(),
       selectionBackground: css.getPropertyValue('--accent-soft').trim()
     }

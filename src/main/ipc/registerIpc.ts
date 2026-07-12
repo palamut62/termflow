@@ -123,6 +123,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.on(IPC.PTY_MODE, (_e, id: string, mode: RenderMode) => pty.setMode(id, mode))
   ipcMain.handle(IPC.PTY_RESTART, (_e, id: string) => pty.restart(id))
   ipcMain.handle(IPC.PTY_BUFFER, (_e, id: string) => pty.getBuffer(id))
+  ipcMain.handle(IPC.PTY_BUFFER_INFO, (_e, id: string) => pty.getBufferInfo(id))
 
   // ---- Process stats (pidusage) — PRD §33.2 CPU/RAM ----
   ipcMain.handle(IPC.PROC_STATS, async (): Promise<Record<string, ProcStats>> => {

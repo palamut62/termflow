@@ -50,6 +50,7 @@ interface ManagedPty {
   input: CreateTerminalInput
   buffer: string[]
   bufferLines: number
+  totalEmitted: number
   pending: string
   flushTimer: NodeJS.Timeout | null
   exited: boolean
@@ -112,6 +113,7 @@ export class PtyManager {
       input,
       buffer: [],
       bufferLines: 0,
+      totalEmitted: 0,
       pending: '',
       flushTimer: null,
       exited: false,
@@ -167,6 +169,7 @@ export class PtyManager {
   }
 
   private onData(managed: ManagedPty, data: string): void {
+    managed.totalEmitted += data.length
     // Ring buffer (single-pass newline count, also cap chunk count). PRD §11.8
     managed.buffer.push(data)
     managed.bufferLines += this.countNewlines(data)
@@ -416,6 +419,13 @@ export class PtyManager {
     if (!t) return ''
     t.errorSignalled = false // reading buffer clears the error badge
     return t.buffer.join('')
+  }
+
+  getBufferInfo(id: string): { data: string; total: number } {
+    const t = this.terminals.get(id)
+    if (!t) return { data: '', total: 0 }
+    t.errorSignalled = false
+    return { data: t.buffer.join(''), total: t.totalEmitted }
   }
 
   restart(id: string): { pid: number } | null {
