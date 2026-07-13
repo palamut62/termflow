@@ -21,6 +21,7 @@ import {
   ,PanelLeftOpen
   ,Gauge
   ,Puzzle
+  ,SlidersHorizontal
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
@@ -31,6 +32,7 @@ import DeveloperWorkbench from './DeveloperWorkbench'
 import AgentOpsModal from './AgentOpsModal'
 import PluginManagerModal from './PluginManagerModal'
 import AgentManagerModal from './AgentManagerModal'
+import AgentConfigModal from './AgentConfigModal'
 import type { LayoutMode, ShellKind } from '../../../shared/types'
 
 interface Props {
@@ -87,6 +89,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [agentOps, setAgentOps] = useState(false)
   const [plugins, setPlugins] = useState(false)
   const [agentManager, setAgentManager] = useState(false)
+  const [agentConfig, setAgentConfig] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
@@ -308,6 +311,9 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       <button className="tb-btn" title="Help" aria-label="Open help" onClick={onOpenHelp}>
         <CircleHelp size={15} />
       </button>
+      <button className="tb-btn" title="Agent Config" aria-label="Open Agent Config" onClick={() => setAgentConfig(true)}>
+        <SlidersHorizontal size={15} />
+      </button>
       <button className="tb-btn" title="Settings" onClick={onOpenSettings}>
         <Settings size={15} />
       </button>
@@ -327,6 +333,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       {agentOps && <AgentOpsModal onClose={() => setAgentOps(false)} />}
       {plugins && <PluginManagerModal onClose={() => setPlugins(false)} />}
       {agentManager && <AgentManagerModal onClose={() => setAgentManager(false)} />}
+      {agentConfig && <AgentConfigModal onClose={() => setAgentConfig(false)} />}
     </div>
   )
 }

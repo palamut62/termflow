@@ -564,5 +564,8 @@ export const IPC = {
   REC_SAVE: 'rec:save',
   REC_LIMIT: 'rec:limit', // main -> renderer: recording auto-stopped (duration/size limit reached)
   // agent routing
-  AGENT_SET_ROUTING: 'agent:setRouting'
+  AGENT_SET_ROUTING: 'agent:setRouting',
+  // Claude Code agent config files
+  AGENT_CFG_READ: 'agentCfg:read',
+  AGENT_CFG_WRITE: 'agentCfg:write'
 } as const

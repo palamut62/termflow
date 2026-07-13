@@ -251,6 +251,13 @@ const api = {
   },
   diagnostics: {
     export: (workspaceId: string): Promise<void> => ipcRenderer.invoke(IPC.DIAGNOSTICS_EXPORT, workspaceId)
+  },
+  // ---- Claude Code agent config (settings.json / .claude.json) ----
+  agentConfig: {
+    read: (target: 'settings' | 'config'): Promise<Record<string, unknown>> =>
+      ipcRenderer.invoke(IPC.AGENT_CFG_READ, target),
+    write: (target: 'settings' | 'config', patch: Record<string, unknown>): Promise<Record<string, unknown>> =>
+      ipcRenderer.invoke(IPC.AGENT_CFG_WRITE, target, patch)
   }
 }
 

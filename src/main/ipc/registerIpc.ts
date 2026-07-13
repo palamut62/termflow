@@ -5,6 +5,7 @@ import { promisify } from 'util'
 import { existsSync, statSync } from 'fs'
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'fs/promises'
 import { isAbsolute, join, relative, resolve } from 'path'
+import { homedir } from 'os'
 import { nanoid } from 'nanoid'
 
 const execFileAsync = promisify(execFile)
@@ -185,6 +186,47 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     pty.setScrollback(next.scrollback)
     pty.setPassiveInterval(next.passiveThrottleMs)
     return next
+  })
+
+  // ---- Claude Code agent config files (settings.json / .claude.json) ----
+  const agentCfgPath = (target: 'settings' | 'config'): string =>
+    target === 'settings'
+      ? join(homedir(), '.claude', 'settings.json')
+      : join(homedir(), '.claude.json')
+  ipcMain.handle(IPC.AGENT_CFG_READ, async (_e, target: 'settings' | 'config') => {
+    const file = agentCfgPath(target === 'settings' ? 'settings' : 'config')
+    try {
+      const raw = await readFile(file, 'utf-8')
+      const parsed = JSON.parse(raw)
+      return (parsed && typeof parsed === 'object') ? parsed : {}
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code === 'ENOENT') return {}
+      throw new Error(`Failed to read ${target}: ${e.message}`)
+    }
+  })
+  ipcMain.handle(IPC.AGENT_CFG_WRITE, async (_e, target: 'settings' | 'config', patch: Record<string, unknown>) => {
+    const t: 'settings' | 'config' = target === 'settings' ? 'settings' : 'config'
+    const file = agentCfgPath(t)
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      throw new Error('Invalid patch')
+    }
+    // Always re-read the latest content before merging (handles large/concurrently-changed files).
+    let current: Record<string, unknown> = {}
+    try {
+      const raw = await readFile(file, 'utf-8')
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) current = parsed as Record<string, unknown>
+      // Backup existing file before overwriting.
+      await writeFile(`${file}.termflow-bak`, raw, 'utf-8')
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code !== 'ENOENT') throw new Error(`Failed to read ${t} before write: ${e.message}`)
+    }
+    const merged = { ...current, ...patch }
+    if (t === 'settings') await mkdir(join(homedir(), '.claude'), { recursive: true })
+    await writeFile(file, JSON.stringify(merged, null, 2), 'utf-8')
+    return merged
   })
 
   // ---- Dialog ----

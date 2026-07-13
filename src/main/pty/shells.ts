@@ -128,6 +128,13 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
   const cwd = input.cwd || process.env.USERPROFILE || process.cwd()
   const env = { ...process.env } as Record<string, string>
 
+  if (input.cleanProviderEnv) {
+    const providerPrefixes = ['ANTHROPIC_', 'CLAUDE_CODE_', 'OPENAI_', 'OPENROUTER_', 'DEEPSEEK_', 'OLLAMA_']
+    for (const key of Object.keys(env)) {
+      if (providerPrefixes.some((prefix) => key.toUpperCase().startsWith(prefix))) delete env[key]
+    }
+  }
+
   const registryPath = freshPath()
   if (registryPath) {
     const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'Path'

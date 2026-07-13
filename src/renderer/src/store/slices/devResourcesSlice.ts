@@ -102,6 +102,10 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
     if (settings.fontSize === 10 || settings.fontSize === 13) appearancePatch.fontSize = 12
     if (settings.fontFamily.includes('Cascadia Mono') && !settings.fontFamily.includes('0xProto'))
       appearancePatch.fontFamily = "'0xProto Nerd Font Mono', 'Cascadia Mono', Consolas, monospace"
+    if (settings.fontFamily.includes('JetBrains Mono') && settings.fontSize >= 16) {
+      appearancePatch.fontFamily = "'0xProto Nerd Font Mono', 'Cascadia Mono', Consolas, monospace"
+      appearancePatch.fontSize = 12
+    }
     if (settings.terminalTheme === 'TermFlow Dark') appearancePatch.terminalTheme = 'Zeonica'
     if (Object.keys(appearancePatch).length) settings = await window.termflow.settings.set(appearancePatch)
     set({ settings })
@@ -188,6 +192,7 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
           args: t.args,
           cwd: t.cwd,
           env: t.env,
+          cleanProviderEnv: t.cleanProviderEnv,
           startupCommand: t.startupCommand
         })
         terminals[t.id] = { ...t, pid, status: 'running' }
