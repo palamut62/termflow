@@ -619,6 +619,45 @@ input {
   background: var(--bg-panel-2);
   color: var(--text-primary);
 }
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.menu-item:hover .row-actions {
+  opacity: 1;
+}
+.row-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.row-actions button:hover {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+.row-actions button.danger:hover {
+  color: var(--danger, #ff6b6b);
+}
+.hidden-agents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.hidden-agents .help-intro {
+  margin: 0;
+}
 .menu-sep {
   height: 1px;
   background: var(--border-soft);
@@ -697,7 +736,10 @@ input {
 .settings-layout {
   display: flex;
   gap: 0;
-  height: calc(78vh - 64px);
+  /* Flex within the modal column so the header AND the footer (Close) always
+     fit inside the dialog — a fixed vh height pushed the footer out. */
+  flex: 1;
+  min-height: 0;
 }
 .settings-sidebar {
   width: 170px;

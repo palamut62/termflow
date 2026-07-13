@@ -22,6 +22,7 @@ import {
   ,Gauge
   ,Puzzle
   ,SlidersHorizontal
+  ,Pencil
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
@@ -32,8 +33,12 @@ import DeveloperWorkbench from './DeveloperWorkbench'
 import AgentOpsModal from './AgentOpsModal'
 import PluginManagerModal from './PluginManagerModal'
 import AgentManagerModal from './AgentManagerModal'
+import ProviderManagerModal from './ProviderManagerModal'
+import ConfirmModal from './ConfirmModal'
 import AgentConfigModal from './AgentConfigModal'
-import type { LayoutMode, ShellKind } from '../../../shared/types'
+import type { AiProviderProfile, LayoutMode, ShellKind } from '../../../shared/types'
+
+type PendingAgentDelete = { name: string; custom: boolean; id?: string; kind?: ShellKind }
 
 interface Props {
   canvasSize: () => { width: number; height: number }
@@ -77,6 +82,8 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const launchSshProfile = useAppStore((s) => s.launchSshProfile)
   const providerProfiles = useAppStore((s) => s.settings.providerProfiles)
   const customAgents = useAppStore((s) => s.settings.customAgents)
+  const hiddenAgentKinds = useAppStore((s) => s.settings.hiddenAgentKinds)
+  const updateSettings = useAppStore((s) => s.updateSettings)
   const agentOverrides = new Map(customAgents.filter((agent) => agent.kind).map((agent) => [agent.kind, agent]))
 
   const [termMenu, setTermMenu] = useState(false)
@@ -89,6 +96,10 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [agentOps, setAgentOps] = useState(false)
   const [plugins, setPlugins] = useState(false)
   const [agentManager, setAgentManager] = useState(false)
+  const [agentManagerFocusId, setAgentManagerFocusId] = useState<string | undefined>(undefined)
+  const [providerManagerId, setProviderManagerId] = useState<string | null>(null)
+  const [pendingAgentDelete, setPendingAgentDelete] = useState<PendingAgentDelete | null>(null)
+  const [pendingProviderDelete, setPendingProviderDelete] = useState<AiProviderProfile | null>(null)
   const [agentConfig, setAgentConfig] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
@@ -101,8 +112,31 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   }
 
   const shells = PROFILES.filter((p) => p.group === 'shell')
-  const agents = PROFILES.filter((p) => p.group === 'agent')
+  const agents = PROFILES.filter((p) => p.group === 'agent' && !(hiddenAgentKinds ?? []).includes(p.kind))
   const disabled = !activeWorkspaceId
+
+  const openAgentEditor = (focusId: string): void => {
+    setTermMenu(false)
+    setAgentManagerFocusId(focusId)
+    setAgentManager(true)
+  }
+
+  const confirmAgentDelete = (): void => {
+    const target = pendingAgentDelete
+    if (!target) return
+    if (target.custom) {
+      void updateSettings({ customAgents: customAgents.filter((a) => a.id !== target.id) })
+    } else if (agentOverrides.has(target.kind)) {
+      void updateSettings({ customAgents: customAgents.filter((a) => a.kind !== target.kind) })
+    } else if (target.kind) {
+      void updateSettings({ hiddenAgentKinds: [...(hiddenAgentKinds ?? []), target.kind] })
+    }
+  }
+
+  const confirmProviderDelete = (): void => {
+    if (!pendingProviderDelete) return
+    void updateSettings({ providerProfiles: providerProfiles.filter((p) => p.id !== pendingProviderDelete.id) })
+  }
 
   return (
     <div className="toolbar">
@@ -182,6 +216,10 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
               }}>
                 <Bot size={14} color={override?.color ?? p.color} />
                 {override?.name ?? p.label}
+                <span className="row-actions">
+                  <button title="Edit agent" aria-label={`Edit ${override?.name ?? p.label}`} onClick={(e) => { e.stopPropagation(); openAgentEditor(override?.id ?? `builtin:${p.kind}`) }}><Pencil size={13} /></button>
+                  <button className="danger" title="Delete agent" aria-label={`Delete ${override?.name ?? p.label}`} onClick={(e) => { e.stopPropagation(); setTermMenu(false); setPendingAgentDelete({ name: override?.name ?? p.label, custom: false, kind: p.kind }) }}><Trash2 size={13} /></button>
+                </span>
               </div>
               )
             })}
@@ -192,6 +230,10 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
               }}>
                 <Bot size={14} color={a.color} />
                 {a.name}
+                <span className="row-actions">
+                  <button title="Edit agent" aria-label={`Edit ${a.name}`} onClick={(e) => { e.stopPropagation(); openAgentEditor(a.id) }}><Pencil size={13} /></button>
+                  <button className="danger" title="Delete agent" aria-label={`Delete ${a.name}`} onClick={(e) => { e.stopPropagation(); setTermMenu(false); setPendingAgentDelete({ name: a.name, custom: true, id: a.id }) }}><Trash2 size={13} /></button>
+                </span>
               </div>
             ))}
             <div className="menu-item" onClick={() => { setTermMenu(false); setAgentManager(true) }}>
@@ -210,6 +252,10 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
               }}>
                 <Bot size={14} color={provider.color} />
                 {provider.name}
+                <span className="row-actions">
+                  <button title="Edit provider" aria-label={`Edit ${provider.name}`} onClick={(e) => { e.stopPropagation(); setTermMenu(false); setProviderManagerId(provider.id) }}><Pencil size={13} /></button>
+                  <button className="danger" title="Delete provider" aria-label={`Delete ${provider.name}`} onClick={(e) => { e.stopPropagation(); setTermMenu(false); setPendingProviderDelete(provider) }}><Trash2 size={13} /></button>
+                </span>
               </div>
             ))}
             <div className="menu-item" onClick={() => { setTermMenu(false); onOpenProviderManager() }}>
@@ -332,7 +378,28 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       {workbench && <DeveloperWorkbench onClose={() => setWorkbench(false)} />}
       {agentOps && <AgentOpsModal onClose={() => setAgentOps(false)} />}
       {plugins && <PluginManagerModal onClose={() => setPlugins(false)} />}
-      {agentManager && <AgentManagerModal onClose={() => setAgentManager(false)} />}
+      {agentManager && <AgentManagerModal focusId={agentManagerFocusId} onClose={() => { setAgentManager(false); setAgentManagerFocusId(undefined) }} />}
+      {providerManagerId !== null && <ProviderManagerModal initialProviderId={providerManagerId} onClose={() => setProviderManagerId(null)} />}
+      {pendingAgentDelete && (
+        <ConfirmModal
+          title="Delete AI agent?"
+          message={`${pendingAgentDelete.name} will be removed from the New Terminal menu.`}
+          confirmLabel="Delete agent"
+          tone="danger"
+          onConfirm={confirmAgentDelete}
+          onClose={() => setPendingAgentDelete(null)}
+        />
+      )}
+      {pendingProviderDelete && (
+        <ConfirmModal
+          title="Delete AI provider?"
+          message={`${pendingProviderDelete.name} will be removed from TermFlow.`}
+          confirmLabel="Delete provider"
+          tone="danger"
+          onConfirm={confirmProviderDelete}
+          onClose={() => setPendingProviderDelete(null)}
+        />
+      )}
       {agentConfig && <AgentConfigModal onClose={() => setAgentConfig(false)} />}
     </div>
   )

@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
-import type { CustomAgentDef } from '../../../shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { CustomAgentDef, ShellKind } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
 import { PROFILES } from '../profiles'
@@ -25,12 +25,25 @@ function initialAgents(saved: CustomAgentDef[]): CustomAgentDef[] {
   return [...builtIns, ...saved.filter((agent) => !agent.kind)]
 }
 
-export default function AgentManagerModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+export default function AgentManagerModal({ onClose, focusId }: { onClose: () => void; focusId?: string }): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const [agents, setAgents] = useState<CustomAgentDef[]>(() => initialAgents(settings.customAgents))
   const [pendingDelete, setPendingDelete] = useState<CustomAgentDef | null>(null)
+  const hiddenAgentKinds = settings.hiddenAgentKinds ?? []
+  const focusRef = useRef<HTMLElement>(null)
   useModalClose(onClose)
+
+  useEffect(() => {
+    if (focusId && focusRef.current) {
+      focusRef.current.scrollIntoView({ block: 'center' })
+      focusRef.current.querySelector('input')?.focus()
+    }
+  }, [focusId])
+
+  const restoreAgent = (kind: ShellKind): void => {
+    void updateSettings({ hiddenAgentKinds: hiddenAgentKinds.filter((k) => k !== kind) })
+  }
 
   const patchAgent = (id: string, patch: Partial<CustomAgentDef>): void => {
     setAgents((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item))
@@ -49,7 +62,7 @@ export default function AgentManagerModal({ onClose }: { onClose: () => void }):
         <p className="help-intro">Add your own agent CLIs (e.g. grok, qoder). Launched in a terminal with the command you provide.</p>
         <div className="provider-list">
           {agents.map((agent) => (
-            <section className="provider-card" key={agent.id}>
+            <section className="provider-card" key={agent.id} ref={agent.id === focusId ? focusRef : undefined}>
               <div className="provider-card-head">
                 <input value={agent.name} onChange={(e) => patchAgent(agent.id, { name: e.target.value })} aria-label="Agent name" />
                 <input type="color" value={agent.color} onChange={(e) => patchAgent(agent.id, { color: e.target.value })} aria-label="Agent color" />
@@ -67,6 +80,19 @@ export default function AgentManagerModal({ onClose }: { onClose: () => void }):
           ))}
         </div>
         <button className="btn" onClick={() => setAgents((items) => [...items, emptyAgent()])}><Plus size={14} /> Add agent</button>
+        {hiddenAgentKinds.length > 0 && (
+          <div className="hidden-agents">
+            <span className="help-intro">Hidden agents:</span>
+            {hiddenAgentKinds.map((kind) => {
+              const profile = builtInAgents.find((p) => p.kind === kind)
+              return (
+                <button key={kind} className="btn" onClick={() => restoreAgent(kind)}>
+                  {profile?.label ?? kind} — Restore
+                </button>
+              )
+            })}
+          </div>
+        )}
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn primary" onClick={async () => { await updateSettings({ customAgents: agents }); onClose() }}>Save agents</button>

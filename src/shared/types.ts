@@ -345,6 +345,8 @@ export interface AppSettings {
   minimizeToTray: boolean
   providerProfiles: AiProviderProfile[]
   customAgents: CustomAgentDef[]
+  /** Built-in agent kinds hidden from the New Terminal menu (deleted without an override). */
+  hiddenAgentKinds: ShellKind[]
   transparency: number
   // Desktop notifications (P2-13)
   notificationsEnabled: boolean
@@ -410,6 +412,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead', fullPermissionArgs: '' }
   ],
   customAgents: [],
+  hiddenAgentKinds: [],
   transparency: 100,
   // Desktop notifications are reserved for app-update events (new version
   // available / update ready); terminal-event notifications default OFF and

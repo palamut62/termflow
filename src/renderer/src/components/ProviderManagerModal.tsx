@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_SETTINGS, type AiProviderProfile } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
@@ -12,12 +12,20 @@ const emptyProfile = (): AiProviderProfile => ({
 
 const builtInProviderIds = new Set(DEFAULT_SETTINGS.providerProfiles.map((profile) => profile.id))
 
-export default function ProviderManagerModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+export default function ProviderManagerModal({ onClose, initialProviderId }: { onClose: () => void; initialProviderId?: string }): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const [profiles, setProfiles] = useState<AiProviderProfile[]>(settings.providerProfiles)
   const [pendingDelete, setPendingDelete] = useState<AiProviderProfile | null>(null)
+  const focusRef = useRef<HTMLElement>(null)
   useModalClose(onClose)
+
+  useEffect(() => {
+    if (initialProviderId && focusRef.current) {
+      focusRef.current.scrollIntoView({ block: 'center' })
+      focusRef.current.querySelector('input')?.focus()
+    }
+  }, [initialProviderId])
 
   const patchProfile = (id: string, patch: Partial<AiProviderProfile>): void => {
     setProfiles((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item))
@@ -36,7 +44,7 @@ export default function ProviderManagerModal({ onClose }: { onClose: () => void 
         <p className="help-intro">Configure any CLI-backed provider. Store API keys separately under Settings &gt; Developer &gt; Workspace Environment using the API key variable shown here.</p>
         <div className="provider-list">
           {profiles.map((profile) => (
-            <section className="provider-card" key={profile.id}>
+            <section className="provider-card" key={profile.id} ref={profile.id === initialProviderId ? focusRef : undefined}>
               <div className="provider-card-head">
                 <input value={profile.name} onChange={(e) => patchProfile(profile.id, { name: e.target.value })} aria-label="Provider name" />
                 <input type="color" value={profile.color} onChange={(e) => patchProfile(profile.id, { color: e.target.value })} aria-label="Provider color" />
