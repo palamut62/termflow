@@ -155,6 +155,10 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
   delete env.WT_PROFILE_ID
   delete env.NO_COLOR
 
+  // Claude Code's low-flicker TUI mode (on versions that support it); versions
+  // that don't recognise the flag ignore it. Only for claude agents (best-effort).
+  if (input.kind === 'claude' && !env.CLAUDE_CODE_NO_FLICKER) env.CLAUDE_CODE_NO_FLICKER = '1'
+
   // The terminal advertises its actual color support through TERM/COLORTERM.
   // Do not force a CLI-specific color mode: Claude Code owns its own theme and
   // should not receive a fake Windows Terminal identity from an xterm.js host.

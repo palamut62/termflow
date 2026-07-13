@@ -115,6 +115,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const lastTotalRef = useRef(0)
   const lastPtySizeRef = useRef({ cols: 0, rows: 0 })
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Single resize channel, populated by the main effect. Other effects call
+  // through this ref so every resize goes through the same atomic path.
+  const scheduleResizeRef = useRef<(() => void) | null>(null)
 
   const scheduleHighlights = (term: Terminal): void => {
     if (highlightTimerRef.current) return
@@ -142,6 +145,10 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       scrollback,
       theme: getTheme(terminalThemeName).theme,
       allowProposedApi: true,
+      // Draw box-drawing / block / Powerline glyphs procedurally instead of
+      // using the font's own (often misaligned) glyphs. This is xterm 6's
+      // default; stated explicitly so TUI borders stay crisp and gap-free.
+      customGlyphs: true,
       // VS Code parity: tell xterm the real ConPTY build so its reflow
       // behaviour matches what the backend actually does. On modern builds
       // (>= 21376) ConPTY forwards wrapped-line state and xterm's reflow is
@@ -165,12 +172,18 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     fitRef.current = fit
 
     try {
-      fit.fit()
-      // Sync the PTY to the real cell size immediately — the PTY spawns at a
-      // 120x30 default, and TUI apps that draw their first frames at that
-      // width leave permanently-wrapped garbage in the ring buffer otherwise.
-      window.termflow.pty.resize(terminalId, term.cols, term.rows)
-      lastPtySizeRef.current = { cols: term.cols, rows: term.rows }
+      // First measurement: move xterm AND the PTY to the real cell size in the
+      // same tick (no settle wait). The PTY spawns at a 120x30 default, and TUI
+      // apps that draw their first frames at that width leave permanently-
+      // wrapped garbage in the ring buffer otherwise.
+      const dims = fit.proposeDimensions()
+      if (dims && Number.isFinite(dims.cols) && Number.isFinite(dims.rows)) {
+        const cols = Math.max(2, Math.floor(dims.cols))
+        const rows = Math.max(1, Math.floor(dims.rows))
+        term.resize(cols, rows)
+        window.termflow.pty.resize(terminalId, cols, rows)
+        lastPtySizeRef.current = { cols, rows }
+      }
     } catch {
       /* not visible yet */
     }
@@ -233,50 +246,40 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // it must not throttle or pause output from background terminals.
     window.termflow.pty.setMode(terminalId, 'active')
 
-    // Debounced resize. The xterm canvas refits quickly (visual smoothness),
-    // but the PTY resize waits for the drag to END: every ConPTY resize
-    // rewraps its buffer lossily, so a stream of intermediate resizes
-    // compounds into mangled TUI output (broken banners/borders in claude &
-    // co). One final resize = one rewrap. No extra nudge here — the resize
-    // itself already makes live TUIs redraw. (PRD §11.7)
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null
-    let ptyResizeTimer: ReturnType<typeof setTimeout> | null = null
-    let prevCols = term.cols
-    let prevRows = term.rows
-    const doFit = (): void => {
-      if (resizeTimer) clearTimeout(resizeTimer)
-      resizeTimer = setTimeout(() => {
+    // Single atomic resize channel. Every resize source (observer, activation,
+    // font/theme) funnels through here. We wait for the size to settle, then
+    // move the xterm view AND the PTY to the new size in the SAME tick —
+    // intermediate sizes are never applied. This closes the window where xterm
+    // refits instantly while the PTY lags behind, which drew TUI frames at the
+    // wrong width. Every ConPTY resize also rewraps its buffer lossily, so one
+    // settled resize = one rewrap (no mangled banners/borders in claude & co).
+    // (PRD §11.7)
+    let resizeSettleTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleTerminalResize = (): void => {
+      if (resizeSettleTimer) clearTimeout(resizeSettleTimer)
+      resizeSettleTimer = setTimeout(() => {
         if (disposed) return
-        try {
-          fit.fit()
-        } catch {
-          /* ignore */
-        }
-      }, 60)
-      if (ptyResizeTimer) clearTimeout(ptyResizeTimer)
-      ptyResizeTimer = setTimeout(() => {
-        if (disposed) return
-        try {
-          fit.fit()
-          if (term.cols !== prevCols || term.rows !== prevRows) {
-            window.termflow.pty.resize(terminalId, term.cols, term.rows)
-            prevCols = term.cols
-            prevRows = term.rows
-            lastPtySizeRef.current = { cols: term.cols, rows: term.rows }
-          }
-          term.refresh(0, term.rows - 1)
-        } catch {
-          /* ignore */
-        }
-      }, 300)
+        const dims = fit.proposeDimensions()
+        if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return
+        const cols = Math.max(2, Math.floor(dims.cols))
+        const rows = Math.max(1, Math.floor(dims.rows))
+        if (cols === term.cols && rows === term.rows) return
+        term.resize(cols, rows) // xterm view
+        window.termflow.pty.resize(terminalId, cols, rows) // PTY, same tick
+        lastPtySizeRef.current = { cols, rows }
+      }, 250)
     }
-    const ro = new ResizeObserver(doFit)
+    scheduleResizeRef.current = scheduleTerminalResize
+    // The container's canvas already fills its box via CSS, so no early fit is
+    // needed for visual smoothness — an early fit only reintroduces the
+    // mismatch window this channel exists to eliminate.
+    const ro = new ResizeObserver(() => scheduleTerminalResize())
     ro.observe(host)
 
     return () => {
       disposed = true
-      if (resizeTimer) clearTimeout(resizeTimer)
-      if (ptyResizeTimer) clearTimeout(ptyResizeTimer)
+      if (resizeSettleTimer) clearTimeout(resizeSettleTimer)
+      scheduleResizeRef.current = null
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       ro.disconnect()
       dataSub.dispose()
@@ -297,17 +300,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   useEffect(() => {
     if (active && termRef.current) {
       termRef.current.focus()
-      try {
-        fitRef.current?.fit()
-        const { cols, rows } = termRef.current
-        const last = lastPtySizeRef.current
-        if (cols !== last.cols || rows !== last.rows) {
-          window.termflow.pty.resize(terminalId, cols, rows)
-          lastPtySizeRef.current = { cols, rows }
-        }
-      } catch {
-        /* ignore */
-      }
+      // Route through the single resize channel — it no-ops if the size hasn't
+      // changed and applies xterm + PTY atomically otherwise.
+      scheduleResizeRef.current?.()
     }
   }, [active, terminalId])
 
@@ -329,12 +324,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       cursor: css.getPropertyValue('--active-border').trim(),
       selectionBackground: css.getPropertyValue('--accent-soft').trim()
     }
-    fitRef.current?.fit()
-    const last = lastPtySizeRef.current
-    if (term.cols !== last.cols || term.rows !== last.rows) {
-      window.termflow.pty.resize(terminalId, term.cols, term.rows)
-      lastPtySizeRef.current = { cols: term.cols, rows: term.rows }
-    }
+    // A font/size change alters the cell metrics, so the fit result may change;
+    // route it through the single atomic resize channel.
+    scheduleResizeRef.current?.()
     term.refresh(0, term.rows - 1)
   }, [fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, terminalThemeName, appTheme, transparency])
 

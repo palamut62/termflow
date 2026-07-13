@@ -1,4 +1,14 @@
 import { useEffect, useState } from 'react'
+import {
+  Palette,
+  TerminalSquare,
+  Bell,
+  SlidersHorizontal,
+  Monitor,
+  RefreshCw,
+  Highlighter,
+  Wrench
+} from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { TERMINAL_THEMES } from '../themes'
 import type { EnvEntry, HighlightRule, SshProfile } from '../../../shared/types'
@@ -34,7 +44,16 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const update = useAppStore((s) => s.updateSettings)
   const highlightRules = useAppStore((s) => s.highlightRules)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
-  const [activeTab, setActiveTab] = useState<'general' | 'terminal' | 'highlights' | 'developer'>('general')
+  const [activeTab, setActiveTab] = useState<
+    | 'appearance'
+    | 'terminal'
+    | 'notifications'
+    | 'behavior'
+    | 'system'
+    | 'updates'
+    | 'highlights'
+    | 'developer'
+  >('appearance')
   const [rulePrompt, setRulePrompt] = useState<{ fields: PromptField[] } | null>(null)
   const [envVars, setEnvVars] = useState<EnvEntry[]>([])
   const [sshProfiles, setSshProfiles] = useState<SshProfile[]>([])
@@ -67,37 +86,45 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
 
   useEffect(() => window.termflow.updates.onStatus(setUpdateStatus), [])
 
-  const tabs = [
-    { key: 'general' as const, label: 'General' },
-    { key: 'terminal' as const, label: 'Terminal' },
-    { key: 'highlights' as const, label: 'Highlights' },
-    { key: 'developer' as const, label: 'Developer' }
+  const categories = [
+    { key: 'appearance' as const, label: 'Appearance', Icon: Palette },
+    { key: 'terminal' as const, label: 'Terminal', Icon: TerminalSquare },
+    { key: 'notifications' as const, label: 'Notifications', Icon: Bell },
+    { key: 'behavior' as const, label: 'Behavior', Icon: SlidersHorizontal },
+    { key: 'system' as const, label: 'System', Icon: Monitor },
+    { key: 'updates' as const, label: 'Updates', Icon: RefreshCw },
+    { key: 'highlights' as const, label: 'Highlights', Icon: Highlighter },
+    { key: 'developer' as const, label: 'Developer', Icon: Wrench }
   ]
+
+  const activeLabel = categories.find((c) => c.key === activeTab)?.label ?? ''
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 540, maxHeight: '85vh', overflow: 'auto' }}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '92vw', height: '78vh', display: 'flex', flexDirection: 'column' }}>
         <h3>Settings</h3>
 
-        {/* Tab bar */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--border-soft)', paddingBottom: 8 }}>
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              className="btn"
-              onClick={() => setActiveTab(t.key)}
-              style={{
-                background: activeTab === t.key ? 'var(--accent-soft)' : 'transparent',
-                borderColor: activeTab === t.key ? 'var(--accent)' : 'transparent'
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <div className="settings-layout">
+          {/* Category sidebar */}
+          <div className="settings-sidebar">
+            {categories.map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                className={`settings-nav-item${activeTab === key ? ' active' : ''}`}
+                onClick={() => setActiveTab(key)}
+              >
+                <Icon size={16} />
+                {label}
+              </button>
+            ))}
+          </div>
 
-        {/* General tab */}
-        {activeTab === 'general' && (
+          {/* Category content */}
+          <div className="settings-content">
+            <h4>{activeLabel}</h4>
+
+        {/* Appearance */}
+        {activeTab === 'appearance' && (
           <>
             <div className="field">
               <label>Theme</label>
@@ -112,21 +139,6 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 <option value="ayu">Ayu Mirage</option>
                 <option value="rose-pine">Rosé Pine</option>
               </select>
-            </div>
-
-            <div className="field">
-              <label>Application updates</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 8 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" style={{ width: 'auto' }} checked={settings.autoUpdate} onChange={(e) => update({ autoUpdate: e.target.checked })} />Automatic</label>
-                <select value={settings.updateChannel} onChange={(e) => update({ updateChannel: e.target.value as 'stable' | 'beta' })}><option value="stable">Stable channel</option><option value="beta">Beta channel</option></select>
-                <button className="btn" onClick={() => window.termflow.updates.check(settings.updateChannel)}>Check now</button>
-              </div>
-              <div style={{ marginTop: 6, color: updateStatus.status === 'error' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 10, overflowWrap: 'anywhere' }}>
-                Status: {updateStatus.status === 'no-releases'
-                  ? 'No published releases found on GitHub yet'
-                  : `${updateStatus.status}${updateStatus.detail ? ` · ${updateStatus.detail.slice(0, 160)}` : ''}`}
-              </div>
-              {updateStatus.status === 'ready' && <button className="btn primary" style={{ marginTop: 7 }} onClick={() => window.termflow.updates.install()}>Restart and install update</button>}
             </div>
 
             <div className="field">
@@ -146,60 +158,12 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 ))}
               </div>
             </div>
+          </>
+        )}
 
-            <div className="field">
-              <label>Scrollback lines</label>
-              <select value={settings.scrollback} onChange={(e) => update({ scrollback: Number(e.target.value) })}>
-                {SCROLLBACK.map((n) => (<option key={n} value={n}>{n.toLocaleString()} lines</option>))}
-              </select>
-            </div>
-
-            <div className="field">
-              <label>Passive terminal render interval (ms)</label>
-              <select value={settings.passiveThrottleMs} onChange={(e) => update({ passiveThrottleMs: Number(e.target.value) })}>
-                {[100, 250, 500, 1000].map((n) => (<option key={n} value={n}>{n} ms</option>))}
-              </select>
-            </div>
-
-            <div className="field" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.startAtLogin} style={{ width: 'auto' }} onChange={(e) => update({ startAtLogin: e.target.checked })} />
-                Start TermFlow with Windows
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.minimizeToTray} style={{ width: 'auto' }} onChange={(e) => update({ minimizeToTray: e.target.checked })} />
-                Keep running in the system tray when closed
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={false} disabled style={{ width: 'auto' }} />
-                GPU acceleration (disabled for stable terminal resizing)
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.snapToGrid} style={{ width: 'auto' }} onChange={(e) => update({ snapToGrid: e.target.checked })} />
-                Snap to grid
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.minimap} style={{ width: 'auto' }} onChange={(e) => update({ minimap: e.target.checked })} />
-                Mini-map
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.infoPanelDefaultOpen} style={{ width: 'auto' }} onChange={(e) => update({ infoPanelDefaultOpen: e.target.checked })} />
-                Open info panel (process/context) by default on new terminals
-              </label>
-            </div>
-
-            <div className="field">
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.agentAutoApprove} style={{ width: 'auto' }}
-                  onChange={(e) => update({ agentAutoApprove: e.target.checked })} />
-                Launch AI agents with full permissions (bypass approvals)
-              </label>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Claude Code <code>--dangerously-skip-permissions</code>, Codex{' '}
-                <code>--dangerously-bypass-approvals-and-sandbox</code>
-              </p>
-            </div>
-
+        {/* Notifications */}
+        {activeTab === 'notifications' && (
+          <>
             <div className="field">
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input type="checkbox" checked={settings.notificationsEnabled} style={{ width: 'auto' }}
@@ -226,14 +190,6 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                   Agent awaiting approval
                 </label>
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 10 }}>
-                <input type="checkbox" checked={settings.terminalBell} style={{ width: 'auto' }}
-                  onChange={(e) => update({ terminalBell: e.target.checked })} />
-                Terminal bell sound
-              </label>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Plays a chime when a terminal rings the bell — how claude/codex signal a finished task.
-              </p>
               {settings.notifyOnLongCommand && (
                 <div style={{ marginTop: 8, opacity: settings.notificationsEnabled ? 1 : 0.5 }}>
                   <label>Long command threshold</label>
@@ -245,6 +201,93 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                   </select>
                 </div>
               )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 12 }}>
+                <input type="checkbox" checked={settings.terminalBell} style={{ width: 'auto' }}
+                  onChange={(e) => update({ terminalBell: e.target.checked })} />
+                Terminal bell sound
+              </label>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Plays a chime when a terminal rings the bell — how claude/codex signal a finished task.
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* Behavior */}
+        {activeTab === 'behavior' && (
+          <>
+            <div className="field" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.snapToGrid} style={{ width: 'auto' }} onChange={(e) => update({ snapToGrid: e.target.checked })} />
+                Snap to grid
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.minimap} style={{ width: 'auto' }} onChange={(e) => update({ minimap: e.target.checked })} />
+                Mini-map
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={false} disabled style={{ width: 'auto' }} />
+                GPU acceleration (disabled for stable terminal resizing)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.infoPanelDefaultOpen} style={{ width: 'auto' }} onChange={(e) => update({ infoPanelDefaultOpen: e.target.checked })} />
+                Open info panel (process/context) by default on new terminals
+              </label>
+            </div>
+
+            <div className="field">
+              <label>Passive terminal render interval (ms)</label>
+              <select value={settings.passiveThrottleMs} onChange={(e) => update({ passiveThrottleMs: Number(e.target.value) })}>
+                {[100, 250, 500, 1000].map((n) => (<option key={n} value={n}>{n} ms</option>))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.agentAutoApprove} style={{ width: 'auto' }}
+                  onChange={(e) => update({ agentAutoApprove: e.target.checked })} />
+                Launch AI agents with full permissions (bypass approvals)
+              </label>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Claude Code <code>--dangerously-skip-permissions</code>, Codex{' '}
+                <code>--dangerously-bypass-approvals-and-sandbox</code>
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* System */}
+        {activeTab === 'system' && (
+          <>
+            <div className="field" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.startAtLogin} style={{ width: 'auto' }} onChange={(e) => update({ startAtLogin: e.target.checked })} />
+                Start TermFlow with Windows
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.minimizeToTray} style={{ width: 'auto' }} onChange={(e) => update({ minimizeToTray: e.target.checked })} />
+                Keep running in the system tray when closed
+              </label>
+            </div>
+          </>
+        )}
+
+        {/* Updates */}
+        {activeTab === 'updates' && (
+          <>
+            <div className="field">
+              <label>Application updates</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" style={{ width: 'auto' }} checked={settings.autoUpdate} onChange={(e) => update({ autoUpdate: e.target.checked })} />Automatic</label>
+                <select value={settings.updateChannel} onChange={(e) => update({ updateChannel: e.target.value as 'stable' | 'beta' })}><option value="stable">Stable channel</option><option value="beta">Beta channel</option></select>
+                <button className="btn" onClick={() => window.termflow.updates.check(settings.updateChannel)}>Check now</button>
+              </div>
+              <div style={{ marginTop: 6, color: updateStatus.status === 'error' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 10, overflowWrap: 'anywhere' }}>
+                Status: {updateStatus.status === 'no-releases'
+                  ? 'No published releases found on GitHub yet'
+                  : `${updateStatus.status}${updateStatus.detail ? ` · ${updateStatus.detail.slice(0, 160)}` : ''}`}
+              </div>
+              {updateStatus.status === 'ready' && <button className="btn primary" style={{ marginTop: 7 }} onClick={() => window.termflow.updates.install()}>Restart and install update</button>}
             </div>
           </>
         )}
@@ -252,6 +295,13 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
         {/* Terminal tab */}
         {activeTab === 'terminal' && (
           <>
+            <div className="field">
+              <label>Scrollback lines</label>
+              <select value={settings.scrollback} onChange={(e) => update({ scrollback: Number(e.target.value) })}>
+                {SCROLLBACK.map((n) => (<option key={n} value={n}>{n.toLocaleString()} lines</option>))}
+              </select>
+            </div>
+
             <div className="field">
               <label>Terminal Theme</label>
               <select value={settings.terminalTheme} onChange={(e) => update({ terminalTheme: e.target.value })}>
@@ -442,9 +492,11 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
           </>
         )}
 
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>
-          WebGL / scrollback changes apply to new terminals.
-        </p>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>
+              WebGL / scrollback changes apply to new terminals.
+            </p>
+          </div>
+        </div>
 
         <div className="modal-actions">
           <button className="btn primary" onClick={onClose}>Close</button>
