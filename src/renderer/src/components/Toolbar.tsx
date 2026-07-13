@@ -75,6 +75,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const launchSshProfile = useAppStore((s) => s.launchSshProfile)
   const providerProfiles = useAppStore((s) => s.settings.providerProfiles)
   const customAgents = useAppStore((s) => s.settings.customAgents)
+  const agentOverrides = new Map(customAgents.filter((agent) => agent.kind).map((agent) => [agent.kind, agent]))
 
   const [termMenu, setTermMenu] = useState(false)
   const [agentMenu, setAgentMenu] = useState(false)
@@ -165,16 +166,26 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
             ))}
             <div className="menu-sep" />
             <div className="menu-label">AI Agents</div>
-            {agents.map((p) => (
-              <div key={p.kind} className="menu-item" onClick={() => create(p.kind)}>
-                <Bot size={14} color={p.color} />
-                {p.label}
+            {agents.map((p) => {
+              const override = agentOverrides.get(p.kind)
+              return (
+              <div key={p.kind} className="menu-item" onClick={() => {
+                setTermMenu(false)
+                addTerminal(p.kind, {
+                  name: override?.name ?? p.label,
+                  startupCommand: override?.command ?? p.startupCommand,
+                  bypassArgs: override?.fullPermissionArgs ?? p.bypassArgs
+                })
+              }}>
+                <Bot size={14} color={override?.color ?? p.color} />
+                {override?.name ?? p.label}
               </div>
-            ))}
-            {customAgents.map((a) => (
+              )
+            })}
+            {customAgents.filter((agent) => !agent.kind).map((a) => (
               <div key={a.id} className="menu-item" onClick={() => {
                 setTermMenu(false)
-                addTerminal('custom', { name: a.name, startupCommand: a.command })
+                addTerminal('custom', { name: a.name, startupCommand: a.command, cleanProviderEnv: true })
               }}>
                 <Bot size={14} color={a.color} />
                 {a.name}

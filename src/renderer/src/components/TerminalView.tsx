@@ -3,6 +3,7 @@ import { Terminal, type IDecoration } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { registerWriter } from '../terminalRegistry'
 import { useAppStore } from '../store/appStore'
 import { captureCommandInput } from '../commandHistory'
@@ -79,7 +80,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const appTheme = useAppStore((s) => s.settings.theme)
   const transparency = useAppStore((s) => s.settings.transparency)
   const highlightRules = useAppStore((s) => s.highlightRules)
-  const terminalCount = useAppStore((s) => Object.keys(s.terminals).length)
 
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -129,6 +129,8 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.loadAddon(new WebLinksAddon())
     const searchAddon = new SearchAddon()
     term.loadAddon(searchAddon)
+    term.loadAddon(new Unicode11Addon())
+    term.unicode.activeVersion = '11'
     searchAddonRef.current = searchAddon
     term.open(host)
     // Keep the DOM renderer for resize correctness. The WebGL add-on leaves
@@ -196,9 +198,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       }
     })
 
-    // Tell main this terminal is now visible (passive by default; active flip
-    // happens in the separate effect below).
-    window.termflow.pty.setMode(terminalId, active ? 'active' : (terminalCount > 6 ? 'buffer' : 'passive'))
+    // Every visible terminal stays live. Selection controls keyboard input only;
+    // it must not throttle or pause output from background terminals.
+    window.termflow.pty.setMode(terminalId, 'active')
 
     // Debounced resize. The xterm canvas refits quickly (visual smoothness),
     // but the PTY resize waits for the drag to END: every ConPTY resize
@@ -208,7 +210,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // itself already makes live TUIs redraw. (PRD §11.7)
     let resizeTimer: ReturnType<typeof setTimeout> | null = null
     let ptyResizeTimer: ReturnType<typeof setTimeout> | null = null
-    let tuiRedrawTimer: ReturnType<typeof setTimeout> | null = null
     let prevCols = term.cols
     let prevRows = term.rows
     const doFit = (): void => {
@@ -230,17 +231,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
             window.termflow.pty.resize(terminalId, term.cols, term.rows)
             prevCols = term.cols
             prevRows = term.rows
-            const kind = useAppStore.getState().terminals[terminalId]?.kind
-            if (kind === 'claude' || kind === 'codex' || kind === 'opencode' || kind === 'ollama') {
-              // Windows ConPTY does not reliably deliver a usable resize event
-              // through the cmd host to Node-based TUIs. Ctrl+L is the common
-              // redraw command for these interactive agents: it clears the
-              // stale coordinate-based frame and renders at the settled size.
-              if (tuiRedrawTimer) clearTimeout(tuiRedrawTimer)
-              tuiRedrawTimer = setTimeout(() => {
-                if (!disposed) window.termflow.pty.write(terminalId, '\x0c')
-              }, 120)
-            }
           }
           term.refresh(0, term.rows - 1)
         } catch {
@@ -255,7 +245,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       disposed = true
       if (resizeTimer) clearTimeout(resizeTimer)
       if (ptyResizeTimer) clearTimeout(ptyResizeTimer)
-      if (tuiRedrawTimer) clearTimeout(tuiRedrawTimer)
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       ro.disconnect()
       dataSub.dispose()
@@ -271,10 +260,8 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId])
 
-  // React to active changes: focus, refit, and update the render mode.
+  // Selection controls editing/focus only. All visible terminals remain live.
   useEffect(() => {
-    const mode = active ? 'active' : (terminalCount > 6 ? 'buffer' : 'passive')
-    window.termflow.pty.setMode(terminalId, mode)
     if (active && termRef.current) {
       termRef.current.focus()
       try {
@@ -284,7 +271,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
         /* ignore */
       }
     }
-  }, [active, terminalId, terminalCount])
+  }, [active, terminalId])
 
   // Keep xterm options in sync with settings changes (font, theme, cursor, etc.).
   useEffect(() => {

@@ -77,9 +77,12 @@ function validateCwd(cwd: unknown): string | null {
   }
 }
 
-async function workspaceEnv(workspaceId: string): Promise<Record<string, string>> {
+const PROVIDER_ENV_PREFIXES = ['ANTHROPIC_', 'CLAUDE_CODE_', 'OPENAI_', 'OPENROUTER_', 'DEEPSEEK_', 'OLLAMA_']
+
+async function workspaceEnv(workspaceId: string, cleanProviderEnv = false): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   for (const entry of dbApi.listEnvVars(workspaceId)) {
+    if (cleanProviderEnv && PROVIDER_ENV_PREFIXES.some((prefix) => entry.key.toUpperCase().startsWith(prefix))) continue
     if (entry.masked && safeStorage.isEncryptionAvailable()) {
       try {
         out[entry.key] = safeStorage.decryptString(Buffer.from(entry.value, 'base64'))
@@ -115,7 +118,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- PTY ----
   ipcMain.handle(IPC.PTY_CREATE, async (_e, id: string, input: CreateTerminalInput) =>
-    pty.create(id, { ...input, env: { ...(await workspaceEnv(input.workspaceId)), ...(input.env || {}) } })
+    pty.create(id, { ...input, env: { ...(await workspaceEnv(input.workspaceId, input.cleanProviderEnv)), ...(input.env || {}) } })
   )
   ipcMain.on(IPC.PTY_WRITE, (_e, id: string, data: string) => pty.write(id, data))
   ipcMain.on(IPC.PTY_RESIZE, (_e, id: string, cols: number, rows: number) => pty.resize(id, cols, rows))

@@ -12,11 +12,13 @@ export const DEFAULT_SIZE = { width: 900, height: 520 } // PRD §10.3.4
 export interface NewTerminalOpts {
   cwd?: string
   startupCommand?: string
+  bypassArgs?: string
   customShell?: string
   args?: string[]
   name?: string
   agentRole?: string
   env?: Record<string, string>
+  cleanProviderEnv?: boolean
 }
 
 export interface AgentActivity {

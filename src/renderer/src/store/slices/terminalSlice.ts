@@ -82,6 +82,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     if (!wsId) return
     const ws = st.workspaces.find((w) => w.id === wsId)!
     const profile = profileFor(kind)
+    const cleanProviderEnv = opts?.cleanProviderEnv ?? profile.group === 'agent'
     const termId = nanoid()
     const nodeId = nanoid()
     const name = opts?.name || `${opts?.agentRole || profile.label} ${st.nodes.length + 1}`
@@ -97,6 +98,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       args: opts?.args || [],
       cwd,
       env: opts?.env,
+      cleanProviderEnv,
       status: 'stopped',
       createdAt: ts,
       updatedAt: ts
@@ -107,8 +109,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     // silently re-enable itself on reload. (security)
     const baseStartup = opts?.startupCommand || profile.startupCommand
     session.startupCommand = baseStartup
-    const useBypass = !opts?.startupCommand && !!profile.bypassArgs && st.settings.agentAutoApprove
-    const runtimeStartup = useBypass ? `${profile.startupCommand} ${profile.bypassArgs}` : baseStartup
+    const bypassArgs = opts?.bypassArgs ?? profile.bypassArgs
+    const useBypass = !!bypassArgs && st.settings.agentAutoApprove
+    const runtimeStartup = useBypass ? `${baseStartup} ${bypassArgs}` : baseStartup
 
     const z = st.zCounter + 1
     const node: CanvasNode = {
@@ -141,6 +144,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         args: opts?.args,
         cwd,
         env: opts?.env,
+        cleanProviderEnv,
         startupCommand: runtimeStartup
       })
       pid = res.pid
@@ -187,7 +191,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       args: source.args,
       name: `${node.title} copy`,
       agentRole: node.agentRole,
-      env: source.env
+      env: source.env,
+      cleanProviderEnv: source.cleanProviderEnv
     })
   },
 
@@ -341,6 +346,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           args: terminal.args,
           cwd: terminal.cwd,
           env: terminal.env,
+          cleanProviderEnv: terminal.cleanProviderEnv,
           startupCommand: terminal.startupCommand
         })
         nextTerminal = { ...terminal, pid, status: 'running', updatedAt: new Date().toISOString() }
@@ -417,6 +423,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const inheritedKind = activeTerminal?.kind ?? 'cmd'
     const newName = `${activeTerminal?.name || 'Terminal'} split`
     const cwd = activeTerminal?.cwd || ws.path
+    const cleanProviderEnv = activeTerminal?.cleanProviderEnv ?? profileFor(inheritedKind).group === 'agent'
     const ts = new Date().toISOString()
 
     const session: TerminalSession = {
@@ -427,6 +434,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       shell: activeTerminal?.shell || inheritedKind,
       args: activeTerminal?.args || [],
       cwd,
+      cleanProviderEnv,
       status: 'stopped',
       createdAt: ts,
       updatedAt: ts
@@ -439,7 +447,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         kind: inheritedKind,
         shell: activeTerminal?.shell,
         args: activeTerminal?.args,
-        cwd
+        cwd,
+        cleanProviderEnv
       })
       session.pid = res.pid
       session.status = 'running'

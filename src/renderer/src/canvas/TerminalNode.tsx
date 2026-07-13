@@ -217,7 +217,7 @@ function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
 
 function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; path: number[] }): React.JSX.Element {
   const activeNodeId = useAppStore(s => s.activeNodeId)
-  const active = activeNodeId === nodeId
+  const activePaneId = useAppStore(s => s.nodes.find(n => n.id === nodeId)?.activePaneId)
   const updateNode = useAppStore(s => s.updateNode)
 
   if (pane.type === 'leaf') {
@@ -225,7 +225,8 @@ function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; 
     return (
       <div className="pane-leaf nodrag nowheel" key={pane.terminalId}>
         <TerminalView key={`${pane.terminalId}:${epoch}`}
-          terminalId={pane.terminalId} active={active} />
+          terminalId={pane.terminalId}
+          active={activeNodeId === nodeId && (activePaneId ?? pane.terminalId) === pane.terminalId} />
       </div>
     )
   }
@@ -606,7 +607,6 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         />
       )}
       </div>
-      {active && !node.isMinimized && !node.isMaximized && <ResizeHandles nodeId={id} />}
     </div>
   )
 }

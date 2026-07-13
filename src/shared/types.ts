@@ -81,6 +81,8 @@ export interface TerminalSession {
   args: string[]
   cwd: string
   env?: Record<string, string>
+  /** Keep provider routing/model variables out of standalone AI-agent launches. */
+  cleanProviderEnv?: boolean
   startupCommand?: string
   pid?: number
   status: TerminalStatus
@@ -362,6 +364,8 @@ export interface CustomAgentDef {
   command: string
   fullPermissionArgs?: string
   color: string
+  /** Built-in shell kind when this entry overrides a bundled agent profile. */
+  kind?: ShellKind
 }
 
 export interface AiProviderProfile {
@@ -437,6 +441,7 @@ export interface CreateTerminalInput {
   args?: string[]
   cwd?: string
   env?: Record<string, string>
+  cleanProviderEnv?: boolean
   startupCommand?: string
   cols?: number
   rows?: number

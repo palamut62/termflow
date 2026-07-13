@@ -3,15 +3,31 @@ import { useState } from 'react'
 import type { CustomAgentDef } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
+import { PROFILES } from '../profiles'
 
 const emptyAgent = (): CustomAgentDef => ({
   id: crypto.randomUUID(), name: 'New Agent', command: '', fullPermissionArgs: '', color: '#2f80ff'
 })
 
+const builtInAgents = PROFILES.filter((profile) => profile.group === 'agent')
+
+function initialAgents(saved: CustomAgentDef[]): CustomAgentDef[] {
+  const overrides = new Map(saved.filter((agent) => agent.kind).map((agent) => [agent.kind, agent]))
+  const builtIns = builtInAgents.map((profile) => overrides.get(profile.kind) ?? ({
+    id: `builtin:${profile.kind}`,
+    kind: profile.kind,
+    name: profile.label,
+    command: profile.startupCommand ?? profile.kind,
+    fullPermissionArgs: profile.bypassArgs ?? '',
+    color: profile.color
+  }))
+  return [...builtIns, ...saved.filter((agent) => !agent.kind)]
+}
+
 export default function AgentManagerModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
-  const [agents, setAgents] = useState<CustomAgentDef[]>(settings.customAgents)
+  const [agents, setAgents] = useState<CustomAgentDef[]>(() => initialAgents(settings.customAgents))
   useModalClose(onClose)
 
   const patchAgent = (id: string, patch: Partial<CustomAgentDef>): void => {
@@ -29,7 +45,11 @@ export default function AgentManagerModal({ onClose }: { onClose: () => void }):
               <div className="provider-card-head">
                 <input value={agent.name} onChange={(e) => patchAgent(agent.id, { name: e.target.value })} aria-label="Agent name" />
                 <input type="color" value={agent.color} onChange={(e) => patchAgent(agent.id, { color: e.target.value })} aria-label="Agent color" />
-                <button className="hbtn danger" title="Delete agent" onClick={() => setAgents((items) => items.filter((item) => item.id !== agent.id))}><Trash2 size={14} /></button>
+                {agent.kind ? (
+                  <span className="kind-tag" title="Built-in agent">Built-in</span>
+                ) : (
+                  <button className="hbtn danger" title="Delete agent" onClick={() => setAgents((items) => items.filter((item) => item.id !== agent.id))}><Trash2 size={14} /></button>
+                )}
               </div>
               <div className="provider-fields">
                 <label>Command<input value={agent.command} onChange={(e) => patchAgent(agent.id, { command: e.target.value })} placeholder="grok, qoder..." /></label>

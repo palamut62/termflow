@@ -142,16 +142,17 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
   // monochrome fallback even though this terminal supports truecolor.
   env.TERM = 'xterm-256color'
   env.COLORTERM = 'truecolor'
-  delete env.TERM_PROGRAM
-  delete env.TERM_PROGRAM_VERSION
-  env.WT_SESSION = env.WT_SESSION || 'TermFlow'
-  env.WT_PROFILE_ID = env.WT_PROFILE_ID || '{574e775e-4f2a-5b96-ac1e-a2962a402336}'
+  env.TERM_PROGRAM = 'TermFlow'
+  env.TERM_PROGRAM_VERSION = process.env.npm_package_version || '0.1.0'
+  delete env.WT_SESSION
+  delete env.WT_PROFILE_ID
+  delete env.NO_COLOR
 
-  if (input.kind === 'claude' || input.kind === 'codex' || input.kind === 'opencode') {
-    delete env.NO_COLOR
-    env.FORCE_COLOR = '3'
-  }
-
+  // The terminal advertises its actual color support through TERM/COLORTERM.
+  // Do not force a CLI-specific color mode: Claude Code owns its own theme and
+  // should not receive a fake Windows Terminal identity from an xterm.js host.
+  // Explicit input.env is applied afterwards, so a workspace can still opt
+  // into NO_COLOR deliberately without inheriting the launcher's global flag.
   Object.assign(env, input.env || {})
 
   const psPath = powershellPath()
