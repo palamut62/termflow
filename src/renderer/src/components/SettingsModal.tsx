@@ -226,6 +226,14 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                   Agent awaiting approval
                 </label>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 10 }}>
+                <input type="checkbox" checked={settings.terminalBell} style={{ width: 'auto' }}
+                  onChange={(e) => update({ terminalBell: e.target.checked })} />
+                Terminal bell sound
+              </label>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Plays a chime when a terminal rings the bell — how claude/codex signal a finished task.
+              </p>
               {settings.notifyOnLongCommand && (
                 <div style={{ marginTop: 8, opacity: settings.notificationsEnabled ? 1 : 0.5 }}>
                   <label>Long command threshold</label>

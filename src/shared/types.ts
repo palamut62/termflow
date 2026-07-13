@@ -354,6 +354,9 @@ export interface AppSettings {
   longCommandThresholdMs: number
   autoUpdate: boolean
   updateChannel: 'stable' | 'beta'
+  // Play a sound when a terminal rings the bell (\x07) — how claude/codex
+  // signal "task finished" in a regular terminal.
+  terminalBell: boolean
   // New terminal nodes open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
 }
@@ -418,6 +421,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   longCommandThresholdMs: 30000,
   autoUpdate: true,
   updateChannel: 'stable',
+  terminalBell: true,
   infoPanelDefaultOpen: false
 }
 

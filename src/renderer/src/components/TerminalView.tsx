@@ -10,6 +10,30 @@ import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
 import { getLeafTerminalIds } from '../paneUtils'
 
+// Short two-tone chime for the terminal bell (\x07). Web Audio, no asset —
+// throttled so a burst of BELs doesn't stack into noise.
+let lastBellAt = 0
+function playBell(): void {
+  const now = Date.now()
+  if (now - lastBellAt < 400) return
+  lastBellAt = now
+  try {
+    const ctx = new AudioContext()
+    const gain = ctx.createGain()
+    gain.gain.setValueAtTime(0.12, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28)
+    gain.connect(ctx.destination)
+    const osc = ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(880, ctx.currentTime)
+    osc.frequency.setValueAtTime(1174, ctx.currentTime + 0.12)
+    osc.connect(gain)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.3)
+    osc.onended = () => void ctx.close()
+  } catch { /* audio unavailable */ }
+}
+
 interface Props {
   terminalId: string
   active: boolean
@@ -89,6 +113,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const searchInputRef = useRef<HTMLInputElement>(null)
   const existingDecorsRef = useRef<IDecoration[]>([])
   const lastTotalRef = useRef(0)
+  const lastPtySizeRef = useRef({ cols: 0, rows: 0 })
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const scheduleHighlights = (term: Terminal): void => {
@@ -145,6 +170,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       // 120x30 default, and TUI apps that draw their first frames at that
       // width leave permanently-wrapped garbage in the ring buffer otherwise.
       window.termflow.pty.resize(terminalId, term.cols, term.rows)
+      lastPtySizeRef.current = { cols: term.cols, rows: term.rows }
     } catch {
       /* not visible yet */
     }
@@ -190,6 +216,11 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
         }
       }
     })
+    // Terminal bell: claude/codex ring \x07 when a task finishes — play the
+    // chime if enabled in Settings. (user request)
+    const bellSub = term.onBell(() => {
+      if (useAppStore.getState().settings.terminalBell) playBell()
+    })
     // Ctrl+F toggles the inline search bar overlay.
     const keySub = term.onKey(({ domEvent }) => {
       if (domEvent.ctrlKey && domEvent.key === 'f') {
@@ -231,6 +262,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
             window.termflow.pty.resize(terminalId, term.cols, term.rows)
             prevCols = term.cols
             prevRows = term.rows
+            lastPtySizeRef.current = { cols: term.cols, rows: term.rows }
           }
           term.refresh(0, term.rows - 1)
         } catch {
@@ -249,6 +281,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       ro.disconnect()
       dataSub.dispose()
       keySub.dispose()
+      bellSub.dispose()
       unregister()
       // Component unmounts when the node is minimized -> switch main to
       // buffer-only mode so the process keeps running without streaming.
@@ -266,7 +299,12 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       termRef.current.focus()
       try {
         fitRef.current?.fit()
-        window.termflow.pty.resize(terminalId, termRef.current.cols, termRef.current.rows)
+        const { cols, rows } = termRef.current
+        const last = lastPtySizeRef.current
+        if (cols !== last.cols || rows !== last.rows) {
+          window.termflow.pty.resize(terminalId, cols, rows)
+          lastPtySizeRef.current = { cols, rows }
+        }
       } catch {
         /* ignore */
       }
@@ -292,7 +330,11 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       selectionBackground: css.getPropertyValue('--accent-soft').trim()
     }
     fitRef.current?.fit()
-    window.termflow.pty.resize(terminalId, term.cols, term.rows)
+    const last = lastPtySizeRef.current
+    if (term.cols !== last.cols || term.rows !== last.rows) {
+      window.termflow.pty.resize(terminalId, term.cols, term.rows)
+      lastPtySizeRef.current = { cols: term.cols, rows: term.rows }
+    }
     term.refresh(0, term.rows - 1)
   }, [fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, terminalThemeName, appTheme, transparency])
 
