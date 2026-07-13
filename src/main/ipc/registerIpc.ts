@@ -78,11 +78,13 @@ function validateCwd(cwd: unknown): string | null {
 }
 
 const PROVIDER_ENV_PREFIXES = ['ANTHROPIC_', 'CLAUDE_CODE_', 'OPENAI_', 'OPENROUTER_', 'DEEPSEEK_', 'OLLAMA_']
+const isProviderEnvKey = (key: string): boolean =>
+  PROVIDER_ENV_PREFIXES.some((prefix) => key.toUpperCase().startsWith(prefix))
 
 async function workspaceEnv(workspaceId: string, cleanProviderEnv = false): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   for (const entry of dbApi.listEnvVars(workspaceId)) {
-    if (cleanProviderEnv && PROVIDER_ENV_PREFIXES.some((prefix) => entry.key.toUpperCase().startsWith(prefix))) continue
+    if (cleanProviderEnv && isProviderEnvKey(entry.key)) continue
     if (entry.masked && safeStorage.isEncryptionAvailable()) {
       try {
         out[entry.key] = safeStorage.decryptString(Buffer.from(entry.value, 'base64'))
@@ -95,6 +97,7 @@ async function workspaceEnv(workspaceId: string, cleanProviderEnv = false): Prom
   }
   if (safeStorage.isEncryptionAvailable()) for (const credential of await readVault()) {
     if (credential.workspaceId && credential.workspaceId !== workspaceId) continue
+    if (cleanProviderEnv && isProviderEnvKey(credential.envKey)) continue
     try { out[credential.envKey] = safeStorage.decryptString(Buffer.from(credential.encryptedValue, 'base64')) } catch { /* ignore invalid credential */ }
   }
   return out
@@ -260,6 +263,53 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   const pluginsDir = join(app.getPath('userData'), 'plugins')
   const ensurePlugins = async (): Promise<void> => { await mkdir(pluginsDir, { recursive: true }) }
+  // Ships-with-the-app example plugins — same pattern as builtin flow
+  // templates: listed alongside user plugins, not stored on disk, not deletable.
+  const BUILTIN_PLUGINS: TermFlowPluginManifest[] = [
+    {
+      schemaVersion: 1, id: 'termflow.git-essentials', name: 'Git Essentials', version: '1.0.0', builtin: true,
+      description: 'Everyday git commands, each in its own terminal.',
+      commands: [
+        { id: 'status', title: 'Git status', command: 'git status', shell: 'cmd' },
+        { id: 'pull', title: 'Git pull', command: 'git pull', shell: 'cmd' },
+        { id: 'log', title: 'Commit graph (last 30)', command: 'git log --oneline --graph --decorate -30', shell: 'cmd' },
+        { id: 'branches', title: 'List branches', command: 'git branch -a -vv', shell: 'cmd' },
+        { id: 'diff', title: 'Working tree diff', command: 'git diff --stat', shell: 'cmd' }
+      ]
+    },
+    {
+      schemaVersion: 1, id: 'termflow.node-dev', name: 'Node.js Dev', version: '1.0.0', builtin: true,
+      description: 'npm workflow for the current workspace.',
+      commands: [
+        { id: 'install', title: 'Install dependencies', command: 'npm install', shell: 'cmd' },
+        { id: 'dev', title: 'Start dev server', command: 'npm run dev', shell: 'cmd' },
+        { id: 'test', title: 'Run tests', command: 'npm test', shell: 'cmd' },
+        { id: 'build', title: 'Build', command: 'npm run build', shell: 'cmd' },
+        { id: 'outdated', title: 'Outdated packages', command: 'npm outdated', shell: 'cmd' }
+      ]
+    },
+    {
+      schemaVersion: 1, id: 'termflow.docker', name: 'Docker Tools', version: '1.0.0', builtin: true,
+      description: 'Compose lifecycle and container inspection.',
+      commands: [
+        { id: 'up', title: 'Compose up', command: 'docker compose up', shell: 'cmd' },
+        { id: 'down', title: 'Compose down', command: 'docker compose down', shell: 'cmd' },
+        { id: 'ps', title: 'Running containers', command: 'docker ps', shell: 'cmd' },
+        { id: 'logs', title: 'Compose logs (follow)', command: 'docker compose logs -f --tail 100', shell: 'cmd' },
+        { id: 'prune', title: 'Prune unused data', command: 'docker system prune', shell: 'cmd' }
+      ]
+    },
+    {
+      schemaVersion: 1, id: 'termflow.win-system', name: 'Windows System', version: '1.0.0', builtin: true,
+      description: 'Quick system inspection on Windows.',
+      commands: [
+        { id: 'ip', title: 'Network config', command: 'ipconfig /all', shell: 'cmd' },
+        { id: 'ports', title: 'Listening ports', command: 'netstat -ano | findstr LISTENING', shell: 'cmd' },
+        { id: 'top', title: 'Top processes (CPU)', command: 'powershell -NoLogo -Command "Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,Id,CPU,WorkingSet"', shell: 'cmd' },
+        { id: 'disk', title: 'Disk usage', command: 'powershell -NoLogo -Command "Get-PSDrive -PSProvider FileSystem"', shell: 'cmd' }
+      ]
+    }
+  ]
   const validatePlugin = (value: unknown): TermFlowPluginManifest => {
     const item = value as Partial<TermFlowPluginManifest>
     if (item.schemaVersion !== 1 || !item.id?.match(/^[a-z0-9][a-z0-9._-]+$/i) || !item.name || !item.version || !Array.isArray(item.commands)) throw new Error('Invalid TermFlow plugin manifest')
@@ -272,7 +322,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const results = await Promise.all(files.map(async (file) => {
       try { return validatePlugin(JSON.parse(await readFile(join(pluginsDir, file), 'utf-8'))) } catch { return null }
     }))
-    return results.filter((p): p is TermFlowPluginManifest => !!p)
+    const user = results.filter((p): p is TermFlowPluginManifest => !!p)
+    // Builtins first; a user plugin with the same id overrides the builtin.
+    const userIds = new Set(user.map((p) => p.id))
+    return [...BUILTIN_PLUGINS.filter((p) => !userIds.has(p.id)), ...user]
   })
   ipcMain.handle(IPC.PLUGIN_INSTALL, async (): Promise<TermFlowPluginManifest | null> => {
     const result = await dialog.showOpenDialog(getWindow()!, { title: 'Install TermFlow plugin', properties: ['openFile'], filters: [{ name: 'TermFlow Plugin', extensions: ['json'] }] })

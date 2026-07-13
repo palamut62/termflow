@@ -293,7 +293,7 @@ export interface WorkspaceFileEntry { name: string; path: string; directory: boo
 export interface GitWorkbenchState { branch: string; status: string; diff: string; isRepo: boolean }
 export interface CredentialMeta { id: string; name: string; provider: string; envKey: string; workspaceId: string | null; updatedAt: string }
 export interface AgentMetric { terminalId: string; agentName: string; startedAt: string; endedAt?: string; durationMs: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number }
-export interface TermFlowPluginManifest { schemaVersion: 1; id: string; name: string; version: string; description?: string; commands: Array<{ id: string; title: string; command: string; shell?: ShellKind; cwd?: string }> }
+export interface TermFlowPluginManifest { schemaVersion: 1; id: string; name: string; version: string; description?: string; builtin?: boolean; commands: Array<{ id: string; title: string; command: string; shell?: ShellKind; cwd?: string }> }
 
 export interface WorkspaceHealthCheck {
   id: string
