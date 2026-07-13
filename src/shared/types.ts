@@ -407,8 +407,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   startAtLogin: true,
   minimizeToTray: true,
   providerProfiles: [
-    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '' },
-    { id: 'openrouter', name: 'OpenRouter', command: 'claude', model: 'anthropic/claude-3.5-sonnet', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#6467f2', fullPermissionArgs: '' },
+    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '--dangerously-skip-permissions' },
+    { id: 'openrouter', name: 'OpenRouter', command: 'claude', model: 'anthropic/claude-3.5-sonnet', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#6467f2', fullPermissionArgs: '--dangerously-skip-permissions' },
     { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead', fullPermissionArgs: '' }
   ],
   customAgents: [],

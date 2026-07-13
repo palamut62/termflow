@@ -211,8 +211,9 @@ export default function CanvasFlow(): React.JSX.Element {
               const env: Record<string, string> = {}
               if (provider.baseUrlEnv && provider.baseUrl) env[provider.baseUrlEnv] = provider.baseUrl
               if (provider.modelEnv && provider.model) env[provider.modelEnv] = provider.model
-              const command = provider.fullPermissionArgs ? `${provider.command} ${provider.fullPermissionArgs}` : provider.command
-              addTerminal('custom', { name: provider.name, startupCommand: command, env })
+              // Route full-permission flags through the bypass mechanism so they
+              // respect auto-approve and the node shows the "bypass" badge.
+              addTerminal('custom', { name: provider.name, startupCommand: provider.command, env, bypassArgs: provider.fullPermissionArgs || undefined })
               setContextMenu(null)
             }
             return (
