@@ -408,10 +408,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ],
   customAgents: [],
   transparency: 100,
+  // Desktop notifications are reserved for app-update events (new version
+  // available / update ready); terminal-event notifications default OFF and
+  // stay opt-in via Settings. (user request)
   notificationsEnabled: true,
-  notifyOnLongCommand: true,
-  notifyOnError: true,
-  notifyOnAgentWaiting: true,
+  notifyOnLongCommand: false,
+  notifyOnError: false,
+  notifyOnAgentWaiting: false,
   longCommandThresholdMs: 30000,
   autoUpdate: true,
   updateChannel: 'stable',

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, shell, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, Notification, shell, Tray } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { IPC } from '../shared/types'
@@ -136,10 +136,27 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC.RECOVERY_ACK, () => { previousSessionCrashed = false })
   ipcMain.handle(IPC.UPDATE_CHECK, async (_event, channel: 'stable' | 'beta') => { if (!app.isPackaged) return { status: 'development' }; configureUpdater(channel); publishUpdateStatus('checking'); await autoUpdater.checkForUpdates(); return { status: 'checking' } })
   ipcMain.handle(IPC.UPDATE_INSTALL, () => autoUpdater.quitAndInstall())
-  autoUpdater.on('update-available', (info) => publishUpdateStatus('available', info.version))
+  // Desktop notifications are reserved for update events only — new version
+  // found and update downloaded/ready. (user request)
+  const notifyUpdate = (title: string, body: string): void => {
+    try {
+      if (getSettings().notificationsEnabled && Notification.isSupported()) {
+        const n = new Notification({ title, body, icon: APP_ICON })
+        n.on('click', showMainWindow)
+        n.show()
+      }
+    } catch { /* notifications unavailable on this system */ }
+  }
+  autoUpdater.on('update-available', (info) => {
+    publishUpdateStatus('available', info.version)
+    notifyUpdate('TermFlow update available', `Version ${info.version} is downloading in the background.`)
+  })
   autoUpdater.on('update-not-available', () => publishUpdateStatus('current'))
   autoUpdater.on('download-progress', (progress) => publishUpdateStatus('downloading', `${Math.round(progress.percent)}%`))
-  autoUpdater.on('update-downloaded', (info) => publishUpdateStatus('ready', info.version))
+  autoUpdater.on('update-downloaded', (info) => {
+    publishUpdateStatus('ready', info.version)
+    notifyUpdate('TermFlow update ready', `Version ${info.version} will install when you restart the app.`)
+  })
   autoUpdater.on('error', (error) => {
     // A 404 from GitHub just means no published release exists yet (or the
     // repo is private) — show a friendly message instead of the raw HTTP dump.
