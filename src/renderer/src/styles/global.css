@@ -462,6 +462,10 @@ input {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border-soft);
   cursor: grab;
+  /* Keep header (and the ⋯/git dropdowns inside it) above the terminal body,
+     which paints later in DOM order and would otherwise cover the menus. */
+  position: relative;
+  z-index: 30;
 }
 .tnode-header .title {
   font-size: 12px;

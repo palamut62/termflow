@@ -221,7 +221,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         routeDirection: c.routeDirection
       })
     }
-    get().setLayoutMode('agent_graph', get().canvasSize)
+    // Tile the freshly spawned pipeline so it fills the canvas — agent_graph
+    // spreads nodes for edge readability and leaves large gaps. (user request)
+    get().setLayoutMode('auto_fit', get().canvasSize)
   },
 
   // Save the currently-open agent nodes (+ connections between them) as a
