@@ -137,8 +137,20 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
 
   // Embedded-terminal renk desteği: CLI'lar (claude/codex vb.) truecolor'ı
   // COLORTERM üzerinden algılar; ConPTY altında bu değişkenler yoksa 16 renge düşerler.
-  if (!env.COLORTERM) env.COLORTERM = 'truecolor'
-  if (!env.TERM_PROGRAM) env.TERM_PROGRAM = 'TermFlow'
+  // Advertise the capabilities xterm.js actually implements. The parent
+  // process may carry TERM=dumb and NO_COLOR=1, which force AI TUIs into a
+  // monochrome fallback even though this terminal supports truecolor.
+  env.TERM = 'xterm-256color'
+  env.COLORTERM = 'truecolor'
+  delete env.TERM_PROGRAM
+  delete env.TERM_PROGRAM_VERSION
+  env.WT_SESSION = env.WT_SESSION || 'TermFlow'
+  env.WT_PROFILE_ID = env.WT_PROFILE_ID || '{574e775e-4f2a-5b96-ac1e-a2962a402336}'
+
+  if (input.kind === 'claude' || input.kind === 'codex' || input.kind === 'opencode') {
+    delete env.NO_COLOR
+    env.FORCE_COLOR = '3'
+  }
 
   Object.assign(env, input.env || {})
 

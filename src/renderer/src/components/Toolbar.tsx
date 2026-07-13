@@ -30,6 +30,7 @@ import GlobalSearchModal from './GlobalSearchModal'
 import DeveloperWorkbench from './DeveloperWorkbench'
 import AgentOpsModal from './AgentOpsModal'
 import PluginManagerModal from './PluginManagerModal'
+import AgentManagerModal from './AgentManagerModal'
 import type { LayoutMode, ShellKind } from '../../../shared/types'
 
 interface Props {
@@ -73,6 +74,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const sshProfiles = useAppStore((s) => s.sshProfiles)
   const launchSshProfile = useAppStore((s) => s.launchSshProfile)
   const providerProfiles = useAppStore((s) => s.settings.providerProfiles)
+  const customAgents = useAppStore((s) => s.settings.customAgents)
 
   const [termMenu, setTermMenu] = useState(false)
   const [agentMenu, setAgentMenu] = useState(false)
@@ -83,6 +85,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [workbench, setWorkbench] = useState(false)
   const [agentOps, setAgentOps] = useState(false)
   const [plugins, setPlugins] = useState(false)
+  const [agentManager, setAgentManager] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
@@ -105,7 +108,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
           <path d="M136 176l60 60l-60 60" fill="none" stroke="#2f80ff" strokeWidth="34" strokeLinecap="round" strokeLinejoin="round" />
           <path d="M256 316h96" fill="none" stroke="#f5e642" strokeWidth="34" strokeLinecap="round" />
         </svg>
-        <span>TermFlow</span>
+        <span className="tb-label">TermFlow</span>
       </div>
 
       <div className="tb-group" ref={termRef} style={{ position: 'relative' }}>
@@ -119,7 +122,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
               addTerminal('cmd')
             }}
           >
-            <Plus size={15} /> New Terminal
+            <Plus size={15} /> <span className="tb-label">New Terminal</span>
           </button>
           <button
             className="tb-btn primary split-caret"
@@ -168,6 +171,18 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
                 {p.label}
               </div>
             ))}
+            {customAgents.map((a) => (
+              <div key={a.id} className="menu-item" onClick={() => {
+                setTermMenu(false)
+                addTerminal('custom', { name: a.name, startupCommand: a.command })
+              }}>
+                <Bot size={14} color={a.color} />
+                {a.name}
+              </div>
+            ))}
+            <div className="menu-item" onClick={() => { setTermMenu(false); setAgentManager(true) }}>
+              <Plus size={14} /> Add AI agent...
+            </div>
             <div className="menu-sep" />
             <div className="menu-label">AI Providers</div>
             {providerProfiles.map((provider) => (
@@ -191,8 +206,8 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       </div>
 
       <div className="tb-group" ref={agentRef} style={{ position: 'relative' }}>
-        <button className="tb-btn" disabled={disabled} onClick={() => setAgentMenu((v) => !v)}>
-          <Bot size={15} /> New Agent <ChevronDown size={13} />
+        <button className="tb-btn" disabled={disabled} title="New Agent" onClick={() => setAgentMenu((v) => !v)}>
+          <Bot size={15} /> <span className="tb-label">New Agent</span> <ChevronDown size={13} />
         </button>
         {agentMenu && (
           <div className="menu" style={{ top: 36, left: 0, maxHeight: 360, overflowY: 'auto' }}>
@@ -216,8 +231,8 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       </div>
 
       <div className="tb-group" ref={layoutRef} style={{ position: 'relative' }}>
-        <button className="tb-btn" disabled={disabled} onClick={() => setLayoutMenu((v) => !v)}>
-          <LayoutGrid size={15} /> Layout <ChevronDown size={13} />
+        <button className="tb-btn" disabled={disabled} title="Layout" onClick={() => setLayoutMenu((v) => !v)}>
+          <LayoutGrid size={15} /> <span className="tb-label">Layout</span> <ChevronDown size={13} />
         </button>
         {layoutMenu && (
           <div className="menu" style={{ top: 36, left: 0 }}>
@@ -240,8 +255,8 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
         )}
       </div>
 
-      <button className="tb-btn" disabled={disabled} onClick={() => setLayoutMode('auto_fit', canvasSize())}>
-        <Maximize2 size={15} /> Auto Fit
+      <button className="tb-btn" disabled={disabled} title="Auto Fit" onClick={() => setLayoutMode('auto_fit', canvasSize())}>
+        <Maximize2 size={15} /> <span className="tb-label">Auto Fit</span>
       </button>
 
       <button
@@ -250,13 +265,13 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
         title="Broadcast input to all terminals in group"
         onClick={toggleBroadcast}
       >
-        <Radio size={15} /> Broadcast
+        <Radio size={15} /> <span className="tb-label">Broadcast</span>
       </button>
       <button className="tb-btn danger" disabled={disabled} title="Close all terminals" onClick={() => window.dispatchEvent(new CustomEvent('termflow:close-all-terminals'))}>
-        <Trash2 size={15} /> Close All
+        <Trash2 size={15} /> <span className="tb-label">Close All</span>
       </button>
       <button className="tb-btn" disabled={disabled} title="Agent flow templates" onClick={() => setFlowModal(true)}>
-        <Workflow size={15} /> Flows
+        <Workflow size={15} /> <span className="tb-label">Flows</span>
       </button>
 
       <div className="spacer" />
@@ -300,6 +315,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       {workbench && <DeveloperWorkbench onClose={() => setWorkbench(false)} />}
       {agentOps && <AgentOpsModal onClose={() => setAgentOps(false)} />}
       {plugins && <PluginManagerModal onClose={() => setPlugins(false)} />}
+      {agentManager && <AgentManagerModal onClose={() => setAgentManager(false)} />}
     </div>
   )
 }

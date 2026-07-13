@@ -65,6 +65,7 @@ interface ManagedPty {
   // and a ReDoS vector). null `re` means the rule's pattern was invalid/skipped.
   compiledRules?: { rule: RoutingRule; re: RegExp | null }[]
   startupTimer: NodeJS.Timeout | null
+  startupPending: boolean
   lastRouteAt: Map<string, number>
   // Routing loop/echo protection + continuous queue (per connection)
   recentInbound: { sig: string; at: number }[] // payloads recently injected INTO this pty
@@ -123,6 +124,7 @@ export class PtyManager {
       createdAt: Date.now(),
       cwd: resolved.cwd,
       startupTimer: null,
+      startupPending: !!input.startupCommand,
       lastRouteAt: new Map(),
       recentInbound: [],
       routeHops: new Map(),
@@ -151,12 +153,15 @@ export class PtyManager {
       managed.routeQueues.clear()
     })
 
-    // Type the startup command into the interactive shell (agents/services).
+    // Wait for the renderer to report the real xterm dimensions before
+    // starting full-screen TUIs. Drawing at the 120x30 spawn default and then
+    // shrinking corrupts ConPTY's wrapped buffer (broken Claude/Codex borders).
+    // The fallback keeps headless/background terminals from waiting forever.
     if (input.startupCommand) {
       managed.startupTimer = setTimeout(() => {
         managed.startupTimer = null
-        if (!managed.exited) proc.write(input.startupCommand + '\r')
-      }, 350)
+        this.startStartupCommand(managed)
+      }, 5000)
     }
 
     return { pid: proc.pid }
@@ -408,10 +413,21 @@ export class PtyManager {
     if (t && !t.exited && cols > 0 && rows > 0) {
       try {
         t.proc.resize(cols, rows)
+        this.startStartupCommand(t)
       } catch {
         /* pty may have exited between checks */
       }
     }
+  }
+
+  private startStartupCommand(t: ManagedPty): void {
+    if (!t.startupPending || t.exited || !t.input.startupCommand) return
+    t.startupPending = false
+    if (t.startupTimer) {
+      clearTimeout(t.startupTimer)
+      t.startupTimer = null
+    }
+    t.proc.write(t.input.startupCommand + '\r')
   }
 
   getBuffer(id: string): string {
@@ -455,7 +471,9 @@ export class PtyManager {
   }
 
   pids(): { id: string; pid: number }[] {
-    return [...this.terminals.values()].filter((t) => !t.exited).map((t) => ({ id: t.id, pid: t.proc.pid }))
+    return [...this.terminals.values()]
+      .filter((t) => !t.exited && t.proc.pid > 0)
+      .map((t) => ({ id: t.id, pid: t.proc.pid }))
   }
 
   setScrollback(lines: number): void {

@@ -62,29 +62,10 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
       set({ canvasSize: size })
       return
     }
-    const previousFocusWidth = st.activeNodeId
-      ? st.nodes.find((n) => n.id === st.activeNodeId)?.size.width
-      : undefined
-    const focusRatio = previousFocusWidth && st.canvasSize.width > 0
-      ? previousFocusWidth / st.canvasSize.width
-      : 0.68
     const ordered = st.activeNodeId
       ? [...st.nodes.filter((n) => n.id === st.activeNodeId), ...st.nodes.filter((n) => n.id !== st.activeNodeId)]
       : st.nodes
-    const mode = st.activeNodeId && st.nodes.length > 1 ? 'focus' : 'grid'
-    const computed = computeLayout(mode, ordered, size, st.connections)
-    if (st.activeNodeId && ordered.length > 1) {
-      const focusWidth = Math.round(Math.max(size.width * 0.35, Math.min(size.width * 0.7, size.width * focusRatio)))
-      const rest = ordered.filter((n) => n.id !== st.activeNodeId)
-      const restHeight = (size.height + rest.length - 1) / rest.length
-      computed[st.activeNodeId] = { position: { x: 0, y: 0 }, size: { width: focusWidth, height: size.height } }
-      rest.forEach((node, index) => {
-        computed[node.id] = {
-          position: { x: focusWidth - 1, y: Math.round(index * (restHeight - 1)) },
-          size: { width: size.width - focusWidth + 1, height: Math.round(restHeight) }
-        }
-      })
-    }
+    const computed = computeLayout(st.layoutMode, ordered, size, st.connections)
     set({
       canvasSize: size,
       nodes: st.nodes.map((n) => (computed[n.id] ? { ...n, ...computed[n.id] } : n))
@@ -93,8 +74,8 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
 
   setActiveNode: (nodeId) => {
     const current = get()
-    const isTiled = current.layoutMode !== 'manual' && current.layoutMode !== 'agent_graph'
-    if (!isTiled) {
+    const shouldRelayoutFocus = current.layoutMode === 'focus'
+    if (!shouldRelayoutFocus) {
       const z = current.zCounter + 1
       set((s) => ({
         activeNodeId: nodeId,

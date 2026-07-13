@@ -7,6 +7,17 @@ export interface TerminalThemeDef {
 
 export const TERMINAL_THEMES: TerminalThemeDef[] = [
   {
+    name: 'Zeonica',
+    theme: {
+      background: '#01001D', foreground: '#FFFFFF', cursor: '#FFFFFF', cursorAccent: '#01001D',
+      selectionBackground: '#242272', black: '#0C0C0C', red: '#CC2929', green: '#21C221',
+      yellow: '#D6C315', blue: '#3E31F5', magenta: '#D918B9', cyan: '#13D4D4', white: '#B2B2B2',
+      brightBlack: '#686868', brightRed: '#FF6E6E', brightGreen: '#6BFF6B',
+      brightYellow: '#FFFF6B', brightBlue: '#737CFF', brightMagenta: '#FF70FF',
+      brightCyan: '#7FFFFF', brightWhite: '#FFFFFF'
+    }
+  },
+  {
     name: 'TermFlow Dark',
     theme: {
       background: '#141820',

@@ -171,8 +171,8 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 Keep running in the system tray when closed
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.webgl} style={{ width: 'auto' }} onChange={(e) => update({ webgl: e.target.checked })} />
-                GPU (WebGL) acceleration
+                <input type="checkbox" checked={false} disabled style={{ width: 'auto' }} />
+                GPU acceleration (disabled for stable terminal resizing)
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input type="checkbox" checked={settings.snapToGrid} style={{ width: 'auto' }} onChange={(e) => update({ snapToGrid: e.target.checked })} />

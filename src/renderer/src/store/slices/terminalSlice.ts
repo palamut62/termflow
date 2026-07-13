@@ -148,7 +148,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       session.status = 'error'
     }
 
-    const persisted: TerminalSession = { ...session, pid, status: pid ? 'running' : 'error' }
+    // ConPTY can report pid 0 even though creation succeeded and the PTY is
+    // usable. Only a rejected create call means startup failed.
+    const persisted: TerminalSession = { ...session, pid: pid && pid > 0 ? pid : undefined, status: session.status === 'error' ? 'error' : 'running' }
     await window.termflow.terminals.upsert(persisted)
 
     set((s) => {

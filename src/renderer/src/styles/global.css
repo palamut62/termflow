@@ -167,7 +167,13 @@ input {
   background: transparent;
   color: var(--text-secondary);
   font-size: 12px;
+  white-space: nowrap;
   transition: background 0.12s, color 0.12s;
+}
+@media (max-width: 1100px) {
+  .tb-label {
+    display: none;
+  }
 }
 .tb-btn:hover {
   background: var(--bg-panel-2);
@@ -477,7 +483,12 @@ input {
 .tnode-header .hactions {
   margin-left: auto;
   display: flex;
+  min-width: 0;
+  overflow: hidden;
   gap: 2px;
+}
+.tnode-header .close-node {
+  flex: 0 0 24px;
 }
 .tnode-header .hbtn {
   width: 24px;

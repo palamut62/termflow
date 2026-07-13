@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal, type IDecoration } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { WebglAddon } from '@xterm/addon-webgl'
 import { SearchAddon } from '@xterm/addon-search'
 import { registerWriter } from '../terminalRegistry'
 import { useAppStore } from '../store/appStore'
@@ -68,10 +67,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
-  const nudgeRef = useRef<(() => void) | null>(null)
-  const webglRef = useRef<WebglAddon | null>(null)
   const activeRef = useRef(active)
-  const useWebgl = useAppStore((s) => s.settings.webgl)
   const scrollback = useAppStore((s) => s.settings.scrollback)
   const fontFamily = useAppStore((s) => s.settings.fontFamily)
   const fontSize = useAppStore((s) => s.settings.fontSize)
@@ -134,26 +130,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.loadAddon(searchAddon)
     searchAddonRef.current = searchAddon
     term.open(host)
-    // WebGL renderer: needed for solid box-drawing glyphs (the DOM renderer
-    // draws │─╭╮ from the font, which looks dashed at lineHeight > 1). The
-    // "orange block" artifacts seen earlier are stale texture-atlas tiles —
-    // cleared explicitly after resizes and theme changes below.
-    let webgl: WebglAddon | null = null
-    if (useWebgl) {
-      try {
-        const addon = new WebglAddon()
-        addon.onContextLoss(() => {
-          addon.dispose()
-          webgl = null
-          webglRef.current = null
-        })
-        term.loadAddon(addon)
-        webgl = addon
-        webglRef.current = addon
-      } catch {
-        webgl = null // fall back to DOM renderer
-      }
-    }
+    // Keep the DOM renderer for resize correctness. The WebGL add-on leaves
+    // stale atlas tiles/canvas geometry on some Windows GPUs after narrow/wide
+    // layout changes, corrupting full-screen TUI borders and glyphs.
     termRef.current = term
     fitRef.current = fit
 
@@ -165,22 +144,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       window.termflow.pty.resize(terminalId, term.cols, term.rows)
     } catch {
       /* not visible yet */
-    }
-
-    // Ask the running TUI to repaint at the current size: ConPTY only emits a
-    // resize to the child when dimensions actually change, so bounce one column
-    // and restore it. Used after buffer replays, which may contain frames drawn
-    // at older sizes (the source of the "broken shapes until focused" artifact).
-    // Force ConPTY to emit a SIGWINCH by bouncing rows instead of columns.
-    // Column bounce causes the child to redraw at cols-1 width; that output
-    // wraps incorrectly when written to xterm at full width (broken layouts).
-    // Row bounce keeps the same wrapping width — far less visual disruption.
-    const nudgeRepaint = (): void => {
-      if (disposed || term.rows < 3) return
-      window.termflow.pty.resize(terminalId, term.cols, term.rows - 1)
-      setTimeout(() => {
-        if (!disposed) window.termflow.pty.resize(terminalId, term.cols, term.rows)
-      }, 50)
     }
 
     // Rehydrate from the main-process ring buffer, queueing any live chunks that
@@ -210,8 +173,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       ready = true
       scheduleHighlights(term)
     })
-    nudgeRef.current = nudgeRepaint
-
     // Forward input to the PTY only when this terminal is the active one.
     const dataSub = term.onData((data) => {
       if (!activeRef.current) return
@@ -246,6 +207,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // itself already makes live TUIs redraw. (PRD §11.7)
     let resizeTimer: ReturnType<typeof setTimeout> | null = null
     let ptyResizeTimer: ReturnType<typeof setTimeout> | null = null
+    let tuiRedrawTimer: ReturnType<typeof setTimeout> | null = null
     let prevCols = term.cols
     let prevRows = term.rows
     const doFit = (): void => {
@@ -267,10 +229,19 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
             window.termflow.pty.resize(terminalId, term.cols, term.rows)
             prevCols = term.cols
             prevRows = term.rows
+            const kind = useAppStore.getState().terminals[terminalId]?.kind
+            if (kind === 'claude' || kind === 'codex' || kind === 'opencode' || kind === 'ollama') {
+              // Windows ConPTY does not reliably deliver a usable resize event
+              // through the cmd host to Node-based TUIs. Ctrl+L is the common
+              // redraw command for these interactive agents: it clears the
+              // stale coordinate-based frame and renders at the settled size.
+              if (tuiRedrawTimer) clearTimeout(tuiRedrawTimer)
+              tuiRedrawTimer = setTimeout(() => {
+                if (!disposed) window.termflow.pty.write(terminalId, '\x0c')
+              }, 120)
+            }
           }
-          // Stale texture-atlas tiles show up as colored blocks after resizes
-          // on some GPUs — rebuild the atlas once the resize settles.
-          try { webglRef.current?.clearTextureAtlas() } catch { /* ignore */ }
+          term.refresh(0, term.rows - 1)
         } catch {
           /* ignore */
         }
@@ -283,6 +254,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       disposed = true
       if (resizeTimer) clearTimeout(resizeTimer)
       if (ptyResizeTimer) clearTimeout(ptyResizeTimer)
+      if (tuiRedrawTimer) clearTimeout(tuiRedrawTimer)
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       ro.disconnect()
       dataSub.dispose()
@@ -291,17 +263,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       // Component unmounts when the node is minimized -> switch main to
       // buffer-only mode so the process keeps running without streaming.
       window.termflow.pty.setMode(terminalId, 'buffer')
-      // Dispose the WebGL addon before the terminal core to avoid a render
-      // frame touching a disposed core (the "_isDisposed" TypeError).
-      try {
-        webgl?.dispose()
-      } catch {
-        /* ignore */
-      }
       term.dispose()
       termRef.current = null
-      nudgeRef.current = null
-      webglRef.current = null
+      fitRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId])
@@ -318,11 +282,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       } catch {
         /* ignore */
       }
-      // Nudge forces ConPTY to emit SIGWINCH so the TUI redraws at the
-      // current terminal size. No buffer replay — ring buffer data may
-      // still be at old dimensions; replaying it would place ANSI-
-      // positioned content at wrong coordinates (the remaining corruption).
-      nudgeRef.current?.()
     }
   }, [active, terminalId, terminalCount])
 
@@ -344,8 +303,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       cursor: css.getPropertyValue('--active-border').trim(),
       selectionBackground: css.getPropertyValue('--accent-soft').trim()
     }
-    // Theme/font changes invalidate glyph colors baked into the WebGL atlas.
-    try { webglRef.current?.clearTextureAtlas() } catch { /* ignore */ }
+    fitRef.current?.fit()
+    window.termflow.pty.resize(terminalId, term.cols, term.rows)
+    term.refresh(0, term.rows - 1)
   }, [fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, terminalThemeName, appTheme, transparency])
 
   // Re-apply highlight decorations when the rule set changes.

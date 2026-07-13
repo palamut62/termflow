@@ -94,7 +94,16 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
   taskTriggers: [],
 
   loadSettings: async () => {
-    const settings = await window.termflow.settings.get()
+    let settings = await window.termflow.settings.get()
+    // WebGL is disabled for all existing profiles too: persisted `true`
+    // values otherwise keep re-enabling the Windows resize corruption.
+    if (settings.webgl) settings = await window.termflow.settings.set({ webgl: false })
+    const appearancePatch: Partial<AppSettings> = {}
+    if (settings.fontSize === 10 || settings.fontSize === 13) appearancePatch.fontSize = 12
+    if (settings.fontFamily.includes('Cascadia Mono') && !settings.fontFamily.includes('0xProto'))
+      appearancePatch.fontFamily = "'0xProto Nerd Font Mono', 'Cascadia Mono', Consolas, monospace"
+    if (settings.terminalTheme === 'TermFlow Dark') appearancePatch.terminalTheme = 'Zeonica'
+    if (Object.keys(appearancePatch).length) settings = await window.termflow.settings.set(appearancePatch)
     set({ settings })
     document.documentElement.style.setProperty('--active-border', settings.activeBorderColor)
     applyTheme(settings.theme, settings.transparency)
@@ -217,6 +226,9 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       agentActivities: [],
       detectedAgents: {}
     })
+    if (layout.layoutMode !== 'manual' && layout.layoutMode !== 'agent_graph') {
+      get().applyAutoLayout(get().canvasSize)
+    }
     syncAgentRouting(layout.nodes, layout.connections)
     await window.termflow.workspaces.update(id, { lastOpenedAt: new Date().toISOString() })
     await get().loadPkgScripts()

@@ -46,6 +46,22 @@ describe('layout slice', () => {
     useAppStore.getState().selectConnection(null)
     expect(useAppStore.getState().selectedConnectionId).toBeNull()
   })
+
+  it('keeps grid geometry when a terminal is selected', () => {
+    useAppStore.setState({
+      layoutMode: 'grid',
+      canvasSize: { width: 1200, height: 800 },
+      nodes: [
+        { id: 'n1', position: { x: 0, y: 0 }, size: { width: 600, height: 400 }, isMinimized: false } as never,
+        { id: 'n2', position: { x: 599, y: 0 }, size: { width: 600, height: 400 }, isMinimized: false } as never
+      ]
+    })
+
+    useAppStore.getState().setActiveNode('n2')
+
+    expect(useAppStore.getState().layoutMode).toBe('grid')
+    expect(useAppStore.getState().nodes.map((node) => node.size.width)).toEqual([600, 600])
+  })
 })
 
 describe('terminal slice', () => {

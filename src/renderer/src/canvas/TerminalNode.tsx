@@ -493,10 +493,10 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           <button className="hbtn" title="Send log to AI agent for summary" onClick={() => setShowLogSummary(true)}>
             <Sparkles size={13} />
           </button>
-          <button className="hbtn danger" title="Close" onClick={() => setClosing(true)}>
-            <X size={15} />
-          </button>
         </div>
+        <button className="hbtn danger close-node nodrag" title="Close" aria-label={`Close ${node.title}`} onClick={() => setClosing(true)}>
+          <X size={15} />
+        </button>
       {node.panes && countLeaves(node.panes) > 1 && (
         <div className="tnode-tabs nodrag">
           {getLeafTerminalIds(node.panes).map(tid => {
@@ -538,12 +538,10 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         </div>
       )}
       </div>
-      {!node.isMinimized && (
-        <div className="tnode-body">
-          <PaneRenderer nodeId={id} pane={node.panes || { type: 'leaf', terminalId: node.terminalId!, title: node.title }} path={[]} />
-          {showInfo && <InfoArea nodeId={id} />}
-        </div>
-      )}
+      <div className="tnode-body">
+        <PaneRenderer nodeId={id} pane={node.panes || { type: 'leaf', terminalId: node.terminalId!, title: node.title }} path={[]} />
+        {showInfo && <InfoArea nodeId={id} />}
+      </div>
       {node.isMinimized && (
         <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--text-muted)' }}>
           {terminal.status} · pid {terminal.pid ?? '—'} {hasError && '· ⚠ error'}

@@ -1,0 +1,49 @@
+import { Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import type { CustomAgentDef } from '../../../shared/types'
+import { useAppStore } from '../store/appStore'
+import { useModalClose } from '../hooks/useModalClose'
+
+const emptyAgent = (): CustomAgentDef => ({
+  id: crypto.randomUUID(), name: 'New Agent', command: '', fullPermissionArgs: '', color: '#2f80ff'
+})
+
+export default function AgentManagerModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const settings = useAppStore((s) => s.settings)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [agents, setAgents] = useState<CustomAgentDef[]>(settings.customAgents)
+  useModalClose(onClose)
+
+  const patchAgent = (id: string, patch: Partial<CustomAgentDef>): void => {
+    setAgents((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item))
+  }
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
+      <div className="modal provider-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <h3>AI Agents</h3>
+        <p className="help-intro">Add your own agent CLIs (e.g. grok, qoder). Launched in a terminal with the command you provide.</p>
+        <div className="provider-list">
+          {agents.map((agent) => (
+            <section className="provider-card" key={agent.id}>
+              <div className="provider-card-head">
+                <input value={agent.name} onChange={(e) => patchAgent(agent.id, { name: e.target.value })} aria-label="Agent name" />
+                <input type="color" value={agent.color} onChange={(e) => patchAgent(agent.id, { color: e.target.value })} aria-label="Agent color" />
+                <button className="hbtn danger" title="Delete agent" onClick={() => setAgents((items) => items.filter((item) => item.id !== agent.id))}><Trash2 size={14} /></button>
+              </div>
+              <div className="provider-fields">
+                <label>Command<input value={agent.command} onChange={(e) => patchAgent(agent.id, { command: e.target.value })} placeholder="grok, qoder..." /></label>
+                <label>Full-permission arguments<input value={agent.fullPermissionArgs ?? ''} onChange={(e) => patchAgent(agent.id, { fullPermissionArgs: e.target.value })} placeholder="--dangerously-skip-permissions" /></label>
+              </div>
+            </section>
+          ))}
+        </div>
+        <button className="btn" onClick={() => setAgents((items) => [...items, emptyAgent()])}><Plus size={14} /> Add agent</button>
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={async () => { await updateSettings({ customAgents: agents }); onClose() }}>Save agents</button>
+        </div>
+      </div>
+    </div>
+  )
+}

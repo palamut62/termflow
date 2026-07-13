@@ -8,12 +8,13 @@ interface FakePty {
   writes: string[]
   emit: (data: string) => void
   _exit: ((e: { exitCode: number }) => void) | null
+  resizes: [number, number][]
 }
 const registry: FakePty[] = []
 
 vi.mock('@lydell/node-pty', () => ({
   spawn: () => {
-    const p: FakePty & { onData: (cb: (d: string) => void) => void; onExit: (cb: (e: { exitCode: number }) => void) => void; write: (d: string) => void; resize: () => void; kill: () => void } = {
+    const p: FakePty & { onData: (cb: (d: string) => void) => void; onExit: (cb: (e: { exitCode: number }) => void) => void; write: (d: string) => void; resize: (cols: number, rows: number) => void; kill: () => void } = {
       pid: 1000 + registry.length,
       writes: [],
       emit: () => {},
@@ -21,7 +22,8 @@ vi.mock('@lydell/node-pty', () => ({
       onData(cb) { p.emit = cb },
       onExit(cb) { p._exit = cb },
       write(d: string) { p.writes.push(d) },
-      resize() {},
+      resizes: [],
+      resize(cols: number, rows: number) { p.resizes.push([cols, rows]) },
       kill() {}
     }
     registry.push(p)
@@ -98,6 +100,31 @@ describe('PtyManager routing', () => {
     for (let i = 0; i < 41; i++) registry[0].emit(`@@HANDOFF@@msg${i}@@END@@`)
 
     expect(registry[1].writes.length).toBe(40)
+  })
+})
+
+describe('PtyManager terminal sizing', () => {
+  it('starts a TUI only after the renderer supplies its real dimensions', () => {
+    vi.useFakeTimers()
+    mgr.create('A', { ...baseInput, kind: 'claude', startupCommand: 'claude' })
+
+    vi.advanceTimersByTime(350)
+    expect(registry[0].writes).toEqual([])
+
+    mgr.resize('A', 54, 28)
+    expect(registry[0].resizes).toEqual([[54, 28]])
+    expect(registry[0].writes).toEqual(['claude\r'])
+
+    mgr.resize('A', 90, 40)
+    expect(registry[0].writes).toEqual(['claude\r'])
+  })
+
+  it('uses a fallback for a startup command that is never mounted', () => {
+    vi.useFakeTimers()
+    mgr.create('A', { ...baseInput, kind: 'codex', startupCommand: 'codex' })
+
+    vi.advanceTimersByTime(5000)
+    expect(registry[0].writes).toEqual(['codex\r'])
   })
 })
 
