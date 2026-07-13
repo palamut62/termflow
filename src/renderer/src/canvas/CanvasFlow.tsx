@@ -116,8 +116,21 @@ export default function CanvasFlow(): React.JSX.Element {
       for (const ch of changes) {
         if (ch.type === 'position' && ch.position) {
           updateNode(ch.id, { position: ch.position })
-          // On drop, slide neighbours out so panels never overlap.
-          if (ch.dragging === false) useAppStore.getState().resolveCollisions(ch.id)
+          if (ch.dragging === false) {
+            if (tiled) {
+              // Tiled modes: snap the dragged node into the nearest slot and
+              // re-sequence the layout instead of free-dragging.
+              const dropped = useAppStore.getState().nodes.find((n) => n.id === ch.id)
+              const size = dropped?.size ?? { width: 0, height: 0 }
+              useAppStore.getState().reorderNode(ch.id, {
+                x: ch.position.x + size.width / 2,
+                y: ch.position.y + size.height / 2
+              })
+            } else {
+              // Manual/agent modes: slide neighbours out so panels never overlap.
+              useAppStore.getState().resolveCollisions(ch.id)
+            }
+          }
         } else if (ch.type === 'dimensions' && (ch as any).dimensions) {
           const d = (ch as any).dimensions
           updateNode(ch.id, { size: { width: d.width, height: d.height } })
@@ -126,7 +139,7 @@ export default function CanvasFlow(): React.JSX.Element {
         }
       }
     },
-    [updateNode, setActiveNode]
+    [updateNode, setActiveNode, tiled]
   )
 
   const onConnect: OnConnect = useCallback((params) => {

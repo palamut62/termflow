@@ -18,7 +18,8 @@ import {
   Copy,
   Pin,
   PinOff,
-  Sparkles
+  Sparkles,
+  MoreHorizontal
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
@@ -112,8 +113,8 @@ function statusColor(status: string): string {
   return 'var(--text-secondary)'
 }
 
-const MINW = 420
-const MINH = 200
+const MINW = 300
+const MINH = 160
 
 // [class suffix, dirX, dirY] — dir ∈ {-1: top/left edge, 0: none, 1: bottom/right edge}
 const HANDLES: [string, number, number][] = [
@@ -310,6 +311,14 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const [showLogSummary, setShowLogSummary] = useState(false)
   const [showGitMenu, setShowGitMenu] = useState(false)
   const [gitActionMsg, setGitActionMsg] = useState<string | null>(null)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+
+  useEffect(() => {
+    if (!showMoreMenu) return undefined
+    const onDocClick = (): void => setShowMoreMenu(false)
+    document.addEventListener('click', onDocClick)
+    return () => document.removeEventListener('click', onDocClick)
+  }, [showMoreMenu])
 
   useEffect(() => {
     if (recordingLimitWarning && recordingLimitWarning.terminalId === termId) {
@@ -438,60 +447,80 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         )}
         {gitActionMsg && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{gitActionMsg}</span>}
         <div className="hactions nodrag">
-          {termId && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
             <button
-              className={`hbtn ${isBroadcasting ? 'active' : ''}`}
-              title={isBroadcasting ? 'Remove from broadcast group' : 'Add to broadcast group'}
-              onClick={() => {
-                if (broadcastGroup.includes(termId)) removeFromBroadcastGroup(termId)
-                else addToBroadcastGroup(termId)
+              className={`hbtn ${showMoreMenu ? 'active' : ''}`}
+              title="More actions"
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowMoreMenu((v) => !v)
               }}
             >
-              <Radio size={13} />
+              <MoreHorizontal size={15} />
             </button>
-          )}
-          {termId && (
-            <button
-              className={`hbtn ${recording ? 'active' : ''}`}
-              title={recording ? 'Stop recording' : 'Start recording'}
-              onClick={async () => {
-                if (recording) {
-                  await stopRecording(termId)
-                  setRecording(false)
-                } else {
-                  startRecording(termId)
-                  setRecording(true)
-                }
-              }}
-            >
-              <CircleStop size={13} />
-            </button>
-          )}
-          {termId && (
-            <button className="hbtn" title="Save recording" onClick={() => saveRecording(termId)}>
-              <Save size={13} />
-            </button>
-          )}
-          <button className="hbtn" title="Info" onClick={() => toggleInfo(id)}>
-            {node.showInfo ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-          </button>
+            {showMoreMenu && (
+              <div
+                className="menu"
+                style={{ position: 'absolute', top: '100%', right: 0, zIndex: 20, minWidth: 180 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {termId && (
+                  <div
+                    className="menu-item"
+                    onClick={() => {
+                      if (broadcastGroup.includes(termId)) removeFromBroadcastGroup(termId)
+                      else addToBroadcastGroup(termId)
+                      setShowMoreMenu(false)
+                    }}
+                  >
+                    <Radio size={13} /> {isBroadcasting ? 'Remove from broadcast group' : 'Add to broadcast group'}
+                  </div>
+                )}
+                {termId && (
+                  <div
+                    className="menu-item"
+                    onClick={async () => {
+                      setShowMoreMenu(false)
+                      if (recording) {
+                        await stopRecording(termId)
+                        setRecording(false)
+                      } else {
+                        startRecording(termId)
+                        setRecording(true)
+                      }
+                    }}
+                  >
+                    <CircleStop size={13} /> {recording ? 'Stop recording' : 'Start recording'}
+                  </div>
+                )}
+                {termId && (
+                  <div className="menu-item" onClick={() => { saveRecording(termId); setShowMoreMenu(false) }}>
+                    <Save size={13} /> Save recording
+                  </div>
+                )}
+                <div className="menu-item" onClick={() => { toggleInfo(id); setShowMoreMenu(false) }}>
+                  {node.showInfo ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />} {node.showInfo ? 'Hide info panel' : 'Show info panel'}
+                </div>
+                <div className="menu-item" onClick={() => { restartNode(id); setShowMoreMenu(false) }}>
+                  <RotateCw size={13} /> Restart
+                </div>
+                <div className="menu-item" onClick={() => { duplicateNode(id); setShowMoreMenu(false) }}>
+                  <Copy size={13} /> Duplicate
+                </div>
+                <div className="menu-item" onClick={() => { togglePin(id); setShowMoreMenu(false) }}>
+                  {node.isPinned ? <PinOff size={13} /> : <Pin size={13} />} {node.isPinned ? 'Unpin' : 'Pin'}
+                </div>
+                <div className="menu-item" onClick={() => { setShowLogSummary(true); setShowMoreMenu(false) }}>
+                  <Sparkles size={13} /> AI summary
+                </div>
+              </div>
+            )}
+          </div>
           <button className="hbtn" title="Minimize" onClick={() => toggleMinimize(id)}>
             <Minus size={14} />
           </button>
           <button className="hbtn" title={node.isMaximized ? 'Restore' : 'Maximize'} onClick={() => toggleMaximize(id)}>
             {node.isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          </button>
-          <button className="hbtn" title="Restart" onClick={() => restartNode(id)}>
-            <RotateCw size={13} />
-          </button>
-          <button className="hbtn" title="Duplicate (same shell/cwd/startup)" onClick={() => duplicateNode(id)}>
-            <Copy size={13} />
-          </button>
-          <button className={`hbtn ${node.isPinned ? 'active' : ''}`} title={node.isPinned ? 'Unpin (allow auto-layout to move it)' : 'Pin (auto-layout will not move it)'} onClick={() => togglePin(id)}>
-            {node.isPinned ? <PinOff size={13} /> : <Pin size={13} />}
-          </button>
-          <button className="hbtn" title="Send log to AI agent for summary" onClick={() => setShowLogSummary(true)}>
-            <Sparkles size={13} />
           </button>
         </div>
         <button className="hbtn danger close-node nodrag" title="Close" aria-label={`Close ${node.title}`} onClick={() => setClosing(true)}>
@@ -549,7 +578,7 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
       )}
       {!node.isMinimized && (
         <div className="tnode-footer">
-          <span>{terminal.cwd}</span>
+          <span className="cwd" title={terminal.cwd}>{terminal.cwd}</span>
           <span style={{ marginLeft: 'auto', color: statusColor(terminal.status) }}>
             {terminal.status} · pid {terminal.pid ?? '—'}
           </span>

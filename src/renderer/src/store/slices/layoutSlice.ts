@@ -38,6 +38,7 @@ export interface LayoutSlice {
   applyAutoLayout: (vp: { width: number; height: number }) => void
   resizeFocusedNode: (nodeId: string, width: number) => void
   resolveCollisions: (anchorId: string) => void
+  reorderNode: (nodeId: string, dropCenter: { x: number; y: number }) => void
   setViewport: (vp: CanvasViewport) => void
 
   persist: () => void
@@ -302,6 +303,63 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
       set({ nodes })
       get().persist()
     }
+  },
+
+  // Tiled-mode reorder: dropping a node onto/near another slot re-sequences the
+  // nodes array (slot order = array order) and re-applies the layout so panels
+  // stay perfectly tiled instead of overlapping. (feature: drag-to-reorder)
+  reorderNode: (nodeId, dropCenter) => {
+    const st = get()
+    const node = st.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    // Pinned/minimized nodes are outside the tiling pass — keep the free-drag
+    // behaviour (slide neighbours out of the way) for them.
+    if (node.isPinned || node.isMinimized) {
+      st.resolveCollisions(nodeId)
+      return
+    }
+    const isTiled = (n: CanvasNode): boolean => !n.isMinimized && !n.isPinned
+    const visibleIds = st.nodes.filter(isTiled).map((n) => n.id)
+    if (visibleIds.length < 2) {
+      st.resolveCollisions(nodeId)
+      return
+    }
+    // Slot centres come from the current layout (dragged node's old slot
+    // included) so the drop point can snap to any existing slot.
+    const computed = computeLayout(st.layoutMode, st.nodes, st.canvasSize, st.connections)
+    let targetIndex = 0
+    let best = Infinity
+    visibleIds.forEach((id, i) => {
+      const slot = computed[id]
+      if (!slot) return
+      const cx = slot.position.x + slot.size.width / 2
+      const cy = slot.position.y + slot.size.height / 2
+      const dist = (cx - dropCenter.x) ** 2 + (cy - dropCenter.y) ** 2
+      if (dist < best) {
+        best = dist
+        targetIndex = i
+      }
+    })
+
+    const currentIndex = visibleIds.indexOf(nodeId)
+    if (currentIndex === targetIndex) {
+      // No reorder — just re-tile so the dragged node snaps back to its slot.
+      const restore = computeLayout(st.layoutMode, st.nodes, st.canvasSize, st.connections)
+      set((s) => ({ nodes: s.nodes.map((n) => (restore[n.id] ? { ...n, ...restore[n.id] } : n)) }))
+      get().persist()
+      return
+    }
+
+    const nextOrder = visibleIds.filter((id) => id !== nodeId)
+    nextOrder.splice(targetIndex, 0, nodeId)
+    const byId = new Map(st.nodes.map((n) => [n.id, n]))
+    // Rebuild the nodes array: visible slots take the new order, other nodes
+    // (pinned/minimized) keep their array positions untouched.
+    let vi = 0
+    const reordered = st.nodes.map((n) => (isTiled(n) ? byId.get(nextOrder[vi++])! : n))
+    const computedNext = computeLayout(st.layoutMode, reordered, st.canvasSize, st.connections)
+    set({ nodes: reordered.map((n) => (computedNext[n.id] ? { ...n, ...computedNext[n.id] } : n)) })
+    get().persist()
   },
 
   setViewport: (vp) => set({ viewport: vp }),
