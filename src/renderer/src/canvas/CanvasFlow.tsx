@@ -126,6 +126,10 @@ export default function CanvasFlow(): React.JSX.Element {
                 x: ch.position.x + size.width / 2,
                 y: ch.position.y + size.height / 2
               })
+              // Edge auto-pan during the drag shifts the viewport; tiles live
+              // at the 0,0 origin, so snap the camera back or a dead gap opens.
+              void setFlowViewport({ x: 0, y: 0, zoom: 1 }, { duration: 150 })
+              setStoredViewport({ x: 0, y: 0, zoom: 1 })
             } else {
               // Manual/agent modes: slide neighbours out so panels never overlap.
               useAppStore.getState().resolveCollisions(ch.id)
@@ -139,7 +143,7 @@ export default function CanvasFlow(): React.JSX.Element {
         }
       }
     },
-    [updateNode, setActiveNode, tiled]
+    [updateNode, setActiveNode, tiled, setFlowViewport, setStoredViewport]
   )
 
   const onConnect: OnConnect = useCallback((params) => {
@@ -177,6 +181,7 @@ export default function CanvasFlow(): React.JSX.Element {
         zoomOnPinch={!tiled}
         zoomOnDoubleClick={!tiled}
         panOnDrag={!tiled}
+        autoPanOnNodeDrag={!tiled}
         snapToGrid={snapToGrid}
         snapGrid={[22, 22]}
         onlyRenderVisibleElements
