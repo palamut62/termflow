@@ -319,6 +319,12 @@ input {
 }
 .term-subitem.active {
   color: var(--text-primary);
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+  font-weight: 600;
+}
+.term-subitem.active:hover {
+  background: var(--accent-soft);
 }
 .term-subitem .term-close {
   border: none;
