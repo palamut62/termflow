@@ -487,6 +487,7 @@ export const IPC = {
   VAULT_DELETE: 'vault:delete',
   PLUGIN_LIST: 'plugin:list',
   PLUGIN_INSTALL: 'plugin:install',
+  PLUGIN_SAVE: 'plugin:save',
   PLUGIN_DELETE: 'plugin:delete',
   FLOW_PACKAGE_EXPORT: 'flowPackage:export',
   FLOW_PACKAGE_IMPORT: 'flowPackage:import',

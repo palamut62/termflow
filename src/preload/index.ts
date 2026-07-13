@@ -113,6 +113,7 @@ const api = {
   plugins: {
     list: (): Promise<TermFlowPluginManifest[]> => ipcRenderer.invoke(IPC.PLUGIN_LIST),
     install: (): Promise<TermFlowPluginManifest | null> => ipcRenderer.invoke(IPC.PLUGIN_INSTALL),
+    save: (manifest: TermFlowPluginManifest): Promise<TermFlowPluginManifest> => ipcRenderer.invoke(IPC.PLUGIN_SAVE, manifest),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.PLUGIN_DELETE, id)
   },
   workflowPackages: {

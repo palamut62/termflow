@@ -375,6 +375,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const info = await stat(result.filePaths[0]); if (info.size > MAX_JSON_FILE_BYTES) throw new Error('Plugin manifest is too large')
     const plugin = validatePlugin(JSON.parse(await readFile(result.filePaths[0], 'utf-8'))); await ensurePlugins(); await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return plugin
   })
+  ipcMain.handle(IPC.PLUGIN_SAVE, async (_e, manifest: unknown): Promise<TermFlowPluginManifest> => {
+    const plugin = validatePlugin(manifest); await ensurePlugins(); await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return plugin
+  })
   ipcMain.handle(IPC.PLUGIN_DELETE, async (_e, id: string) => { const file = join(pluginsDir, `${id}.json`); try { await unlink(file) } catch { /* not present */ } })
 
   // ---- Workspace Export/Import (shared helpers also power templates + clone) ----
