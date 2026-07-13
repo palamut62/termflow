@@ -745,6 +745,54 @@ input {
   color: var(--text-primary);
   margin: 0 0 14px;
 }
+/* Env var rows: aligned grid, monospace values, no wrapping mess */
+.env-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 2px;
+}
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 24px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+.env-row:hover {
+  background: var(--bg-panel-2);
+}
+.env-key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.env-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.env-row .hbtn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 5px;
+}
+.env-row .hbtn:hover {
+  background: var(--bg-panel-2);
+  color: var(--danger);
+}
 .btn {
   height: 34px;
   padding: 0 16px;

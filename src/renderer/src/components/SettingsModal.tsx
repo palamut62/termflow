@@ -7,7 +7,8 @@ import {
   Monitor,
   RefreshCw,
   Highlighter,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { TERMINAL_THEMES } from '../themes'
@@ -37,6 +38,14 @@ const FONT_FAMILIES = [
 ]
 
 const HIGHLIGHT_COLORS = ['#ff4d4f', '#f6c343', '#3fb950', '#2f80ff', '#b48ead', '#ff6b6b', '#6dd98a']
+
+// Secrets (API keys, tokens) must never sit readable in a settings screen —
+// show head…tail so entries stay recognizable without leaking on screenshares.
+function maskEnvValue(value: string): string {
+  if (value === '••••••••') return value // already masked by main process
+  if (value.length <= 12) return value
+  return `${value.slice(0, 6)}…${value.slice(-4)}`
+}
 
 // Settings: Appearance + Performance + Terminal Theme & Font (PRD §17.2, §20.1)
 export default function SettingsModal({ onClose }: Props): React.JSX.Element {
@@ -424,17 +433,18 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                   Add
                 </button>
               </div>
-              <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+              <div className="env-list">
                 {envVars.map((entry) => (
-                  <div key={entry.id} className="info-row">
-                    <span>{entry.key}</span>
-                    <span className="v">{entry.value}</span>
-                    <button className="hbtn" title="Delete" onClick={async () => {
+                  <div key={entry.id} className="env-row">
+                    <span className="env-key" title={entry.key}>{entry.key}</span>
+                    <span className="env-value">{maskEnvValue(entry.value)}</span>
+                    <button className="hbtn danger" title="Delete" aria-label={`Delete ${entry.key}`} onClick={async () => {
                       await window.termflow.envVars.remove(entry.id)
                       await reloadDeveloper()
-                    }}>x</button>
+                    }}><X size={12} /></button>
                   </div>
                 ))}
+                {envVars.length === 0 && <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>No environment variables for this workspace yet.</p>}
               </div>
             </div>
 
