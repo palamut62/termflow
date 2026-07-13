@@ -7,6 +7,7 @@ import { registerWriter } from '../terminalRegistry'
 import { useAppStore } from '../store/appStore'
 import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
+import { getLeafTerminalIds } from '../paneUtils'
 
 interface Props {
   terminalId: string
@@ -320,8 +321,25 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     if (searchVisible && searchInputRef.current) searchInputRef.current.focus()
   }, [searchVisible])
 
+  // Clicking INSIDE the terminal must activate its node — xterm swallows the
+  // event before React Flow's node-click fires, so a passive terminal would
+  // otherwise never accept keystrokes until its header was clicked.
+  const activateOnClick = (): void => {
+    const st = useAppStore.getState()
+    const node = st.nodes.find(
+      (n) => n.terminalId === terminalId || (n.panes ? getLeafTerminalIds(n.panes).includes(terminalId) : false)
+    )
+    if (!node) return
+    if (st.activeNodeId !== node.id) st.setActiveNode(node.id)
+    if (node.panes && node.activePaneId !== terminalId) st.setActivePane(node.id, terminalId)
+  }
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }} className="nodrag nowheel">
+    <div
+      style={{ position: 'relative', width: '100%', height: '100%' }}
+      className="nodrag nowheel"
+      onMouseDownCapture={activateOnClick}
+    >
       <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
       {searchVisible && (
         <div
