@@ -485,7 +485,8 @@ input {
   margin-left: auto;
   display: flex;
   min-width: 0;
-  overflow: hidden;
+  /* No overflow:hidden here — the ⋯ dropdown opens position:absolute inside
+     this container and would be clipped invisible otherwise. */
   gap: 2px;
 }
 .tnode-header .close-node {
