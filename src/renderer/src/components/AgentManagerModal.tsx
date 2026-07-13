@@ -4,6 +4,7 @@ import type { CustomAgentDef } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
 import { PROFILES } from '../profiles'
+import ConfirmModal from './ConfirmModal'
 
 const emptyAgent = (): CustomAgentDef => ({
   id: crypto.randomUUID(), name: 'New Agent', command: '', fullPermissionArgs: '', color: '#2f80ff'
@@ -28,10 +29,17 @@ export default function AgentManagerModal({ onClose }: { onClose: () => void }):
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const [agents, setAgents] = useState<CustomAgentDef[]>(() => initialAgents(settings.customAgents))
+  const [pendingDelete, setPendingDelete] = useState<CustomAgentDef | null>(null)
   useModalClose(onClose)
 
   const patchAgent = (id: string, patch: Partial<CustomAgentDef>): void => {
     setAgents((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item))
+  }
+
+  const deleteAgent = (id: string): void => {
+    const nextAgents = agents.filter((agent) => agent.id !== id)
+    setAgents(nextAgents)
+    void updateSettings({ customAgents: nextAgents })
   }
 
   return (
@@ -48,7 +56,7 @@ export default function AgentManagerModal({ onClose }: { onClose: () => void }):
                 {agent.kind ? (
                   <span className="kind-tag" title="Built-in agent">Built-in</span>
                 ) : (
-                  <button className="hbtn danger" title="Delete agent" onClick={() => setAgents((items) => items.filter((item) => item.id !== agent.id))}><Trash2 size={14} /></button>
+                  <button className="hbtn danger" title="Delete agent" aria-label={`Delete ${agent.name}`} onClick={() => setPendingDelete(agent)}><Trash2 size={14} /></button>
                 )}
               </div>
               <div className="provider-fields">
@@ -64,6 +72,16 @@ export default function AgentManagerModal({ onClose }: { onClose: () => void }):
           <button className="btn primary" onClick={async () => { await updateSettings({ customAgents: agents }); onClose() }}>Save agents</button>
         </div>
       </div>
+      {pendingDelete && (
+        <ConfirmModal
+          title="Delete AI agent?"
+          message={`${pendingDelete.name} will be removed from TermFlow.`}
+          confirmLabel="Delete agent"
+          tone="danger"
+          onConfirm={() => deleteAgent(pendingDelete.id)}
+          onClose={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   )
 }

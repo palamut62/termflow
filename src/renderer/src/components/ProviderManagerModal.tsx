@@ -1,22 +1,32 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import type { AiProviderProfile } from '../../../shared/types'
+import { DEFAULT_SETTINGS, type AiProviderProfile } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
+import ConfirmModal from './ConfirmModal'
 
 const emptyProfile = (): AiProviderProfile => ({
   id: crypto.randomUUID(), name: 'New Provider', command: '', model: '', baseUrl: '',
   apiKeyEnv: '', modelEnv: '', baseUrlEnv: '', color: '#2f80ff', fullPermissionArgs: ''
 })
 
+const builtInProviderIds = new Set(DEFAULT_SETTINGS.providerProfiles.map((profile) => profile.id))
+
 export default function ProviderManagerModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const [profiles, setProfiles] = useState<AiProviderProfile[]>(settings.providerProfiles)
+  const [pendingDelete, setPendingDelete] = useState<AiProviderProfile | null>(null)
   useModalClose(onClose)
 
   const patchProfile = (id: string, patch: Partial<AiProviderProfile>): void => {
     setProfiles((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item))
+  }
+
+  const deleteProvider = (id: string): void => {
+    const nextProfiles = profiles.filter((profile) => profile.id !== id)
+    setProfiles(nextProfiles)
+    void updateSettings({ providerProfiles: nextProfiles })
   }
 
   return (
@@ -30,7 +40,11 @@ export default function ProviderManagerModal({ onClose }: { onClose: () => void 
               <div className="provider-card-head">
                 <input value={profile.name} onChange={(e) => patchProfile(profile.id, { name: e.target.value })} aria-label="Provider name" />
                 <input type="color" value={profile.color} onChange={(e) => patchProfile(profile.id, { color: e.target.value })} aria-label="Provider color" />
-                <button className="hbtn danger" title="Delete provider" onClick={() => setProfiles((items) => items.filter((item) => item.id !== profile.id))}><Trash2 size={14} /></button>
+                {builtInProviderIds.has(profile.id) ? (
+                  <span className="kind-tag" title="Built-in provider">Built-in</span>
+                ) : (
+                  <button className="hbtn danger" title="Delete provider" aria-label={`Delete ${profile.name}`} onClick={() => setPendingDelete(profile)}><Trash2 size={14} /></button>
+                )}
               </div>
               <div className="provider-fields">
                 <label>Terminal command<input value={profile.command} onChange={(e) => patchProfile(profile.id, { command: e.target.value })} placeholder="claude, opencode, ollama run llama3.2..." /></label>
@@ -50,6 +64,16 @@ export default function ProviderManagerModal({ onClose }: { onClose: () => void 
           <button className="btn primary" onClick={async () => { await updateSettings({ providerProfiles: profiles }); onClose() }}>Save providers</button>
         </div>
       </div>
+      {pendingDelete && (
+        <ConfirmModal
+          title="Delete AI provider?"
+          message={`${pendingDelete.name} will be removed from TermFlow.`}
+          confirmLabel="Delete provider"
+          tone="danger"
+          onConfirm={() => deleteProvider(pendingDelete.id)}
+          onClose={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   )
 }
