@@ -841,6 +841,112 @@ input {
   background: var(--bg-panel-2);
   color: var(--danger);
 }
+/* ---- Agent Config modal ---- */
+.acfg-body {
+  padding: 14px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.acfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.acfg-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.acfg-input {
+  width: 100%;
+  background: var(--bg-main);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 12.5px;
+  outline: none;
+}
+.acfg-input:focus {
+  border-color: var(--accent);
+}
+.acfg-env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.acfg-env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 28px 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border-radius: 6px;
+}
+.acfg-env-row:hover {
+  background: var(--bg-panel-2);
+}
+.acfg-env-row input {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 6px 8px;
+  outline: none;
+}
+.acfg-env-row input:focus {
+  border-color: var(--accent);
+}
+.acfg-iconbtn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.acfg-iconbtn:hover {
+  background: var(--bg-panel-2);
+  color: var(--text-primary);
+}
+.acfg-iconbtn.danger:hover {
+  color: var(--danger);
+}
+.acfg-raw {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.acfg-raw summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.acfg-raw pre {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px;
+  max-height: 200px;
+  overflow: auto;
+}
 .btn {
   height: 34px;
   padding: 0 16px;

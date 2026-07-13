@@ -1,6 +1,8 @@
-import { Plus, Save, Trash2, X } from 'lucide-react'
+import { Eye, EyeOff, Plus, Save, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useModalClose } from '../hooks/useModalClose'
+
+const SECRET_RE = /KEY|TOKEN|SECRET|PASSWORD/i
 
 type Tab = 'settings' | 'config'
 
@@ -29,6 +31,7 @@ export default function AgentConfigModal({ onClose }: { onClose: () => void }): 
   const [settings, setSettings] = useState<Record<string, unknown>>({})
   const [model, setModel] = useState('')
   const [envRows, setEnvRows] = useState<EnvRow[]>([])
+  const [revealed, setRevealed] = useState<Record<number, boolean>>({})
   const [includeCoAuthoredBy, setIncludeCoAuthoredBy] = useState(true)
 
   useEffect(() => {
@@ -92,7 +95,7 @@ export default function AgentConfigModal({ onClose }: { onClose: () => void }): 
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
-      <div className="modal" style={{ width: 560, maxWidth: '92vw' }} onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ width: 560, maxWidth: '92vw', padding: 0, display: 'flex', flexDirection: 'column' }} onMouseDown={(e) => e.stopPropagation()}>
         <header className="workbench-head">
           <div>
             <h3>Agent Config</h3>
@@ -101,84 +104,96 @@ export default function AgentConfigModal({ onClose }: { onClose: () => void }): 
           <button className="hbtn" onClick={onClose}><X size={16} /></button>
         </header>
 
-        <div className="tab-bar" style={{ display: 'flex', gap: 6, padding: '8px 12px 0' }}>
+        <div className="tab-bar" style={{ display: 'flex', gap: 6, padding: '10px 15px 0' }}>
           <button className={`tb-btn ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>Settings (.claude/settings.json)</button>
           <button className={`tb-btn ${tab === 'config' ? 'active' : ''}`} onClick={() => setTab('config')}>Config (.claude.json)</button>
         </div>
 
-        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {error && <div style={{ color: '#ff6b6b', fontSize: 12 }}>{error}</div>}
-          {saved && <div style={{ color: '#4caf50', fontSize: 12 }}>{saved}</div>}
+        <div className="acfg-body">
+          {error && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
+          {saved && <div style={{ color: 'var(--success)', fontSize: 12 }}>{saved}</div>}
 
           {tab === 'settings' && (
             <>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+              <label className="acfg-field">
                 Model
-                <input className="input" value={model} placeholder="claude-sonnet-5" onChange={(e) => setModel(e.target.value)} />
+                <input className="acfg-input" value={model} placeholder="claude-sonnet-5" onChange={(e) => setModel(e.target.value)} />
               </label>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+              <div className="acfg-field">
                 <span>Environment variables</span>
-                {envRows.map((row, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 6 }}>
-                    <input className="input" style={{ flex: 1 }} placeholder="KEY" value={row.key}
-                      onChange={(e) => setEnvRows((rows) => rows.map((r, idx) => idx === i ? { ...r, key: e.target.value } : r))} />
-                    <input className="input" style={{ flex: 2 }} placeholder="value" value={row.value}
-                      onChange={(e) => setEnvRows((rows) => rows.map((r, idx) => idx === i ? { ...r, value: e.target.value } : r))} />
-                    <button className="hbtn" title="Remove" onClick={() => setEnvRows((rows) => rows.filter((_, idx) => idx !== i))}><Trash2 size={13} /></button>
-                  </div>
-                ))}
-                <button className="btn" onClick={() => setEnvRows((rows) => [...rows, { key: '', value: '' }])}><Plus size={13} />Add variable</button>
+                <div className="acfg-env-list">
+                  {envRows.map((row, i) => {
+                    const secret = SECRET_RE.test(row.key)
+                    const show = revealed[i] === true
+                    return (
+                      <div key={i} className="acfg-env-row">
+                        <input placeholder="KEY" value={row.key}
+                          onChange={(e) => setEnvRows((rows) => rows.map((r, idx) => idx === i ? { ...r, key: e.target.value } : r))} />
+                        <input placeholder="value" value={row.value} type={secret && !show ? 'password' : 'text'}
+                          onChange={(e) => setEnvRows((rows) => rows.map((r, idx) => idx === i ? { ...r, value: e.target.value } : r))} />
+                        {secret ? (
+                          <button className="acfg-iconbtn" title={show ? 'Hide' : 'Show'} onClick={() => setRevealed((r) => ({ ...r, [i]: !show }))}>
+                            {show ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                        ) : <span />}
+                        <button className="acfg-iconbtn danger" title="Remove" onClick={() => setEnvRows((rows) => rows.filter((_, idx) => idx !== i))}><Trash2 size={14} /></button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <button className="btn" style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setEnvRows((rows) => [...rows, { key: '', value: '' }])}><Plus size={13} />Add variable</button>
               </div>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <label className="acfg-check">
                 <input type="checkbox" checked={includeCoAuthoredBy} onChange={(e) => setIncludeCoAuthoredBy(e.target.checked)} />
                 Include Co-Authored-By in commits
               </label>
 
-              <button className="btn primary" onClick={() => void saveSettings()}><Save size={13} />Save</button>
-
-              <details>
-                <summary style={{ fontSize: 12, cursor: 'pointer' }}>Raw JSON preview</summary>
-                <pre style={{ fontSize: 11, maxHeight: 200, overflow: 'auto' }}>{JSON.stringify(settingsPreview, null, 2)}</pre>
+              <details className="acfg-raw">
+                <summary>Raw JSON preview</summary>
+                <pre>{JSON.stringify(settingsPreview, null, 2)}</pre>
               </details>
             </>
           )}
 
           {tab === 'config' && (
             <>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+              <label className="acfg-field">
                 Theme
-                <select className="input" value={theme} onChange={(e) => setTheme(e.target.value)}>
+                <select className="acfg-input" value={theme} onChange={(e) => setTheme(e.target.value)}>
                   {THEMES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+              <label className="acfg-field">
                 Preferred notification channel
-                <select className="input" value={notifChannel} onChange={(e) => setNotifChannel(e.target.value)}>
+                <select className="acfg-input" value={notifChannel} onChange={(e) => setNotifChannel(e.target.value)}>
                   {NOTIF_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <label className="acfg-check">
                 <input type="checkbox" checked={autoUpdates} onChange={(e) => setAutoUpdates(e.target.checked)} />
                 Auto updates
               </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <label className="acfg-check">
                 <input type="checkbox" checked={verbose} onChange={(e) => setVerbose(e.target.checked)} />
                 Verbose
               </label>
 
-              <button className="btn primary" onClick={() => void saveConfig()}><Save size={13} />Save</button>
-
-              <details>
-                <summary style={{ fontSize: 12, cursor: 'pointer' }}>Raw JSON preview</summary>
-                <pre style={{ fontSize: 11, maxHeight: 200, overflow: 'auto' }}>{JSON.stringify(configPreview, null, 2)}</pre>
+              <details className="acfg-raw">
+                <summary>Raw JSON preview</summary>
+                <pre>{JSON.stringify(configPreview, null, 2)}</pre>
               </details>
             </>
           )}
+        </div>
+
+        <div className="modal-actions" style={{ padding: '12px 15px', borderTop: '1px solid var(--border-soft)', marginTop: 0 }}>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => void (tab === 'settings' ? saveSettings() : saveConfig())}><Save size={13} />Save</button>
         </div>
       </div>
     </div>
