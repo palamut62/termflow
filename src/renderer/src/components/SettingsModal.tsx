@@ -268,6 +268,11 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
               <label>Line Height: {settings.lineHeight.toFixed(1)}</label>
               <input type="range" min={1.0} max={2.0} step={0.1} value={settings.lineHeight}
                 onChange={(e) => update({ lineHeight: Number(e.target.value) })} style={{ width: '100%' }} />
+              {settings.lineHeight > 1.0 && (
+                <p style={{ fontSize: 10, color: 'var(--warning)', marginTop: 4 }}>
+                  Values above 1.0 open gaps between rows — TUI frames (claude, opencode…) will look dashed.
+                </p>
+              )}
             </div>
 
             <div className="field">

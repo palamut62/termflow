@@ -388,7 +388,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   minimap: false,
   fontFamily: "'0xProto Nerd Font Mono', 'Cascadia Mono', Consolas, monospace",
   fontSize: 12,
-  lineHeight: 1.1,
+  // 1.0: box-drawing glyphs (│─╭╮ in TUI borders) are designed to fill the
+  // exact cell height; any value above 1 opens gaps between rows and makes
+  // frames look dashed. Match Windows Terminal's tight cell height.
+  lineHeight: 1.0,
   cursorStyle: 'block',
   cursorBlink: true,
   terminalTheme: 'Zeonica',
