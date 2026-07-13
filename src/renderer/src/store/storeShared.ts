@@ -64,8 +64,20 @@ export function parseAgentActivities(
   const sourceName = node?.agentRole || node?.title || terminal?.name || 'Agent'
   const lines = data
     .split(/\r?\n/)
-    .map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').trim())
-    .filter(Boolean)
+    // TUI frames are full of chrome: CSI cursor moves (replaced with a space so
+    // adjacent words don't fuse into "Run/inittocreate"), OSC sequences, and
+    // box-drawing/block glyphs. A line that used box-drawing chars is frame
+    // decoration (banners, borders), not an agent event — drop it entirely.
+    .filter((line) => !/[─-╿]/.test(line))
+    .map((line) =>
+      line
+        .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, ' ')
+        .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ' ')
+        .replace(/[▀-▟■-◿⠀-⣿]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+    .filter((line) => line.length >= 4)
   const events: AgentActivity[] = []
 
   for (const line of lines.slice(-40)) {
