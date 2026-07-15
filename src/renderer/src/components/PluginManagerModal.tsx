@@ -1,10 +1,10 @@
-import { AlertTriangle, Download, PackageOpen, Pencil, Plus, Play, Puzzle, Trash2, Upload, X } from 'lucide-react'
+import { AlertTriangle, Download, PackageOpen, Pencil, Plus, Play, Power, Puzzle, Trash2, Upload, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ShellKind, TermFlowPluginManifest } from '../../../shared/types'
+import type { PluginDiagnostic, PluginRegistryEntry, ShellKind, TermFlowPluginManifest } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
 
-const manifestExample = '{\n  "schemaVersion": 1,\n  "id": "acme.dev-tools",\n  "name": "ACME Dev Tools",\n  "version": "1.0.0",\n  "commands": [{ "id": "test", "title": "Run tests", "command": "npm test", "shell": "cmd" }]\n}'
+const manifestExample = '{\n  "schemaVersion": 2,\n  "id": "acme.dev-tools",\n  "name": "ACME Dev Tools",\n  "version": "1.0.0",\n  "publisher": "ACME",\n  "activationEvents": ["workspaceContains:package.json"],\n  "permissions": ["terminal:execute"],\n  "commands": [{ "id": "test", "title": "Run tests", "command": "npm test", "shell": "cmd", "category": "Node" }]\n}'
 
 const SHELL_OPTIONS: ShellKind[] = ['cmd', 'powershell', 'pwsh', 'gitbash', 'wsl', 'custom']
 const ID_REGEX = /^[a-z0-9][a-z0-9._-]+$/
@@ -19,6 +19,8 @@ interface FormState {
   idTouched: boolean
   version: string
   description: string
+  publisher: string
+  activationEvents: string
   commands: CommandDraft[]
 }
 
@@ -28,7 +30,7 @@ function slugify(name: string): string {
 }
 
 function emptyForm(): FormState {
-  return { editingId: null, isBuiltin: false, name: '', id: '', idTouched: false, version: '1.0.0', description: '', commands: [{ id: 'cmd-1', title: '', command: '', shell: 'cmd', cwd: '' }] }
+  return { editingId: null, isBuiltin: false, name: '', id: '', idTouched: false, version: '1.0.0', description: '', publisher: '', activationEvents: '', commands: [{ id: 'cmd-1', title: '', command: '', shell: 'cmd', cwd: '' }] }
 }
 
 function formFromPlugin(plugin: TermFlowPluginManifest): FormState {
@@ -40,6 +42,8 @@ function formFromPlugin(plugin: TermFlowPluginManifest): FormState {
     idTouched: true,
     version: plugin.version,
     description: plugin.description || '',
+    publisher: plugin.publisher || '',
+    activationEvents: (plugin.activationEvents || []).join(', '),
     commands: plugin.commands.map((c, i) => ({ id: c.id || `cmd-${i + 1}`, title: c.title, command: c.command, shell: (c.shell as ShellKind) || 'cmd', cwd: c.cwd || '' }))
   }
 }
@@ -51,8 +55,10 @@ export default function PluginManagerModal({ onClose }: { onClose: () => void })
   const [message, setMessage] = useState('')
   const [form, setForm] = useState<FormState | null>(null)
   const [error, setError] = useState('')
+  const [diagnostics, setDiagnostics] = useState<PluginDiagnostic[]>([])
+  const [registry, setRegistry] = useState<PluginRegistryEntry[]>([])
   const reload = async (): Promise<void> => setPlugins(await window.termflow.plugins.list())
-  useEffect(() => { void reload() }, [])
+  useEffect(() => { void reload(); void window.termflow.plugins.diagnostics().then(setDiagnostics); void window.termflow.plugins.registry().then(setRegistry) }, [])
   useModalClose(onClose)
 
   const effectiveId = form ? (form.idTouched ? form.id : slugify(form.name)) : ''
@@ -70,11 +76,14 @@ export default function PluginManagerModal({ onClose }: { onClose: () => void })
     const commands = form.commands.filter((c) => c.title.trim() && c.command.trim())
     if (commands.length === 0) { setError('At least one command with a title and command is required'); return }
     const manifest: TermFlowPluginManifest = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: form.editingId ?? effectiveId,
       name: form.name.trim(),
       version: form.version.trim() || '1.0.0',
       ...(form.description.trim() ? { description: form.description.trim() } : {}),
+      ...(form.publisher.trim() ? { publisher: form.publisher.trim() } : {}),
+      activationEvents: form.activationEvents.split(',').map((event) => event.trim()).filter(Boolean),
+      permissions: ['terminal:execute'],
       commands: commands.map((c, i) => ({ id: c.id || `cmd-${i + 1}`, title: c.title.trim(), command: c.command.trim(), shell: c.shell, ...(c.cwd.trim() ? { cwd: c.cwd.trim() } : {}) }))
     }
     try {
@@ -82,6 +91,7 @@ export default function PluginManagerModal({ onClose }: { onClose: () => void })
       setMessage(`${saved.name} ${form.editingId ? 'updated' : 'created'}`)
       setForm(null)
       await reload()
+      window.dispatchEvent(new Event('termflow:plugins-changed'))
     } catch (e) {
       setError((e as Error).message || 'Failed to save plugin')
     }
@@ -96,7 +106,7 @@ export default function PluginManagerModal({ onClose }: { onClose: () => void })
         </header>
         <div className="plugin-toolbar">
           <button className="btn" onClick={() => { setError(''); setForm(emptyForm()) }}><Plus size={13} />Create plugin</button>
-          <button className="btn" onClick={async () => { const installed = await window.termflow.plugins.install(); if (installed) { setMessage(`${installed.name} installed`); await reload() } }}><Download size={13} />Install plugin</button>
+          <button className="btn" onClick={async () => { try { const installed = await window.termflow.plugins.install(); if (installed) { setMessage(`${installed.name} installed`); await reload(); window.dispatchEvent(new Event('termflow:plugins-changed')) } } catch (e) { setMessage((e as Error).message) } }}><Download size={13} />Install plugin</button>
           <button className="btn" onClick={() => window.termflow.workflowPackages.export()}><Upload size={13} />Export workflows</button>
           <button className="btn" onClick={async () => { const count = await window.termflow.workflowPackages.import(); setMessage(`${count} workflow templates imported`) }}><PackageOpen size={13} />Import workflows</button>
           <span>{message}</span>
@@ -120,6 +130,14 @@ export default function PluginManagerModal({ onClose }: { onClose: () => void })
             <div className="field">
               <label>Description (optional)</label>
               <input value={form.description} onChange={(e) => patch({ description: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Publisher (optional)</label>
+              <input value={form.publisher} placeholder="ACME" onChange={(e) => patch({ publisher: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Activation events (comma-separated)</label>
+              <input value={form.activationEvents} placeholder="workspaceContains:package.json" onChange={(e) => patch({ activationEvents: e.target.value })} />
             </div>
             <div className="field">
               <label>Commands</label>
@@ -147,14 +165,19 @@ export default function PluginManagerModal({ onClose }: { onClose: () => void })
           <section key={plugin.id}>
             <header>
               <Puzzle size={16} />
-              <div><strong>{plugin.name}</strong><span>{plugin.id} · v{plugin.version}{plugin.builtin ? ' · built-in' : ''}</span></div>
+              <div><strong>{plugin.name}</strong><span>{plugin.id} · v{plugin.version}{plugin.publisher ? ` · ${plugin.publisher}` : ''}{plugin.builtin ? ' · built-in' : ''}{plugin.enabled === false ? ' · disabled' : ''}</span></div>
               <button className="hbtn" title={plugin.builtin ? 'Customize plugin' : 'Edit plugin'} onClick={() => { setError(''); setForm(formFromPlugin(plugin)) }}><Pencil size={13} /></button>
-              {!plugin.builtin && <button className="hbtn" title="Remove plugin" onClick={async () => { await window.termflow.plugins.remove(plugin.id); await reload() }}><Trash2 size={13} /></button>}
+              <button className={`hbtn${plugin.enabled === false ? '' : ' active'}`} title={plugin.enabled === false ? 'Enable plugin' : 'Disable plugin'} onClick={async () => { await window.termflow.plugins.setEnabled(plugin.id, plugin.enabled === false); await reload(); window.dispatchEvent(new Event('termflow:plugins-changed')) }}><Power size={13} /></button>
+              {plugin.entry && <button className="hbtn" title="Reload plugin host" onClick={async () => { await window.termflow.plugins.reload(plugin.id); setDiagnostics(await window.termflow.plugins.diagnostics()) }}><Play size={13} /></button>}
+              {!plugin.builtin && <button className="hbtn" title="Remove plugin" onClick={async () => { await window.termflow.plugins.remove(plugin.id); await reload(); window.dispatchEvent(new Event('termflow:plugins-changed')) }}><Trash2 size={13} /></button>}
             </header>
             {plugin.description && <p>{plugin.description}</p>}
-            <div>{plugin.commands.map((command) => <button className="dev-task" key={command.id} onClick={() => addTerminal(command.shell || 'custom', { name: command.title, startupCommand: command.command, cwd: command.cwd || workspace?.path })}><Play size={12} /><span>{command.title}</span><em>{command.command}</em></button>)}</div>
+            <p>{(plugin.permissions || []).join(' · ')}{plugin.activationEvents?.length ? ` · ${plugin.activationEvents.join(', ')}` : ''}</p>
+            <div>{plugin.commands.map((command) => <button className="dev-task" disabled={plugin.enabled === false} key={command.id} onClick={() => addTerminal(command.shell || 'custom', { name: command.title, startupCommand: command.command, cwd: command.cwd?.replaceAll('${workspaceFolder}', workspace?.path || '') || workspace?.path })}><Play size={12} /><span>{command.title}</span><em>{command.command}</em></button>)}</div>
           </section>
         ))}</div>
+        {registry.length > 0 && <section className="plugin-marketplace"><h4>Registry</h4>{registry.map((entry) => <div key={entry.id}><span><strong>{entry.name}</strong><small>{entry.publisher} · v{entry.version} · {entry.description}</small></span><button className="btn" onClick={async () => { try { await window.termflow.plugins.installFromRegistry(entry); await reload(); window.dispatchEvent(new Event('termflow:plugins-changed')); setMessage(`${entry.name} installed`) } catch (e) { setMessage((e as Error).message) } }}>Install</button></div>)}</section>}
+        <details className="plugin-sdk"><summary>Plugin diagnostics ({diagnostics.length})</summary><div className="plugin-diagnostics">{diagnostics.length ? diagnostics.map((item, index) => <p key={`${item.timestamp}:${index}`} className={item.level}><time>{new Date(item.timestamp).toLocaleTimeString()}</time><strong>{item.pluginId}</strong><span>{item.message}</span></p>) : <p>No runtime diagnostics.</p>}</div></details>
         <details className="plugin-sdk"><summary>Plugin SDK manifest example</summary><pre>{manifestExample}</pre></details>
       </div>
     </div>

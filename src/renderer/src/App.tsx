@@ -20,6 +20,8 @@ import CommandPalette, { type PaletteCommand } from './components/CommandPalette
 import CanvasFlow from './canvas/CanvasFlow'
 import { useAppStore } from './store/appStore'
 import { getActiveTerminalId } from './paneUtils'
+import type { TermFlowPluginManifest } from '../../shared/types'
+import { pluginMatchesWorkspace } from '../../shared/pluginValidation'
 
 function ConnectionInspector(): React.JSX.Element | null {
   const id = useAppStore((s) => s.selectedConnectionId)
@@ -97,6 +99,7 @@ export default function App(): React.JSX.Element {
   const snippets = useAppStore((s) => s.snippets)
   const sshProfiles = useAppStore((s) => s.sshProfiles)
   const projectManifest = useAppStore((s) => s.projectManifest)
+  const activeWorkspace = useAppStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId))
 
   const [showWsModal, setShowWsModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -106,6 +109,7 @@ export default function App(): React.JSX.Element {
   const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
   const [showProviderManager, setShowProviderManager] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
+  const [pluginCommands, setPluginCommands] = useState<TermFlowPluginManifest[]>([])
   const [confirm, setConfirm] = useState<{
     title: string
     message: string
@@ -134,6 +138,23 @@ export default function App(): React.JSX.Element {
       window.removeEventListener('termflow:close-all-terminals', closeAll)
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    const loadPlugins = async (): Promise<void> => {
+      const [plugins, files] = await Promise.all([
+        window.termflow.plugins.list(),
+        activeWorkspace ? window.termflow.files.list(activeWorkspace.id).catch(() => []) : Promise.resolve([])
+      ])
+      const names = new Set(files.map((file) => file.name.toLowerCase()))
+      const platform = navigator.userAgent.includes('Windows') ? 'win32' : navigator.userAgent.includes('Mac') ? 'darwin' : 'linux'
+      if (active) setPluginCommands(plugins.filter((plugin) => plugin.enabled !== false && pluginMatchesWorkspace(plugin, names, platform)))
+    }
+    const onChanged = (): void => { void loadPlugins() }
+    void loadPlugins()
+    window.addEventListener('termflow:plugins-changed', onChanged)
+    return () => { active = false; window.removeEventListener('termflow:plugins-changed', onChanged) }
+  }, [activeWorkspace])
 
   const loadSnippets = useAppStore((s) => s.loadSnippets)
   const loadHighlightRules = useAppStore((s) => s.loadHighlightRules)
@@ -191,6 +212,15 @@ export default function App(): React.JSX.Element {
         id: `manifest-task:${task.name}`,
         title: `Task: ${task.name}`,
         run: () => s().runManifestTask(task.name)
+      }))),
+      ...pluginCommands.flatMap((plugin) => plugin.commands.map((command) => ({
+        id: `plugin:${plugin.id}:${command.id}`,
+        title: `${command.category || plugin.name}: ${command.title}`,
+        run: () => s().addTerminal(command.shell || 'custom', {
+          name: command.title,
+          startupCommand: command.command,
+          cwd: command.cwd?.replaceAll('${workspaceFolder}', activeWorkspace?.path || '') || activeWorkspace?.path
+        })
       }))),
       {
         id: 'apply-manifest',
@@ -275,7 +305,7 @@ export default function App(): React.JSX.Element {
       { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
     ]
     return cmds
-  }, [canvasSize, snippets, sshProfiles, projectManifest])
+  }, [canvasSize, snippets, sshProfiles, projectManifest, pluginCommands, activeWorkspace])
 
   // Keyboard shortcuts (PRD §21). Ctrl+Alt combos avoid clashing with terminal input.
   useEffect(() => {

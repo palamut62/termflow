@@ -23,6 +23,8 @@ import {
   ,type GitWorkbenchState
   ,type CredentialMeta
   ,type TermFlowPluginManifest
+  ,type PluginDiagnostic
+  ,type PluginRegistryEntry
 } from '../shared/types'
 
 // Windows OS build number (e.g. 26200 for current Win11). xterm's windowsPty
@@ -115,7 +117,12 @@ const api = {
     list: (): Promise<TermFlowPluginManifest[]> => ipcRenderer.invoke(IPC.PLUGIN_LIST),
     install: (): Promise<TermFlowPluginManifest | null> => ipcRenderer.invoke(IPC.PLUGIN_INSTALL),
     save: (manifest: TermFlowPluginManifest): Promise<TermFlowPluginManifest> => ipcRenderer.invoke(IPC.PLUGIN_SAVE, manifest),
-    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.PLUGIN_DELETE, id)
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.PLUGIN_DELETE, id),
+    setEnabled: (id: string, enabled: boolean): Promise<void> => ipcRenderer.invoke(IPC.PLUGIN_SET_ENABLED, id, enabled),
+    diagnostics: (): Promise<PluginDiagnostic[]> => ipcRenderer.invoke(IPC.PLUGIN_DIAGNOSTICS),
+    reload: (id: string): Promise<void> => ipcRenderer.invoke(IPC.PLUGIN_RELOAD, id),
+    registry: (): Promise<PluginRegistryEntry[]> => ipcRenderer.invoke(IPC.PLUGIN_REGISTRY_LIST),
+    installFromRegistry: (entry: PluginRegistryEntry): Promise<TermFlowPluginManifest> => ipcRenderer.invoke(IPC.PLUGIN_REGISTRY_INSTALL, entry)
   },
   workflowPackages: {
     export: (): Promise<void> => ipcRenderer.invoke(IPC.FLOW_PACKAGE_EXPORT),

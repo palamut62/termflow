@@ -365,19 +365,36 @@ For automatic updates, stable releases use normal semantic versions and the `lat
 
 ### Plugin SDK
 
-Plugins are declarative JSON manifests. They cannot inject JavaScript into the renderer; each command is shown to the user and runs in a TermFlow terminal:
+TermFlow supports declarative workflow plugins and optional runtime plugins. Runtime code never loads into the renderer or main process: it runs in a dedicated utility process inside a restricted VM and receives only the declared capability API.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "acme.dev-tools",
   "name": "ACME Dev Tools",
   "version": "1.0.0",
+  "publisher": "ACME",
+  "entry": "entry.js",
+  "activationEvents": ["workspaceContains:package.json"],
+  "permissions": ["terminal:execute"],
   "commands": [
     { "id": "test", "title": "Run tests", "command": "npm test", "shell": "cmd" }
   ]
 }
 ```
+
+Create and package a plugin with the bundled SDK CLI:
+
+```bash
+npm run plugin -- init ./my-plugin
+npm run plugin -- validate ./my-plugin
+npm run plugin -- test ./my-plugin
+npm run plugin -- pack ./my-plugin
+```
+
+The resulting `.tfplugin` bundle contains its manifest and runtime files plus a SHA-256 integrity value. Install bundles from Extensions, or use `npm run plugin -- install ./my-plugin` during local development. Set `TERMFLOW_PLUGIN_DIR` to override the development install directory.
+
+Supported activation events are `onStartupFinished`, `workspaceContains:<file>`, `platform:win32`, `platform:linux`, `platform:darwin`, and `*`. Runtime permissions are explicit and shown in the manager. Plugins can be disabled per installation, reloaded during development, and inspected through Plugin diagnostics. A registry catalog can be supplied at `%APPDATA%/termflow/plugin-registry.json`; registry packages must use HTTPS and may pin the bundle SHA-256.
 
 ## Roadmap
 
@@ -388,7 +405,7 @@ Plugins are declarative JSON manifests. They cannot inject JavaScript into the r
 - [x] Project manifest onboarding
 - [x] Agent activity detection panel
 - [ ] Terminal recording replay
-- [ ] Plugin system for custom shell integrations
+- [x] Plugin SDK, isolated runtime, diagnostics, signed-integrity packages, and registry catalog
 - [ ] Linux/macOS PTY support
 - [ ] Team workspace sharing via WebSocket
 

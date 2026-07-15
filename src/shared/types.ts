@@ -293,7 +293,33 @@ export interface WorkspaceFileEntry { name: string; path: string; directory: boo
 export interface GitWorkbenchState { branch: string; status: string; diff: string; isRepo: boolean }
 export interface CredentialMeta { id: string; name: string; provider: string; envKey: string; workspaceId: string | null; updatedAt: string }
 export interface AgentMetric { terminalId: string; agentName: string; startedAt: string; endedAt?: string; durationMs: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number }
-export interface TermFlowPluginManifest { schemaVersion: 1; id: string; name: string; version: string; description?: string; builtin?: boolean; commands: Array<{ id: string; title: string; command: string; shell?: ShellKind; cwd?: string }> }
+export type PluginPermission = 'terminal:execute' | 'workspace:read' | 'workspace:write' | 'network:access'
+export interface TermFlowPluginCommand {
+  id: string
+  title: string
+  command: string
+  shell?: ShellKind
+  cwd?: string
+  description?: string
+  category?: string
+}
+export interface TermFlowPluginManifest {
+  schemaVersion: 1 | 2
+  id: string
+  name: string
+  version: string
+  description?: string
+  publisher?: string
+  engines?: { termflow: string }
+  entry?: string
+  activationEvents?: string[]
+  permissions?: PluginPermission[]
+  builtin?: boolean
+  enabled?: boolean
+  commands: TermFlowPluginCommand[]
+}
+export interface PluginDiagnostic { pluginId: string; level: 'info' | 'warning' | 'error'; message: string; timestamp: string }
+export interface PluginRegistryEntry { id: string; name: string; version: string; description: string; publisher: string; packageUrl: string; sha256?: string }
 
 export interface WorkspaceHealthCheck {
   id: string
@@ -489,6 +515,11 @@ export const IPC = {
   PLUGIN_INSTALL: 'plugin:install',
   PLUGIN_SAVE: 'plugin:save',
   PLUGIN_DELETE: 'plugin:delete',
+  PLUGIN_SET_ENABLED: 'plugin:setEnabled',
+  PLUGIN_DIAGNOSTICS: 'plugin:diagnostics',
+  PLUGIN_RELOAD: 'plugin:reload',
+  PLUGIN_REGISTRY_LIST: 'plugin:registryList',
+  PLUGIN_REGISTRY_INSTALL: 'plugin:registryInstall',
   FLOW_PACKAGE_EXPORT: 'flowPackage:export',
   FLOW_PACKAGE_IMPORT: 'flowPackage:import',
   RECOVERY_STATUS: 'recovery:status',

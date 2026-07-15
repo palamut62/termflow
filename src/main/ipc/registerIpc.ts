@@ -1,4 +1,5 @@
-import { app, ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
+import { app, ipcMain, dialog, BrowserWindow, safeStorage, net } from 'electron'
+import { createHash } from 'crypto'
 import pidusage from 'pidusage'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -47,6 +48,8 @@ import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyMan
 import { discoverShells } from '../pty/shells'
 import * as dbApi from '../db/database'
 import { validateManifest, validateWorkspaceExport } from '../../shared/validation'
+import { validatePluginManifest } from '../../shared/pluginValidation'
+import { PluginRuntime } from '../plugins/PluginRuntime'
 
 const MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
 const MAX_PREVIEW_BYTES = 512 * 1024
@@ -105,6 +108,7 @@ async function workspaceEnv(workspaceId: string, cleanProviderEnv = false): Prom
 }
 
 export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
+  const pluginRuntime = new PluginRuntime()
   const pty = new PtyManager(() => {
     // A destroyed BrowserWindow throws on `.webContents` access, so guard the
     // window itself before touching webContents (fixes "Object has been
@@ -304,7 +308,38 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.VAULT_DELETE, async (_e, id: string) => writeVault((await readVault()).filter((item) => item.id !== id)))
 
   const pluginsDir = join(app.getPath('userData'), 'plugins')
+  const pluginStateFile = join(app.getPath('userData'), 'plugin-state.json')
   const ensurePlugins = async (): Promise<void> => { await mkdir(pluginsDir, { recursive: true }) }
+  const readDisabledPlugins = async (): Promise<Set<string>> => {
+    try {
+      const value = JSON.parse(await readFile(pluginStateFile, 'utf-8')) as { disabled?: unknown }
+      return new Set(Array.isArray(value.disabled) ? value.disabled.filter((id): id is string => typeof id === 'string') : [])
+    } catch { return new Set() }
+  }
+  const writeDisabledPlugins = async (disabled: Set<string>): Promise<void> => {
+    await writeFile(pluginStateFile, JSON.stringify({ disabled: [...disabled].sort() }, null, 2), 'utf-8')
+  }
+  const installPluginBundle = async (raw: string, expectedHash?: string): Promise<TermFlowPluginManifest> => {
+    if (Buffer.byteLength(raw) > MAX_JSON_FILE_BYTES) throw new Error('Plugin package is too large')
+    const parsed = JSON.parse(raw) as { format?: string; formatVersion?: number; manifest?: unknown; files?: Record<string, string>; sha256?: string }
+    if (parsed.format !== 'termflow-plugin-bundle' || parsed.formatVersion !== 1 || !parsed.manifest || !parsed.files) throw new Error('Invalid TermFlow plugin package')
+    const unsigned = JSON.stringify({ format: parsed.format, formatVersion: parsed.formatVersion, manifest: parsed.manifest, files: parsed.files })
+    const hash = createHash('sha256').update(unsigned).digest('hex')
+    if (hash !== parsed.sha256 || (expectedHash && hash !== expectedHash)) throw new Error('Plugin package integrity check failed')
+    const plugin = validatePluginManifest(parsed.manifest)
+    const targetDir = join(pluginsDir, plugin.id)
+    await mkdir(targetDir, { recursive: true })
+    for (const [name, content] of Object.entries(parsed.files)) {
+      if (!/^[a-zA-Z0-9._/-]+$/.test(name) || name.includes('..') || isAbsolute(name)) throw new Error('Plugin package contains an unsafe path')
+      const target = join(targetDir, name)
+      await mkdir(resolve(target, '..'), { recursive: true })
+      await writeFile(target, Buffer.from(content, 'base64'))
+    }
+    await writeFile(join(targetDir, 'termflow-plugin.json'), JSON.stringify(plugin, null, 2), 'utf-8')
+    await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8')
+    await pluginRuntime.activate(plugin, targetDir)
+    return { ...plugin, enabled: true }
+  }
   // Ships-with-the-app example plugins — same pattern as builtin flow
   // templates: listed alongside user plugins, not stored on disk, not deletable.
   const BUILTIN_PLUGINS: TermFlowPluginManifest[] = [
@@ -352,33 +387,61 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       ]
     }
   ]
-  const validatePlugin = (value: unknown): TermFlowPluginManifest => {
-    const item = value as Partial<TermFlowPluginManifest>
-    if (item.schemaVersion !== 1 || !item.id?.match(/^[a-z0-9][a-z0-9._-]+$/i) || !item.name || !item.version || !Array.isArray(item.commands)) throw new Error('Invalid TermFlow plugin manifest')
-    for (const command of item.commands) if (!command.id || !command.title || !command.command) throw new Error('Plugin command is invalid')
-    return item as TermFlowPluginManifest
-  }
   ipcMain.handle(IPC.PLUGIN_LIST, async (): Promise<TermFlowPluginManifest[]> => {
     await ensurePlugins()
+    const disabled = await readDisabledPlugins()
     const files = (await readdir(pluginsDir)).filter((file) => file.endsWith('.json'))
     const results = await Promise.all(files.map(async (file) => {
-      try { return validatePlugin(JSON.parse(await readFile(join(pluginsDir, file), 'utf-8'))) } catch { return null }
+      try { return validatePluginManifest(JSON.parse(await readFile(join(pluginsDir, file), 'utf-8'))) } catch { return null }
     }))
     const user = results.filter((p): p is TermFlowPluginManifest => !!p)
     // Builtins first; a user plugin with the same id overrides the builtin.
     const userIds = new Set(user.map((p) => p.id))
-    return [...BUILTIN_PLUGINS.filter((p) => !userIds.has(p.id)), ...user]
+    const plugins = [...BUILTIN_PLUGINS.map(validatePluginManifest).filter((p) => !userIds.has(p.id)), ...user]
+      .map((plugin) => ({ ...plugin, enabled: !disabled.has(plugin.id) }))
+    await Promise.all(plugins.filter((plugin) => plugin.enabled && plugin.entry).map(async (plugin) => {
+      try { await pluginRuntime.activate(plugin, join(pluginsDir, plugin.id)) } catch (error) { console.warn(`[plugin:${plugin.id}]`, error) }
+    }))
+    return plugins
   })
   ipcMain.handle(IPC.PLUGIN_INSTALL, async (): Promise<TermFlowPluginManifest | null> => {
-    const result = await dialog.showOpenDialog(getWindow()!, { title: 'Install TermFlow plugin', properties: ['openFile'], filters: [{ name: 'TermFlow Plugin', extensions: ['json'] }] })
+    const result = await dialog.showOpenDialog(getWindow()!, { title: 'Install TermFlow plugin', properties: ['openFile'], filters: [{ name: 'TermFlow Plugin', extensions: ['json', 'tfplugin'] }] })
     if (result.canceled || !result.filePaths[0]) return null
     const info = await stat(result.filePaths[0]); if (info.size > MAX_JSON_FILE_BYTES) throw new Error('Plugin manifest is too large')
-    const plugin = validatePlugin(JSON.parse(await readFile(result.filePaths[0], 'utf-8'))); await ensurePlugins(); await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return plugin
+    const raw = await readFile(result.filePaths[0], 'utf-8')
+    if (result.filePaths[0].endsWith('.tfplugin')) return installPluginBundle(raw)
+    const plugin = validatePluginManifest(JSON.parse(raw)); await ensurePlugins(); await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return { ...plugin, enabled: true }
   })
   ipcMain.handle(IPC.PLUGIN_SAVE, async (_e, manifest: unknown): Promise<TermFlowPluginManifest> => {
-    const plugin = validatePlugin(manifest); await ensurePlugins(); await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return plugin
+    const plugin = validatePluginManifest(manifest); await ensurePlugins(); await writeFile(join(pluginsDir, `${plugin.id}.json`), JSON.stringify(plugin, null, 2), 'utf-8'); return { ...plugin, enabled: true }
   })
-  ipcMain.handle(IPC.PLUGIN_DELETE, async (_e, id: string) => { const file = join(pluginsDir, `${id}.json`); try { await unlink(file) } catch { /* not present */ } })
+  ipcMain.handle(IPC.PLUGIN_DELETE, async (_e, id: string) => {
+    if (!/^[a-z0-9][a-z0-9._-]+$/.test(id)) throw new Error('Plugin ID is invalid')
+    try { await unlink(join(pluginsDir, `${id}.json`)) } catch { /* not present */ }
+    const disabled = await readDisabledPlugins(); disabled.delete(id); await writeDisabledPlugins(disabled)
+  })
+  ipcMain.handle(IPC.PLUGIN_SET_ENABLED, async (_e, id: string, enabled: boolean): Promise<void> => {
+    if (!/^[a-z0-9][a-z0-9._-]+$/.test(id) || typeof enabled !== 'boolean') throw new Error('Plugin state is invalid')
+    const disabled = await readDisabledPlugins()
+    if (enabled) disabled.delete(id); else disabled.add(id)
+    await writeDisabledPlugins(disabled)
+    if (!enabled) await pluginRuntime.deactivate(id)
+  })
+  ipcMain.handle(IPC.PLUGIN_DIAGNOSTICS, (): ReturnType<PluginRuntime['diagnostics']> => pluginRuntime.diagnostics())
+  ipcMain.handle(IPC.PLUGIN_RELOAD, async (_e, id: string): Promise<void> => {
+    const plugin = (await readFile(join(pluginsDir, `${id}.json`), 'utf-8').then(JSON.parse).then(validatePluginManifest))
+    await pluginRuntime.activate(plugin, join(pluginsDir, id))
+  })
+  ipcMain.handle(IPC.PLUGIN_REGISTRY_LIST, async () => {
+    try { return JSON.parse(await readFile(join(app.getPath('userData'), 'plugin-registry.json'), 'utf-8')) } catch { return [] }
+  })
+  ipcMain.handle(IPC.PLUGIN_REGISTRY_INSTALL, async (_e, entry: { packageUrl: string; sha256?: string }) => {
+    const url = new URL(entry.packageUrl)
+    if (url.protocol !== 'https:') throw new Error('Registry packages must use HTTPS')
+    const response = await net.fetch(url.toString())
+    if (!response.ok) throw new Error(`Plugin download failed: ${response.status}`)
+    return installPluginBundle(await response.text(), entry.sha256)
+  })
 
   // ---- Workspace Export/Import (shared helpers also power templates + clone) ----
   function buildWorkspaceExport(workspaceId: string): WorkspaceExport | null {
