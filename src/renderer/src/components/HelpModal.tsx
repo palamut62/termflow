@@ -1,6 +1,7 @@
-import { Bot, FolderOpen, Grid2X2, HeartPulse, Keyboard, Radio, Search, Settings, TerminalSquare, X, type LucideIcon } from 'lucide-react'
+import { Bot, FolderOpen, Grid2X2, HeartPulse, Info, Keyboard, Radio, Search, Settings, TerminalSquare, X, type LucideIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useModalClose } from '../hooks/useModalClose'
+import { APP_VERSION, CHANGELOG, DEVELOPER } from '../appInfo'
 
 interface HelpTopic {
   id: string
@@ -49,11 +50,49 @@ const topics: HelpTopic[] = [
 const categoryIcons: Record<string, LucideIcon> = {
   'Getting started': Grid2X2, Terminals: TerminalSquare, Layout: Grid2X2,
   'AI providers': Bot, Workflows: Radio, 'Developer tools': HeartPulse,
-  Application: Settings, Reference: Keyboard, Troubleshooting: HeartPulse
+  Application: Settings, Reference: Keyboard, Troubleshooting: HeartPulse, About: Info
+}
+
+function AboutPanel(): React.JSX.Element {
+  return (
+    <article className="help-article about-article">
+      <span className="help-kicker">About</span>
+      <h2>TermFlow</h2>
+      <p className="about-version">Version {APP_VERSION}</p>
+      <p>{DEVELOPER.bio}</p>
+
+      <h4>Developer</h4>
+      <p className="about-dev">
+        <strong>{DEVELOPER.name}</strong> · {DEVELOPER.role}
+      </p>
+      <div className="about-links">
+        {DEVELOPER.links.map((link) => (
+          <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer">
+            {link.label}
+          </a>
+        ))}
+      </div>
+
+      <h4>Changelog</h4>
+      {CHANGELOG.map((entry) => (
+        <div className="about-release" key={entry.version}>
+          <div className="about-release-head">
+            <strong>v{entry.version}</strong>
+            <em>{entry.date}</em>
+          </div>
+          <ul>
+            {entry.changes.map((change) => (
+              <li key={change}>{change}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </article>
+  )
 }
 
 export default function HelpModal({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const categories = [...new Set(topics.map((topic) => topic.category))]
+  const categories = [...new Set(topics.map((topic) => topic.category)), 'About']
   const [category, setCategory] = useState(categories[0])
   const [query, setQuery] = useState('')
   const [activeId, setActiveId] = useState(topics[0].id)
@@ -61,6 +100,7 @@ export default function HelpModal({ onClose }: { onClose: () => void }): React.J
     const matchesQuery = `${topic.title} ${topic.summary} ${topic.steps.join(' ')}`.toLowerCase().includes(query.toLowerCase())
     return matchesQuery && (!query || topic.category === category || query.length > 0)
   }), [category, query])
+  const isAbout = category === 'About' && !query
   const visible = query ? filtered : topics.filter((topic) => topic.category === category)
   const active = visible.find((topic) => topic.id === activeId) ?? visible[0]
   useModalClose(onClose)
@@ -75,12 +115,22 @@ export default function HelpModal({ onClose }: { onClose: () => void }): React.J
             {categories.map((item) => { const Icon = categoryIcons[item] ?? FolderOpen; return <button className={category === item && !query ? 'active' : ''} key={item} onClick={() => { setQuery(''); setCategory(item); const first = topics.find((topic) => topic.category === item); if (first) setActiveId(first.id) }}><Icon size={14} /><span>{item}</span></button> })}
           </nav>
           <div className="help-topics">
-            {visible.length === 0 && <div className="help-empty">No matching help topic.</div>}
-            {visible.map((topic) => <button className={active?.id === topic.id ? 'active' : ''} key={topic.id} onClick={() => setActiveId(topic.id)}><strong>{topic.title}</strong><span>{topic.summary}</span></button>)}
+            {isAbout ? (
+              <button className="active"><strong>About TermFlow</strong><span>Version, changelog and developer.</span></button>
+            ) : (
+              <>
+                {visible.length === 0 && <div className="help-empty">No matching help topic.</div>}
+                {visible.map((topic) => <button className={active?.id === topic.id ? 'active' : ''} key={topic.id} onClick={() => setActiveId(topic.id)}><strong>{topic.title}</strong><span>{topic.summary}</span></button>)}
+              </>
+            )}
           </div>
-          <article className="help-article">
-            {active && <><span className="help-kicker">{active.category}</span><h2>{active.title}</h2><p>{active.summary}</p><h4>How to use it</h4><ol>{active.steps.map((step) => <li key={step}>{step}</li>)}</ol>{active.notes?.length && <><h4>Important notes</h4><ul>{active.notes.map((note) => <li key={note}>{note}</li>)}</ul></>}</>}
-          </article>
+          {isAbout ? (
+            <AboutPanel />
+          ) : (
+            <article className="help-article">
+              {active && <><span className="help-kicker">{active.category}</span><h2>{active.title}</h2><p>{active.summary}</p><h4>How to use it</h4><ol>{active.steps.map((step) => <li key={step}>{step}</li>)}</ol>{active.notes?.length && <><h4>Important notes</h4><ul>{active.notes.map((note) => <li key={note}>{note}</li>)}</ul></>}</>}
+            </article>
+          )}
         </div>
       </div>
     </div>
