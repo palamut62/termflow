@@ -201,6 +201,16 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       }
     }
 
+    // Prune orphaned terminal records: sessions persisted by earlier runs that
+    // aren't referenced by any layout node. Their PTYs never survive a restart,
+    // so without this they pile up forever as "stopped" detached sessions.
+    for (const t of Object.values(terminals)) {
+      if (!termIds.has(t.id)) {
+        delete terminals[t.id]
+        window.termflow.terminals.remove(t.id).catch(() => {})
+      }
+    }
+
     if (request !== workspaceRequest) return
     const [snippets, highlightRules, sshProfiles] = await Promise.all([
       window.termflow.snippets.list(id),

@@ -9,6 +9,7 @@ import { useAppStore } from '../store/appStore'
 import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
 import { getLeafTerminalIds } from '../paneUtils'
+import TerminalAgentPanel from './TerminalAgentPanel'
 
 // Short two-tone chime for the terminal bell (\x07). Web Audio, no asset —
 // throttled so a burst of BELs doesn't stack into noise.
@@ -37,6 +38,12 @@ function playBell(): void {
 interface Props {
   terminalId: string
   active: boolean
+}
+
+function formatDroppedPaths(files: FileList): string {
+  return Array.from(files)
+    .map((file) => JSON.stringify(window.termflow.system.getPathForFile(file)))
+    .join(' ')
 }
 
 /**
@@ -355,13 +362,29 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     if (node.panes && node.activePaneId !== terminalId) st.setActivePane(node.id, terminalId)
   }
 
+  const acceptFileDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!event.dataTransfer.files.length) return
+    activateOnClick()
+    const paths = formatDroppedPaths(event.dataTransfer.files)
+    if (!paths) return
+    window.termflow.pty.write(terminalId, paths)
+    termRef.current?.focus()
+  }
+
   return (
     <div
       style={{ position: 'relative', width: '100%', height: '100%' }}
       className="nodrag nowheel"
       onMouseDownCapture={activateOnClick}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+      }}
+      onDrop={acceptFileDrop}
     >
       <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
+      <TerminalAgentPanel terminalId={terminalId} />
       {searchVisible && (
         <div
           style={{

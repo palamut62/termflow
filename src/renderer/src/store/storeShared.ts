@@ -44,12 +44,37 @@ export function registerThemeStore(store: { getState: () => { settings: AppSetti
   themeStore = store
 }
 
+// Known AI coding CLIs. If a terminal was launched with one of these (its
+// startupCommand), we treat it as an agent session even when its node was never
+// explicitly tagged with an agentRole — so the per-terminal agent panel works
+// out of the box for every AI tool, not just pre-tagged Claude nodes.
+const AI_CLI_RE = /\b(claude|codex|gemini|aider|opencode|crush|qwen|cursor-agent|copilot|goose|cline|amp|ollama\s+run)\b/i
+
+// Output banners that reveal an AI CLI was started by hand inside a plain shell
+// (so startupCommand is empty). Conservative — specific phrases only, to avoid
+// flipping an ordinary terminal into "agent mode" on a stray keyword.
+const AI_BANNER_RE = /welcome to claude code|claude code v|▐▛|welcome to codex|openai codex|gemini cli|aider v\d|opencode|goose session|╭─+ *codex/i
+
+// Tool invocations as AI CLIs actually render them: a bullet (stripped upstream)
+// followed by `ToolName(args)`. Deterministic and low false-positive.
+const TOOL_NAMES = 'Bash|Read|Edit|Write|MultiEdit|Grep|Glob|WebFetch|WebSearch|NotebookEdit|TodoWrite|Update|LS|Search|Fetch|Move|Rename|Delete'
+const TOOL_CALL_RE = new RegExp(`^(?:${TOOL_NAMES})\\(`)
+
+// Terminals observed running an AI CLI this session (via startupCommand or a
+// banner in the output). Module-level so detection persists across data chunks.
+const aiToolTerminals = new Set<string>()
+
 const AGENT_PATTERNS: { kind: AgentActivity['kind']; re: RegExp; nameGroup?: number; messageGroup?: number }[] = [
-  { kind: 'subagent', re: /\b(?:sub-?agent|agent team|team agent)\b[:\s-]*([A-Za-z0-9 _.-]+)?/i, nameGroup: 1 },
+  // Structured / explicit sub-agent handoffs first (most reliable).
+  { kind: 'handoff', re: /@@HANDOFF@@([\s\S]*?)@@END@@/i, messageGroup: 1 },
+  // Claude Code Task tool = a sub-agent dispatch: `Task(description)`.
+  { kind: 'subagent', re: /^Task\(([\s\S]{0,180}?)\)\s*$/, messageGroup: 1 },
+  { kind: 'subagent', re: /\b(?:sub-?agent|agent team|team agent|dispatch(?:ing)? agent|spawn(?:ing)? agent)\b[:\s-]*([A-Za-z0-9 _.-]+)?/i, nameGroup: 1 },
+  // Real tool-call render: `Bash(npm test)`, `Read(src/foo.ts)`, etc.
+  { kind: 'tool', re: new RegExp(`^((?:${TOOL_NAMES})\\([\\s\\S]{0,180}?\\))`), messageGroup: 1 },
   { kind: 'task', re: /\b(?:Task|Todo|Plan|Delegating|Assigned)\b[:\s-]+(.+)/i, messageGroup: 1 },
   { kind: 'tool', re: /\b(?:Tool|Using tool|Running tool|Bash|Edit|Read|Write)\b[:\s-]+(.+)/i, messageGroup: 1 },
-  { kind: 'handoff', re: /@@HANDOFF@@([\s\S]*?)@@END@@/i, messageGroup: 1 },
-  { kind: 'status', re: /\b(?:started|completed|failed|reviewing|coding|testing|debugging)\b[:\s-]*(.+)?/i, messageGroup: 1 }
+  { kind: 'status', re: /\b(?:started|completed|finished|failed|error|reviewing|coding|testing|debugging|thinking|running)\b[:\s-]*(.+)?/i, messageGroup: 1 }
 ]
 
 export function parseAgentActivities(
@@ -60,7 +85,17 @@ export function parseAgentActivities(
 ): AgentActivity[] {
   const node = nodes.find((n) => n.terminalId === terminalId || (n.panes ? getLeafTerminalIds(n.panes).includes(terminalId) : false))
   const terminal = terminals[terminalId]
-  if (!node?.agentType && !node?.agentRole) return []
+
+  // Treat this terminal as an agent session if EITHER it was explicitly tagged
+  // (agentType/agentRole), OR it runs a known AI CLI (detected from its launch
+  // command or, for hand-typed sessions, from a banner in the output). Once
+  // detected via a banner the flag sticks for the rest of the session.
+  const startup = terminal?.startupCommand || ''
+  if (AI_CLI_RE.test(startup)) aiToolTerminals.add(terminalId)
+  if (!aiToolTerminals.has(terminalId) && AI_BANNER_RE.test(data)) aiToolTerminals.add(terminalId)
+  const isAgentSession = !!(node?.agentType || node?.agentRole) || aiToolTerminals.has(terminalId)
+  if (!isAgentSession) return []
+
   const sourceName = node?.agentRole || node?.title || terminal?.name || 'Agent'
   const lines = data
     .split(/\r?\n/)
@@ -92,7 +127,10 @@ export function parseAgentActivities(
         // Fall through to conservative text detection.
       }
     }
-    if (!/\b(agent|subagent|team|task|todo|tool|handoff|delegat|assigned|started|completed|failed|review|coding|testing|debug)\b|@@HANDOFF@@/i.test(line)) {
+    if (
+      !TOOL_CALL_RE.test(line) &&
+      !/\b(agent|subagent|team|task|todo|tool|handoff|delegat|assigned|spawn|dispatch|started|completed|finished|failed|error|review|coding|testing|debug|thinking|running)\b|@@HANDOFF@@/i.test(line)
+    ) {
       continue
     }
     for (const pattern of AGENT_PATTERNS) {

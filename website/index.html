@@ -42,10 +42,7 @@
       <a href="#changelog">Changelog</a>
     </nav>
     <div class="nav__actions">
-      <a class="btn btn--ghost" href="https://github.com/palamut62/termflow" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.17.08 1.78 1.2 1.78 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.5 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z"/></svg>
-        GitHub
-      </a>
+      <a class="btn btn--ghost" href="https://github.com/palamut62/termflow" target="_blank" rel="noopener">GitHub</a>
       <a class="btn btn--primary" href="#download">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-5.7 1.4-1.4L12 13.6V3h0ZM5 19h14v2H5z"/></svg>
         Download
@@ -76,13 +73,13 @@
       <div class="hero__visual reveal">
         <div class="window">
           <div class="window__bar">
-            <span class="window__dots"><i></i><i></i><i></i></span>
+            <span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span>
             <span class="window__title">TermFlow — Projeler</span>
           </div>
           <img class="window__media" src="./assets/demo-hero.gif" alt="TermFlow running multiple terminals on an adaptive canvas" loading="eager" width="800" />
         </div>
-        <div class="floaty floaty--1">⚡ 4 agents · 1 window</div>
-        <div class="floaty floaty--2">🔒 Windows-encrypted vault</div>
+        <div class="workspace-status workspace-status--top"><span class="status-dot"></span> 4 agents active <b>·</b> one workspace</div>
+        <div class="workspace-status workspace-status--bottom"><span class="status-lock">⌑</span> Local workspace <b>·</b> Windows-encrypted</div>
       </div>
     </section>
 
@@ -102,21 +99,21 @@
         <p>Stop juggling tabs and windows. TermFlow tiles your shells and AI agents on a single, resizable canvas built for how developers actually work.</p>
       </div>
       <div class="pillar-grid">
-        <article class="card reveal">
+        <article class="card reveal" data-module="01">
           <div class="card__icon icon-blue">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 4h16v4H4V4Zm0 6h7v10H4V10Zm9 0h7v10h-7V10Z"/></svg>
           </div>
           <h3>Adaptive tiled canvas</h3>
           <p>Grid, columns, rows, focus and agent-graph modes. Drag terminals to reorder, resize together, pin favorites — no overlapping windows, ever.</p>
         </article>
-        <article class="card reveal">
+        <article class="card reveal" data-module="02">
           <div class="card__icon icon-orange">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2a5 5 0 0 1 5 5v1a5 5 0 0 1-4 4.9V17h3v2h-3v3h-2v-3H8v-2h3v-4.1A5 5 0 0 1 7 8V7a5 5 0 0 1 5-5Z"/></svg>
           </div>
           <h3>First-class AI agents</h3>
           <p>Launch Claude Code, Codex, OpenCode, Ollama or custom providers like DeepSeek &amp; OpenRouter — with truecolor, correct TUI rendering and a bypass badge.</p>
         </article>
-        <article class="card reveal">
+        <article class="card reveal" data-module="03">
           <div class="card__icon icon-yellow">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M11 2 3 14h7l-1 8 8-12h-7l1-8Z"/></svg>
           </div>
@@ -130,7 +127,7 @@
     <section class="split" id="agents">
       <div class="split__media reveal">
         <div class="window">
-          <div class="window__bar"><span class="window__dots"><i></i><i></i><i></i></span><span class="window__title">Claude Code · Codex · OpenCode</span></div>
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Claude Code · Codex · OpenCode</span></div>
           <img class="window__media" src="./assets/demo-agents.gif" alt="Multiple AI agents running side by side in TermFlow" loading="lazy" width="800" />
         </div>
       </div>
@@ -152,7 +149,7 @@
     <section class="split split--rev">
       <div class="split__media reveal">
         <div class="window">
-          <div class="window__bar"><span class="window__dots"><i></i><i></i><i></i></span><span class="window__title">Auto Fit · Grid · Flows</span></div>
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Auto Fit · Grid · Flows</span></div>
           <img class="window__media" src="./assets/demo-layout.gif" alt="Adaptive layouts and drag-to-reorder in TermFlow" loading="lazy" width="800" />
         </div>
       </div>
@@ -173,7 +170,7 @@
     <section class="split">
       <div class="split__media reveal">
         <div class="window">
-          <div class="window__bar"><span class="window__dots"><i></i><i></i><i></i></span><span class="window__title">Developer Center · Git · Plugins</span></div>
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Developer Center · Git · Plugins</span></div>
           <img class="window__media" src="./assets/demo-tools.gif" alt="Developer tools, git and plugins in TermFlow" loading="lazy" width="800" />
         </div>
       </div>
@@ -310,7 +307,6 @@
           </ul>
         </div>
       </div>
-      <p class="changelog__more reveal">Full history on <a href="https://github.com/palamut62/termflow/commits" target="_blank" rel="noopener">GitHub</a>.</p>
     </section>
 
     <!-- ===== DOWNLOAD ===== -->
@@ -318,8 +314,8 @@
       <div class="download__inner reveal">
         <span class="eyebrow">Get TermFlow</span>
         <h2>Download &amp; start in seconds</h2>
-        <p>Windows 10 / 11 (x64). Choose the installer or the portable zip — your workspaces, layouts and settings are kept on updates.</p>
-        <div class="download__cards">
+        <p>Windows 10 / 11 (x64). Install once and keep your workspaces, layouts and settings on updates.</p>
+        <div class="download__cards download__cards--single">
           <a class="dcard dcard--primary" id="dl-installer" href="#" target="_blank" rel="noopener">
             <div class="dcard__head">
               <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-5.7 1.4-1.4L12 13.6V3h0ZM5 19h14v2H5z"/></svg>
@@ -329,21 +325,12 @@
             <p>Guided setup, desktop shortcut &amp; auto-update ready.</p>
             <span class="dcard__file">TermFlow-0.1.0-x64.exe · <span class="dl-size">~91 MB</span></span>
           </a>
-          <a class="dcard" id="dl-portable" href="#" target="_blank" rel="noopener">
-            <div class="dcard__head">
-              <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2Z"/></svg>
-            </div>
-            <h3>Portable (.zip)</h3>
-            <p>No install — unzip and run <code>TermFlow.exe</code>.</p>
-            <span class="dcard__file">TermFlow-0.1.0-x64.zip · <span>~128 MB</span></span>
-          </a>
         </div>
         <ol class="steps">
           <li><b>1.</b> Download the installer.</li>
           <li><b>2.</b> If Windows SmartScreen appears, choose <em>More info → Run anyway</em>.</li>
           <li><b>3.</b> Launch TermFlow and hit <em>New Terminal</em>.</li>
         </ol>
-        <p class="download__note">Prefer a package? Grab assets from the <a href="https://github.com/palamut62/termflow/releases" target="_blank" rel="noopener">GitHub Releases</a> page.</p>
       </div>
     </section>
   </main>
@@ -367,7 +354,7 @@
       <a href="#download">Download</a>
       <a href="https://github.com/palamut62/termflow" target="_blank" rel="noopener">GitHub</a>
     </div>
-    <p class="footer__legal">Built by <a href="https://github.com/palamut62" target="_blank" rel="noopener">palamut62</a>. Not affiliated with Anthropic, OpenAI or Microsoft. © <span id="year"></span> TermFlow.</p>
+    <p class="footer__legal">Designed and built by Umut Çelik. © <span id="year"></span> TermFlow. All rights reserved. <a href="https://github.com/palamut62/termflow" target="_blank" rel="noopener">GitHub repository</a><span class="footer__separator">/</span><a href="https://x.com/palamut62" target="_blank" rel="noopener">X</a></p>
   </footer>
 
   <!-- Lightbox -->

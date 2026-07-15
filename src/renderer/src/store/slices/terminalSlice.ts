@@ -36,6 +36,8 @@ export interface TerminalSlice {
   sendLogToAgent: (sourceNodeId: string, targetNodeId: string | 'new') => Promise<void>
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
   reattachTerminal: (terminalId: string) => Promise<void>
+  terminateDetached: (terminalId: string) => Promise<void>
+  clearAllDetached: () => Promise<void>
   restartNode: (nodeId: string) => Promise<void>
 
   // Broadcast (P0-4)
@@ -63,6 +65,7 @@ export interface TerminalSlice {
 }
 
 let listenersStarted = false
+const cwdPersistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> = (set, get) => ({
   terminals: {},
@@ -384,6 +387,59 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     get().persist()
   },
 
+  // Permanently kill a detached (card-less but still running) session and drop
+  // it from the store — the panel's cleanup action so orphaned processes don't
+  // linger forever. Only valid for terminals not attached to any node.
+  terminateDetached: async (terminalId) => {
+    const st = get()
+    if (!st.terminals[terminalId]) return
+    try {
+      window.termflow.pty.kill(terminalId)
+      await window.termflow.terminals.remove(terminalId)
+    } catch {
+      // Process may already be gone; still drop it from state below.
+    }
+    set((s) => {
+      const terminals = { ...s.terminals }
+      delete terminals[terminalId]
+      const gitStatus = { ...s.gitStatus }
+      delete gitStatus[terminalId]
+      return { terminals, gitStatus }
+    })
+    get().persist()
+  },
+
+  // Terminate & remove every detached (card-less) session at once — the dock's
+  // bulk-cleanup action for when orphaned sessions have piled up.
+  clearAllDetached: async () => {
+    const st = get()
+    const attached = new Set(
+      st.nodes.flatMap((n) => (n.panes ? getLeafTerminalIds(n.panes) : n.terminalId ? [n.terminalId] : []))
+    )
+    const detachedIds = Object.values(st.terminals)
+      .filter((t) => !attached.has(t.id))
+      .map((t) => t.id)
+    if (!detachedIds.length) return
+    for (const tid of detachedIds) {
+      try {
+        window.termflow.pty.kill(tid)
+        await window.termflow.terminals.remove(tid)
+      } catch {
+        // Already gone; still drop from state below.
+      }
+    }
+    set((s) => {
+      const terminals = { ...s.terminals }
+      const gitStatus = { ...s.gitStatus }
+      for (const tid of detachedIds) {
+        delete terminals[tid]
+        delete gitStatus[tid]
+      }
+      return { terminals, gitStatus }
+    })
+    get().persist()
+  },
+
   restartNode: async (nodeId) => {
     const st = get()
     const node = st.nodes.find((n) => n.id === nodeId)
@@ -622,7 +678,17 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     // OSC 7 cwd tracking: keep the terminal's cwd (and thus the git badge)
     // in sync as the user `cd`s around, without polling. (deep git)
     window.termflow.pty.onCwd((id, cwd) => {
-      set((s) => (s.terminals[id] ? { terminals: { ...s.terminals, [id]: { ...s.terminals[id], cwd } } } : {}))
+      const terminal = get().terminals[id]
+      if (!terminal || terminal.cwd === cwd) return
+      const updated = { ...terminal, cwd, updatedAt: new Date().toISOString() }
+      set((s) => ({ terminals: { ...s.terminals, [id]: updated } }))
+      const pending = cwdPersistTimers.get(id)
+      if (pending) clearTimeout(pending)
+      cwdPersistTimers.set(id, setTimeout(() => {
+        cwdPersistTimers.delete(id)
+        const latest = get().terminals[id]
+        if (latest) void window.termflow.terminals.upsert(latest)
+      }, 300))
     })
     window.termflow.recording.onLimit((id, reason) => {
       set({ recordingLimitWarning: { terminalId: id, reason } })

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   IPC,
   type CreateTerminalInput,
@@ -41,7 +41,8 @@ function osBuildNumber(): number {
 const api = {
   // ---- System ----
   system: {
-    osBuildNumber: osBuildNumber()
+    osBuildNumber: osBuildNumber(),
+    getPathForFile: (file: File): string => webUtils.getPathForFile(file)
   },
   // ---- PTY ----
   pty: {

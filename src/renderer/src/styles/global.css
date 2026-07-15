@@ -1602,30 +1602,123 @@ input {
   overflow-wrap: anywhere;
 }
 
-.detached-panel {
-  position: absolute; left: 18px; bottom: 18px; z-index: 9; width: 340px;
-  max-height: 360px; display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid var(--border-soft); border-radius: 8px;
-  background: var(--bg-panel); box-shadow: 0 18px 48px rgba(0,0,0,.35);
+/* Per-terminal agent panel — right-edge overlay inside a single TerminalView. */
+.tap-toggle {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px 4px 8px;
+  border: 1px solid var(--border-soft);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
 }
-.detached-panel .aap-head { background: var(--bg-panel); }
-.detached-panel .aap-list { overflow: auto; }
-.detached-panel .hbtn {
+.tap-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-panel);
+}
+.tap-toggle span {
+  font-weight: 600;
+  color: var(--accent);
+}
+.terminal-agent-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 62%);
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg-panel) 96%, transparent);
+  border-left: 1px solid var(--border-soft);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  z-index: 9;
+}
+.aap-agent.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--accent-soft);
+}
+
+/* Bottom dock — slides up from the bottom edge like a terminal drawer,
+   spanning the full width above the status bar. */
+.detached-dock {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 12;
+  display: flex; flex-direction: column;
+  max-height: min(320px, 45%);
+  border-top: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-panel) 97%, transparent);
+  box-shadow: 0 -14px 40px rgba(0,0,0,.32);
+  animation: detached-dock-in .16s ease-out;
+}
+@keyframes detached-dock-in {
+  from { transform: translateY(100%); opacity: .4; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.detached-dock__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border-soft); flex: none;
+}
+.detached-dock__title {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--text-primary); font-size: 12px;
+}
+.detached-dock__title span {
+  min-width: 18px; padding: 1px 6px; border-radius: 999px; text-align: center;
+  background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700;
+}
+.detached-dock__list {
+  overflow: auto; padding: 8px 10px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px;
+  align-content: start;
+}
+.detached-dock__actions { display: inline-flex; align-items: center; gap: 6px; }
+.detached-dock__clear {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px;
+  border: 1px solid var(--border-soft); border-radius: 6px;
+  background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer;
+}
+.detached-dock__clear:hover {
+  border-color: var(--danger, #e5484d); background: var(--danger, #e5484d); color: #fff;
+}
+.detached-dock__clear svg { display: block; }
+.detached-dock .hbtn {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 28px; height: 28px; padding: 0; border: 1px solid transparent;
   border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer;
 }
-.detached-panel .hbtn:hover {
+.detached-dock .hbtn:hover {
   border-color: var(--border-soft); background: var(--bg-panel-2); color: var(--text-primary);
 }
-.detached-panel .hbtn svg { display: block; }
+.detached-dock .hbtn svg { display: block; }
 .detached-item {
-  display: grid; grid-template-columns: 18px minmax(0,1fr) auto; gap: 8px;
-  width: 100%; align-items: center; padding: 8px; border: 0; border-radius: 6px;
+  display: flex; align-items: stretch; gap: 4px;
+  border: 1px solid var(--border-soft); border-radius: 6px; overflow: hidden;
+  background: var(--bg-panel);
+}
+.detached-item__main {
+  display: grid; grid-template-columns: 16px minmax(0,1fr) auto; gap: 8px;
+  flex: 1 1 auto; min-width: 0; align-items: center; padding: 8px 10px; border: 0;
   background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer;
 }
-.detached-item:hover { background: var(--bg-panel-2); }
+.detached-item__main:hover { background: var(--bg-panel-2); color: var(--text-primary); }
+.detached-item__main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detached-item em { color: var(--text-muted); font-size: 10px; font-style: normal; }
+.detached-item__kill {
+  flex: none; width: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-left: 1px solid var(--border-soft);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.detached-item__kill:hover { background: var(--danger, #e5484d); color: #fff; }
 
 .developer-center {
   position: absolute; right: 18px; top: 18px; z-index: 10; width: min(440px, calc(100% - 36px));

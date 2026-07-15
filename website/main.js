@@ -10,16 +10,13 @@
       and use "./download/TermFlow-0.1.0-x64.exe"
    ============================================================ */
 const DOWNLOADS = {
-  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.1.0-x64.exe',
-  portable:  'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.1.0-x64.zip'
+  installer: 'https://zomlia6emkmpi3hi.public.blob.vercel-storage.com/downloads/TermFlow-0.1.0-x64.exe'
 }
 
 // Wire download buttons
 const inst = document.getElementById('dl-installer')
-const port = document.getElementById('dl-portable')
 const heroDl = document.getElementById('hero-download')
 if (inst) inst.href = DOWNLOADS.installer
-if (port) port.href = DOWNLOADS.portable
 // Hero "Download" scrolls to the section; the actual file links live there.
 
 // Year

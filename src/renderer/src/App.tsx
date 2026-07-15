@@ -7,7 +7,6 @@ import StatusBar from './components/StatusBar'
 import WorkspaceModal from './components/WorkspaceModal'
 import SettingsModal from './components/SettingsModal'
 import SnippetModal from './components/SnippetModal'
-import AgentActivityPanel from './components/AgentActivityPanel'
 import ProjectManifestPanel from './components/ProjectManifestPanel'
 import DetachedSessionsPanel from './components/DetachedSessionsPanel'
 import DeveloperCenter from './components/DeveloperCenter'
@@ -337,7 +336,6 @@ export default function App(): React.JSX.Element {
         </ReactFlowProvider>
         <ConnectionInspector />
         <ProjectManifestPanel />
-        <AgentActivityPanel />
         <DetachedSessionsPanel />
         <DeveloperCenter />
         {nodes.length === 0 && (
