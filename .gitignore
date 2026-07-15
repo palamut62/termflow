@@ -69,3 +69,6 @@ tmp-promo/
 
 # Scratch build variants
 dist-*/
+
+# Keep promo website assets
+!website/assets/**
