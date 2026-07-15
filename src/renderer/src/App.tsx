@@ -87,6 +87,7 @@ function ConnectionInspector(): React.JSX.Element | null {
 
 export default function App(): React.JSX.Element {
   const loadWorkspaces = useAppStore((s) => s.loadWorkspaces)
+  const developerCenterOpen = useAppStore((s) => s.developerCenterOpen)
   const loadSettings = useAppStore((s) => s.loadSettings)
   const startRuntimeListeners = useAppStore((s) => s.startRuntimeListeners)
   const setCanvasSize = useAppStore((s) => s.setCanvasSize)
@@ -320,7 +321,7 @@ export default function App(): React.JSX.Element {
   }, [canvasSize])
 
   return (
-    <div className="app">
+    <div className={`app${developerCenterOpen ? ' dev-docked' : ''}`}>
       <Sidebar onNewWorkspace={() => setShowWsModal(true)} />
       <Toolbar
         canvasSize={canvasSize}
@@ -337,7 +338,6 @@ export default function App(): React.JSX.Element {
         <ConnectionInspector />
         <ProjectManifestPanel />
         <DetachedSessionsPanel />
-        <DeveloperCenter />
         {nodes.length === 0 && (
           <div className="empty-canvas">
             <TerminalSquare size={40} strokeWidth={1.3} />
@@ -346,6 +346,7 @@ export default function App(): React.JSX.Element {
           </div>
         )}
       </div>
+      <DeveloperCenter />
       <StatusBar />
       {showWsModal && <WorkspaceModal onClose={() => setShowWsModal(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}

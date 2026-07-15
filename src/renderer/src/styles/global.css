@@ -1720,12 +1720,28 @@ input {
 }
 .detached-item__kill:hover { background: var(--danger, #e5484d); color: #fff; }
 
-.developer-center {
-  position: absolute; right: 18px; top: 18px; z-index: 10; width: min(440px, calc(100% - 36px));
-  max-height: calc(100% - 36px); overflow: auto; border: 1px solid var(--border-soft);
-  border-radius: 8px; background: var(--bg-panel); box-shadow: 0 18px 48px rgba(0,0,0,.35);
+/* Developer Center as a right dock: it occupies its own grid column so the
+   canvas shrinks beside it (terminals stay fully visible) instead of being
+   covered by a floating overlay. */
+.app.dev-docked {
+  grid-template-columns: var(--sidebar-w, 240px) 1fr var(--devdock-w, 380px);
+  grid-template-areas:
+    'toolbar toolbar toolbar'
+    'sidebar canvas devdock'
+    'sidebar status devdock';
 }
-.developer-center .aap-head { background: var(--bg-panel); }
+.developer-center {
+  grid-area: devdock;
+  overflow: auto;
+  border-left: 1px solid var(--border-soft);
+  background: var(--bg-panel);
+  animation: devdock-in .16s ease-out;
+}
+@keyframes devdock-in {
+  from { transform: translateX(24px); opacity: .5; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.developer-center .aap-head { background: var(--bg-panel); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--border-soft); }
 .developer-center .hbtn {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 28px; height: 28px; padding: 0; border: 1px solid transparent;
@@ -1738,7 +1754,7 @@ input {
 .developer-center .hbtn svg { display: block; }
 .dev-section { padding: 12px 10px; border-bottom: 1px solid var(--border-soft); }
 .dev-section-title { display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin-bottom: 5px; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.dev-task, .health-row { display: grid; grid-template-columns: 18px minmax(90px,.8fr) minmax(0,1.2fr); align-items: center; gap: 7px; width: 100%; padding: 7px; }
+.dev-task, .health-row { display: grid; grid-template-columns: 18px minmax(90px,.8fr) minmax(0,1.2fr) auto; align-items: center; gap: 7px; width: 100%; padding: 7px; }
 .dev-task { border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
 .dev-task:hover { background: var(--bg-panel-2); }
 .dev-task em, .health-row em { overflow: hidden; color: var(--text-muted); font-size: 10px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
@@ -1746,8 +1762,15 @@ input {
 .health-row:hover { background: color-mix(in srgb, var(--bg-panel-2) 65%, transparent); }
 .health-row span { color: var(--text-secondary); }
 .health-row.ok svg { color: var(--success); }
-.health-row.warning svg { color: var(--warning); }
+.health-row.warning svg, .health-row.warn svg { color: var(--warning); }
 .health-row.error svg { color: var(--danger); }
+.health-fix {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 3px 8px; border: 1px solid var(--border-soft); border-radius: 6px;
+  background: transparent; color: var(--text-secondary); font-size: 10px; cursor: pointer;
+}
+.health-fix:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--text-primary); }
+.health-fix svg { display: block; color: var(--accent); }
 .side-error { margin: 0 8px 8px; padding: 7px 8px; border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); border-radius: 6px; color: var(--danger); font-size: 10px; }
 .dev-footer { padding: 12px 10px; background: color-mix(in srgb, var(--bg-panel-2) 35%, transparent); }
 .dev-footer .btn { display: inline-flex; align-items: center; gap: 7px; }

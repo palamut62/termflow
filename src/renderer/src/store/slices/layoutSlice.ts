@@ -16,6 +16,7 @@ export interface LayoutSlice {
   connections: AgentConnection[]
   activeNodeId: string | null
   selectedConnectionId: string | null
+  developerCenterOpen: boolean
   layoutMode: LayoutMode
   viewport: CanvasViewport
   zCounter: number
@@ -24,6 +25,7 @@ export interface LayoutSlice {
   setCanvasSize: (size: { width: number; height: number }) => void
   setActiveNode: (nodeId: string | null) => void
   selectConnection: (id: string | null) => void
+  setDeveloperCenterOpen: (open: boolean) => void
   updateNode: (nodeId: string, patch: Partial<CanvasNode>) => void
   toggleMinimize: (nodeId: string) => void
   toggleMaximize: (nodeId: string) => void
@@ -52,6 +54,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
   connections: [],
   activeNodeId: null,
   selectedConnectionId: null,
+  developerCenterOpen: false,
   layoutMode: 'manual',
   viewport: { zoom: 1, x: 0, y: 0 },
   zCounter: 1,
@@ -118,6 +121,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
   },
 
   selectConnection: (id) => set({ selectedConnectionId: id, activeNodeId: id ? null : get().activeNodeId }),
+  setDeveloperCenterOpen: (open) => set({ developerCenterOpen: open }),
 
   updateNode: (nodeId, patch) => {
     set((s) => ({ nodes: s.nodes.map((n) => (n.id === nodeId ? { ...n, ...patch } : n)) }))

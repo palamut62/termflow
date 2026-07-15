@@ -2,9 +2,11 @@ import { CheckCircle2, Download, Play, RefreshCw, TriangleAlert, XCircle, Plus, 
 import { useEffect, useState } from 'react'
 import type { WorkspaceHealthCheck, TaskTriggerKind, ExitCodeFilter } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
+import AppHealthPanel from './AppHealthPanel'
 
 export default function DeveloperCenter(): React.JSX.Element | null {
-  const [open, setOpen] = useState(false)
+  const open = useAppStore((s) => s.developerCenterOpen)
+  const setOpen = useAppStore((s) => s.setDeveloperCenterOpen)
   const [checks, setChecks] = useState<WorkspaceHealthCheck[]>([])
   const [loading, setLoading] = useState(false)
   const workspaceId = useAppStore((s) => s.activeWorkspaceId)
@@ -45,9 +47,10 @@ export default function DeveloperCenter(): React.JSX.Element | null {
   return (
     <aside className="developer-center">
       <div className="aap-head">
-        <div><strong>Developer Center</strong><span>Tasks, runtimes and workspace health</span></div>
+        <div><strong>Developer Center</strong><span>App health, tasks, runtimes &amp; workspace health</span></div>
         <button className="hbtn" title="Close Developer Center" aria-label="Close Developer Center" onClick={() => setOpen(false)}><XCircle size={15} /></button>
       </div>
+      <AppHealthPanel />
       {(manifest?.tasks?.length ?? 0) > 0 && <div className="dev-section">
         <div className="dev-section-title">Project tasks</div>
         {manifest!.tasks!.map((task) => <button className="dev-task" key={task.name} onClick={() => runTask(task.name)}><Play size={12} /><span>{task.name}</span><em>{task.command}</em></button>)}
