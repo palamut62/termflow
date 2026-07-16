@@ -130,6 +130,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                 )}
                 {isActive && nodes.length > 0 && <span className="count">{nodes.length}</span>}
                 <button
+                  className="ws-action"
                   title="Clone workspace"
                   onClick={async (e) => {
                     e.stopPropagation()
@@ -153,6 +154,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                   <Copy size={13} />
                 </button>
                 <button
+                  className="ws-action"
                   title="Save as template"
                   onClick={(e) => {
                     e.stopPropagation()
@@ -163,6 +165,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                   <Save size={13} />
                 </button>
                 <button
+                  className="ws-action"
                   title="Delete"
                   onClick={(e) => {
                     e.stopPropagation()

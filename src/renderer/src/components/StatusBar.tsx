@@ -29,12 +29,16 @@ export default function StatusBar(): React.JSX.Element {
       <span className="sb-item">
         <TerminalSquare size={12} /> {nodes.length} panel{nodes.length !== 1 ? 's' : ''} · {running} running
       </span>
-      <span className="sb-item">
-        <Layers size={12} /> {connections.length} connection{connections.length !== 1 ? 's' : ''}
-      </span>
-      <span className="sb-item">
-        <Layers size={12} /> {agentCount} detected agent{agentCount !== 1 ? 's' : ''}
-      </span>
+      {connections.length > 0 && (
+        <span className="sb-item">
+          <Layers size={12} /> {connections.length} connection{connections.length !== 1 ? 's' : ''}
+        </span>
+      )}
+      {agentCount > 0 && (
+        <span className="sb-item">
+          <Layers size={12} /> {agentCount} detected agent{agentCount !== 1 ? 's' : ''}
+        </span>
+      )}
       {detachedCount > 0 && (
         <button
           className="sb-item sb-btn"

@@ -377,42 +377,14 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
             {node.title}
           </span>
         )}
-        {node.agentRole && <span className="kind-tag">{node.agentRole}</span>}
-        <span className="kind-tag">{terminal.kind}</span>
-        {recording && (
-          <span
-            title="Recording in progress"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 10,
-              fontWeight: 600,
-              color: 'var(--danger)'
-            }}
-          >
-            <span style={{ color: 'var(--danger)' }}>&#9679;</span> REC
-          </span>
-        )}
+        <span className="kind-tag">{node.agentRole ?? terminal.kind}</span>
+        {recording && <span className="rec-dot" title="Recording in progress" />}
         {node.bypass && (
           <span
-            className="bypass-badge"
             title="This node was started with the permission-bypass flag"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 3,
-              fontSize: 10,
-              fontWeight: 600,
-              lineHeight: 1,
-              padding: '2px 5px',
-              borderRadius: 5,
-              color: 'var(--danger)',
-              background: 'color-mix(in srgb, var(--danger) 16%, transparent)',
-              border: '1px solid var(--danger)'
-            }}
+            style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
           >
-            <AlertTriangle size={10} /> bypass
+            <AlertTriangle size={12} color="var(--danger)" />
           </span>
         )}
         {termId && terminal.cwd && gitStatus[termId] && (
