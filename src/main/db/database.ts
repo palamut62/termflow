@@ -294,6 +294,10 @@ export function listEnvVars(workspaceId: string): EnvEntry[] {
   return store.envVars.filter((e) => e.workspaceId === workspaceId)
 }
 
+export function getEnvVar(id: string): EnvEntry | undefined {
+  return store.envVars.find((e) => e.id === id)
+}
+
 export function createEnvVar(input: Omit<EnvEntry, 'id'>): EnvEntry {
   const e: EnvEntry = { id: nanoid(), ...input }
   store.envVars.push(e)

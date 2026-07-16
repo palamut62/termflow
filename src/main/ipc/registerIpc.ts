@@ -1,8 +1,8 @@
 import { ipcMain, dialog, BrowserWindow, safeStorage } from 'electron'
 import pidusage from 'pidusage'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { nanoid } from 'nanoid'
 import {
   IPC,
@@ -22,6 +22,7 @@ import {
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
 import * as dbApi from '../db/database'
+import * as v from './validate'
 
 function workspaceEnv(workspaceId: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -56,15 +57,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   pty.setPassiveInterval(s.passiveThrottleMs)
 
   // ---- PTY ----
-  ipcMain.handle(IPC.PTY_CREATE, (_e, id: string, input: CreateTerminalInput) =>
-    pty.create(id, { ...input, env: { ...workspaceEnv(input.workspaceId), ...(input.env || {}) } })
-  )
-  ipcMain.on(IPC.PTY_WRITE, (_e, id: string, data: string) => pty.write(id, data))
-  ipcMain.on(IPC.PTY_RESIZE, (_e, id: string, cols: number, rows: number) => pty.resize(id, cols, rows))
-  ipcMain.on(IPC.PTY_KILL, (_e, id: string) => pty.kill(id))
-  ipcMain.on(IPC.PTY_MODE, (_e, id: string, mode: RenderMode) => pty.setMode(id, mode))
-  ipcMain.handle(IPC.PTY_RESTART, (_e, id: string) => pty.restart(id))
-  ipcMain.handle(IPC.PTY_BUFFER, (_e, id: string) => pty.getBuffer(id))
+  ipcMain.handle(IPC.PTY_CREATE, (_e, id: string, input: CreateTerminalInput) => {
+    const vid = v.parseOrThrow(v.idSchema, id)
+    const vinput = v.parseOrThrow(v.createTerminalInput, input)
+    return pty.create(vid, { ...vinput, env: { ...workspaceEnv(vinput.workspaceId), ...(vinput.env || {}) } })
+  })
+  ipcMain.on(IPC.PTY_WRITE, (_e, id: string, data: string) => {
+    if (!v.idSchema.safeParse(id).success || typeof data !== 'string') return
+    pty.write(id, data)
+  })
+  ipcMain.on(IPC.PTY_RESIZE, (_e, id: string, cols: number, rows: number) => {
+    if (!v.idSchema.safeParse(id).success || !v.posInt.safeParse(cols).success || !v.posInt.safeParse(rows).success) return
+    pty.resize(id, cols, rows)
+  })
+  ipcMain.on(IPC.PTY_KILL, (_e, id: string) => {
+    if (!v.idSchema.safeParse(id).success) return
+    pty.kill(id)
+  })
+  ipcMain.on(IPC.PTY_MODE, (_e, id: string, mode: RenderMode) => {
+    if (!v.idSchema.safeParse(id).success || !v.renderModeSchema.safeParse(mode).success) return
+    pty.setMode(id, mode)
+  })
+  ipcMain.handle(IPC.PTY_RESTART, (_e, id: string) => pty.restart(v.parseOrThrow(v.idSchema, id)))
+  ipcMain.handle(IPC.PTY_BUFFER, (_e, id: string) => pty.getBuffer(v.parseOrThrow(v.idSchema, id)))
 
   // ---- Process stats (pidusage) — PRD §33.2 CPU/RAM ----
   ipcMain.handle(IPC.PROC_STATS, async (): Promise<Record<string, ProcStats>> => {
@@ -86,6 +101,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- Window (titlebar overlay follows the app theme) ----
   ipcMain.on(IPC.WINDOW_OVERLAY, (_e, color: string, symbolColor: string) => {
+    if (typeof color !== 'string' || typeof symbolColor !== 'string') return
     const win = getWindow()
     if (win && !win.isDestroyed()) {
       try {
@@ -102,6 +118,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   // ---- Settings ----
   ipcMain.handle(IPC.SETTINGS_GET, () => dbApi.getSettings())
   ipcMain.handle(IPC.SETTINGS_SET, (_e, patch: Partial<AppSettings>) => {
+    v.parseOrThrow(v.settingsPatch, patch)
     const next = dbApi.setSettings(patch)
     pty.setScrollback(next.scrollback)
     pty.setPassiveInterval(next.passiveThrottleMs)
@@ -117,60 +134,66 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- Workspaces ----
   ipcMain.handle(IPC.WS_LIST, () => dbApi.listWorkspaces())
-  ipcMain.handle(IPC.WS_CREATE, (_e, input) => dbApi.createWorkspace(input))
-  ipcMain.handle(IPC.WS_UPDATE, (_e, id, patch) => dbApi.updateWorkspace(id, patch))
-  ipcMain.handle(IPC.WS_DELETE, (_e, id) => dbApi.deleteWorkspace(id))
+  ipcMain.handle(IPC.WS_CREATE, (_e, input) => dbApi.createWorkspace(v.parseOrThrow(v.workspaceCreate, input)))
+  ipcMain.handle(IPC.WS_UPDATE, (_e, id, patch) => dbApi.updateWorkspace(v.parseOrThrow(v.idSchema, id), v.parseOrThrow(v.workspacePatch, patch)))
+  ipcMain.handle(IPC.WS_DELETE, (_e, id) => dbApi.deleteWorkspace(v.parseOrThrow(v.idSchema, id)))
 
   // ---- Terminals persistence ----
-  ipcMain.handle(IPC.TERM_LIST, (_e, workspaceId: string) => dbApi.listTerminals(workspaceId))
-  ipcMain.handle(IPC.TERM_UPSERT, (_e, t: TerminalSession) => dbApi.upsertTerminal(t))
-  ipcMain.handle(IPC.TERM_DELETE, (_e, id: string) => dbApi.deleteTerminal(id))
+  ipcMain.handle(IPC.TERM_LIST, (_e, workspaceId: string) => dbApi.listTerminals(v.parseOrThrow(v.idSchema, workspaceId)))
+  ipcMain.handle(IPC.TERM_UPSERT, (_e, t: TerminalSession) => dbApi.upsertTerminal(v.parseOrThrow(v.terminalSession, t) as TerminalSession))
+  ipcMain.handle(IPC.TERM_DELETE, (_e, id: string) => dbApi.deleteTerminal(v.parseOrThrow(v.idSchema, id)))
 
   // ---- Layout ----
-  ipcMain.handle(IPC.LAYOUT_GET, (_e, workspaceId: string) => dbApi.getLayout(workspaceId))
-  ipcMain.handle(IPC.LAYOUT_SAVE, (_e, layout: WorkspaceLayout) => dbApi.saveLayout(layout))
+  ipcMain.handle(IPC.LAYOUT_GET, (_e, workspaceId: string) => dbApi.getLayout(v.parseOrThrow(v.idSchema, workspaceId)))
+  ipcMain.handle(IPC.LAYOUT_SAVE, (_e, layout: WorkspaceLayout) => dbApi.saveLayout(v.parseOrThrow(v.workspaceLayout, layout) as WorkspaceLayout))
 
   // ---- Snippets ----
-  ipcMain.handle(IPC.SNIPPET_LIST, (_e, workspaceId?: string) => dbApi.listSnippets(workspaceId))
-  ipcMain.handle(IPC.SNIPPET_CREATE, (_e, input: Omit<Snippet, 'id' | 'createdAt' | 'updatedAt'>) => dbApi.createSnippet(input))
-  ipcMain.handle(IPC.SNIPPET_UPDATE, (_e, id: string, patch: Partial<Snippet>) => dbApi.updateSnippet(id, patch))
-  ipcMain.handle(IPC.SNIPPET_DELETE, (_e, id: string) => dbApi.deleteSnippet(id))
+  ipcMain.handle(IPC.SNIPPET_LIST, (_e, workspaceId?: string) => dbApi.listSnippets(workspaceId == null ? undefined : v.parseOrThrow(v.idSchema, workspaceId)))
+  ipcMain.handle(IPC.SNIPPET_CREATE, (_e, input: Omit<Snippet, 'id' | 'createdAt' | 'updatedAt'>) => dbApi.createSnippet(v.parseOrThrow(v.snippetCreate, input) as Omit<Snippet, 'id' | 'createdAt' | 'updatedAt'>))
+  ipcMain.handle(IPC.SNIPPET_UPDATE, (_e, id: string, patch: Partial<Snippet>) => dbApi.updateSnippet(v.parseOrThrow(v.idSchema, id), v.parseOrThrow(v.snippetPatch, patch)))
+  ipcMain.handle(IPC.SNIPPET_DELETE, (_e, id: string) => dbApi.deleteSnippet(v.parseOrThrow(v.idSchema, id)))
 
   // ---- Highlight Rules ----
-  ipcMain.handle(IPC.HL_RULE_LIST, (_e, workspaceId?: string) => dbApi.listHighlightRules(workspaceId))
-  ipcMain.handle(IPC.HL_RULE_CREATE, (_e, input: Omit<HighlightRule, 'id'>) => dbApi.createHighlightRule(input))
-  ipcMain.handle(IPC.HL_RULE_UPDATE, (_e, id: string, patch: Partial<HighlightRule>) => dbApi.updateHighlightRule(id, patch))
-  ipcMain.handle(IPC.HL_RULE_DELETE, (_e, id: string) => dbApi.deleteHighlightRule(id))
+  ipcMain.handle(IPC.HL_RULE_LIST, (_e, workspaceId?: string) => dbApi.listHighlightRules(workspaceId == null ? undefined : v.parseOrThrow(v.idSchema, workspaceId)))
+  ipcMain.handle(IPC.HL_RULE_CREATE, (_e, input: Omit<HighlightRule, 'id'>) => dbApi.createHighlightRule(v.parseOrThrow(v.highlightRuleCreate, input) as Omit<HighlightRule, 'id'>))
+  ipcMain.handle(IPC.HL_RULE_UPDATE, (_e, id: string, patch: Partial<HighlightRule>) => dbApi.updateHighlightRule(v.parseOrThrow(v.idSchema, id), v.parseOrThrow(v.highlightRulePatch, patch)))
+  ipcMain.handle(IPC.HL_RULE_DELETE, (_e, id: string) => dbApi.deleteHighlightRule(v.parseOrThrow(v.idSchema, id)))
 
   // ---- SSH Profiles ----
-  ipcMain.handle(IPC.SSH_PROFILE_LIST, (_e, workspaceId: string) => dbApi.listSshProfiles(workspaceId))
-  ipcMain.handle(IPC.SSH_PROFILE_CREATE, (_e, input: Omit<SshProfile, 'id' | 'createdAt'>) => dbApi.createSshProfile(input))
-  ipcMain.handle(IPC.SSH_PROFILE_UPDATE, (_e, id: string, patch: Partial<SshProfile>) => dbApi.updateSshProfile(id, patch))
-  ipcMain.handle(IPC.SSH_PROFILE_DELETE, (_e, id: string) => dbApi.deleteSshProfile(id))
+  ipcMain.handle(IPC.SSH_PROFILE_LIST, (_e, workspaceId: string) => dbApi.listSshProfiles(v.parseOrThrow(v.idSchema, workspaceId)))
+  ipcMain.handle(IPC.SSH_PROFILE_CREATE, (_e, input: Omit<SshProfile, 'id' | 'createdAt'>) => dbApi.createSshProfile(v.parseOrThrow(v.sshProfileCreate, input) as Omit<SshProfile, 'id' | 'createdAt'>))
+  ipcMain.handle(IPC.SSH_PROFILE_UPDATE, (_e, id: string, patch: Partial<SshProfile>) => dbApi.updateSshProfile(v.parseOrThrow(v.idSchema, id), v.parseOrThrow(v.sshProfilePatch, patch)))
+  ipcMain.handle(IPC.SSH_PROFILE_DELETE, (_e, id: string) => dbApi.deleteSshProfile(v.parseOrThrow(v.idSchema, id)))
 
   // ---- Env Vars ----
   ipcMain.handle(IPC.ENV_LIST, (_e, workspaceId: string) => {
+    v.parseOrThrow(v.idSchema, workspaceId)
     const vars = dbApi.listEnvVars(workspaceId)
     // Return masked values (don't send secrets to renderer in plaintext)
     return vars.map((v) => ({ ...v, value: v.masked ? '••••••••' : v.value }))
   })
   ipcMain.handle(IPC.ENV_CREATE, (_e, input: { workspaceId: string; key: string; value: string; masked: boolean }) => {
-    const encrypted = input.masked && safeStorage.isEncryptionAvailable()
-      ? safeStorage.encryptString(input.value).toString('base64')
-      : input.value
-    return dbApi.createEnvVar({ workspaceId: input.workspaceId, key: input.key, value: encrypted, masked: input.masked && safeStorage.isEncryptionAvailable() })
+    const vin = v.parseOrThrow(v.envCreate, input)
+    const encrypted = vin.masked && safeStorage.isEncryptionAvailable()
+      ? safeStorage.encryptString(vin.value).toString('base64')
+      : vin.value
+    return dbApi.createEnvVar({ workspaceId: vin.workspaceId, key: vin.key, value: encrypted, masked: vin.masked && safeStorage.isEncryptionAvailable() })
   })
   ipcMain.handle(IPC.ENV_UPDATE, (_e, id: string, patch: Partial<EnvEntry>) => {
-    if (patch.value && safeStorage.isEncryptionAvailable()) {
-      const existing = dbApi.listEnvVars('').find((e) => e.id === id) || dbApi.listEnvVars(patch.workspaceId || '').find((e) => e.id === id)
-      if (existing?.masked) patch.value = safeStorage.encryptString(patch.value).toString('base64')
+    v.parseOrThrow(v.idSchema, id)
+    const vpatch = v.parseOrThrow(v.envPatch, patch) as Partial<EnvEntry>
+    if (vpatch.value && safeStorage.isEncryptionAvailable()) {
+      // Look up the record directly by id (empty workspaceId never matched — bug fix).
+      const existing = dbApi.getEnvVar(id)
+      if (existing?.masked) vpatch.value = safeStorage.encryptString(vpatch.value).toString('base64')
     }
-    dbApi.updateEnvVar(id, patch)
+    dbApi.updateEnvVar(id, vpatch)
   })
-  ipcMain.handle(IPC.ENV_DELETE, (_e, id: string) => dbApi.deleteEnvVar(id))
+  ipcMain.handle(IPC.ENV_DELETE, (_e, id: string) => dbApi.deleteEnvVar(v.parseOrThrow(v.idSchema, id)))
 
   // ---- Workspace Export/Import ----
   ipcMain.handle(IPC.WS_EXPORT, async (_e, workspaceId: string) => {
+    v.parseOrThrow(v.idSchema, workspaceId)
     const ws = dbApi.listWorkspaces().find((w) => w.id === workspaceId)
     if (!ws) return
     const data = dbApi.exportWorkspaceData(workspaceId)
@@ -212,8 +235,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     })
     if (res.canceled || !res.filePaths[0]) return null
     try {
-      const raw = JSON.parse(readFileSync(res.filePaths[0], 'utf-8'))
-      if (!raw.schemaVersion || !raw.workspace) throw new Error('Invalid format')
+      const parsed = v.workspaceExport.safeParse(JSON.parse(readFileSync(res.filePaths[0], 'utf-8')))
+      if (!parsed.success) return null
+      const raw = parsed.data
 
       // Generate new IDs via remap
       const idMap = new Map<string, string>()
@@ -292,6 +316,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- Project Manifest (.termflow.json) ----
   ipcMain.handle(IPC.WS_CHECK_MANIFEST, async (_e, cwd: string) => {
+    if (!v.absolutePath.safeParse(cwd).success) return null
     const manifestPath = join(cwd, '.termflow.json')
     if (!existsSync(manifestPath)) return null
     try {
@@ -301,13 +326,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
   })
 
-  ipcMain.handle(IPC.DIALOG_CHECK_FILE, async (_e, path: string) => existsSync(path))
+  ipcMain.handle(IPC.DIALOG_CHECK_FILE, async (_e, path: string) => {
+    if (!v.absolutePath.safeParse(path).success) return false
+    return existsSync(path)
+  })
 
   // ---- Git Status ----
   ipcMain.handle(IPC.GIT_STATUS, async (_e, cwd: string): Promise<GitStatus | null> => {
+    if (typeof cwd !== 'string' || !isAbsolute(cwd) || !existsSync(cwd)) return null
     try {
-      const branch = execSync('git branch --show-current', { cwd, encoding: 'utf-8', timeout: 3000 }).trim()
-      const status = execSync('git status --porcelain', { cwd, encoding: 'utf-8', timeout: 3000 })
+      const branch = execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf-8', timeout: 3000 }).trim()
+      const status = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf-8', timeout: 3000 })
       return { branch, dirty: status.length > 0 }
     } catch {
       return null
@@ -316,13 +345,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
   // ---- Agent Routing ----
   ipcMain.on(IPC.AGENT_SET_ROUTING, (_e, terminalId: string, rules: RoutingRule[]) => {
+    if (!v.idSchema.safeParse(terminalId).success || !Array.isArray(rules)) return
     pty.setRouting(terminalId, rules)
   })
 
   // ---- Recording ----
-  ipcMain.on(IPC.REC_START, (_e, id: string) => pty.startRecording(id))
-  ipcMain.handle(IPC.REC_STOP, (_e, id: string): RecordingEntry[] => pty.stopRecording(id))
+  ipcMain.on(IPC.REC_START, (_e, id: string) => {
+    if (!v.idSchema.safeParse(id).success) return
+    pty.startRecording(id)
+  })
+  ipcMain.handle(IPC.REC_STOP, (_e, id: string): RecordingEntry[] => pty.stopRecording(v.parseOrThrow(v.idSchema, id)))
   ipcMain.handle(IPC.REC_SAVE, async (_e, id: string) => {
+    v.parseOrThrow(v.idSchema, id)
     const chunks = pty.getRecording(id)
     if (!chunks.length) return
     // Convert to asciinema v2 format

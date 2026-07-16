@@ -18,6 +18,13 @@ export interface RoutingRule {
   routeBehavior: 'marker' | 'continuous'
 }
 
+const MAX_TRIGGER_PATTERN_LENGTH = 512
+const MAX_ROUTING_MATCHES_PER_CHUNK = 50
+
+interface CompiledRoutingRule extends RoutingRule {
+  compiled?: RegExp
+}
+
 export interface RecordingEntry {
   ts: number // ms since start
   data: string
@@ -35,7 +42,7 @@ interface ManagedPty {
   exitCode?: number
   mode: RenderMode
   errorSignalled: boolean
-  routingRules?: RoutingRule[]
+  routingRules?: CompiledRoutingRule[]
   // Recording
   recording: boolean
   recordingStart: number
@@ -137,19 +144,19 @@ export class PtyManager {
       for (const rule of managed.routingRules) {
         if (rule.routeBehavior === 'continuous') {
           for (const tid of rule.targetTerminalIds) this.write(tid, data)
-        } else {
-          try {
-            const re = new RegExp(rule.triggerPattern, 'gs')
-            let match: RegExpExecArray | null
-            while ((match = re.exec(data)) !== null) {
-              let output = match[0]
-              if (rule.transform) {
-                output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
-              }
-              for (const tid of rule.targetTerminalIds) this.write(tid, output + '\r')
+        } else if (rule.compiled) {
+          rule.compiled.lastIndex = 0
+          let match: RegExpExecArray | null
+          let matchCount = 0
+          while ((match = rule.compiled.exec(data)) !== null && matchCount < MAX_ROUTING_MATCHES_PER_CHUNK) {
+            matchCount++
+            let output = match[0]
+            if (rule.transform) {
+              output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
             }
-          } catch {
-            /* invalid regex */
+            for (const tid of rule.targetTerminalIds) this.write(tid, output + '\r')
+            // Guard against zero-length matches causing an infinite loop.
+            if (match[0].length === 0) rule.compiled.lastIndex++
           }
         }
       }
@@ -246,7 +253,22 @@ export class PtyManager {
   // ---- Routing ----
   setRouting(id: string, rules: RoutingRule[]): void {
     const t = this.terminals.get(id)
-    if (t) t.routingRules = rules.length ? rules : undefined
+    if (!t) return
+    const compiled: CompiledRoutingRule[] = []
+    for (const rule of rules) {
+      if (rule.routeBehavior === 'continuous') {
+        compiled.push(rule)
+        continue
+      }
+      if (rule.triggerPattern.length > MAX_TRIGGER_PATTERN_LENGTH) continue
+      try {
+        const re = new RegExp(rule.triggerPattern, 'gs')
+        compiled.push({ ...rule, compiled: re })
+      } catch {
+        /* invalid regex — skip this rule */
+      }
+    }
+    t.routingRules = compiled.length ? compiled : undefined
   }
 
   // ---- Recording ----
