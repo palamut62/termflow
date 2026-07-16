@@ -254,7 +254,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lineHeight: 1.1,
   cursorStyle: 'block',
   cursorBlink: true,
-  terminalTheme: 'TermFlow Dark',
+  terminalTheme: 'VS Code Dark',
   ligatures: true
 }
 
