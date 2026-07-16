@@ -625,6 +625,17 @@ input {
   background: var(--bg-panel-2);
   color: var(--text-primary);
 }
+.menu-item.active {
+  color: var(--text-primary);
+}
+.menu-item.danger:hover {
+  color: var(--danger, #ff6b6b);
+}
+.menu-item.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+}
 .row-actions {
   display: flex;
   align-items: center;

@@ -14,6 +14,7 @@ import {
   Radio,
   Activity,
   Workflow
+  ,MoreHorizontal
   ,FolderOpen
   ,CircleHelp
   ,Trash2
@@ -89,6 +90,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [termMenu, setTermMenu] = useState(false)
   const [agentMenu, setAgentMenu] = useState(false)
   const [layoutMenu, setLayoutMenu] = useState(false)
+  const [moreMenu, setMoreMenu] = useState(false)
   const [customModal, setCustomModal] = useState(false)
   const [flowModal, setFlowModal] = useState(false)
   const [globalSearchModal, setGlobalSearchModal] = useState(false)
@@ -104,6 +106,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const termRef = useOutside(() => setTermMenu(false))
   const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
+  const moreRef = useOutside(() => setMoreMenu(false))
 
   const create = (kind: ShellKind): void => {
     setTermMenu(false)
@@ -317,52 +320,113 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
         )}
       </div>
 
-      <button className="tb-btn" disabled={disabled} title="Auto Fit" onClick={() => setLayoutMode('auto_fit', canvasSize())}>
-        <Maximize2 size={15} /> <span className="tb-label">Auto Fit</span>
-      </button>
-
-      <button
-        className={`tb-btn ${broadcastEnabled ? 'active' : ''}`}
-        disabled={disabled}
-        title="Broadcast input to all terminals in group"
-        onClick={toggleBroadcast}
-      >
-        <Radio size={15} /> <span className="tb-label">Broadcast</span>
-      </button>
-      <button className="tb-btn danger" disabled={disabled} title="Close all terminals" onClick={() => window.dispatchEvent(new CustomEvent('termflow:close-all-terminals'))}>
-        <Trash2 size={15} /> <span className="tb-label">Close All</span>
-      </button>
-      <button className="tb-btn" disabled={disabled} title="Agent flow templates" onClick={() => setFlowModal(true)}>
-        <Workflow size={15} /> <span className="tb-label">Flows</span>
-      </button>
-
       <div className="spacer" />
 
-      <button className="tb-btn" title="Command Palette (Ctrl+K)" onClick={onOpenPalette}>
+      <button className="tb-btn" title="Command Palette (Ctrl+K)" aria-label="Command Palette" onClick={onOpenPalette}>
         <Search size={15} />
       </button>
-      <button className="tb-btn" title="Search all terminals" onClick={() => setGlobalSearchModal(true)}>
-        <FileSearch size={15} />
-      </button>
-      <button className="tb-btn" disabled={disabled} title="Developer Workbench" onClick={() => setWorkbench(true)}><PanelLeftOpen size={15} /></button>
-      <button className="tb-btn" disabled={disabled} title="Agent metrics and credential vault" onClick={() => setAgentOps(true)}><Gauge size={15} /></button>
-      <button className="tb-btn" disabled={disabled} title="Extensions and workflow packages" onClick={() => setPlugins(true)}><Puzzle size={15} /></button>
-      <button
-        className="tb-btn"
-        disabled={disabled}
-        title="Developer Center"
-        aria-label="Open Developer Center"
-        onClick={() => window.dispatchEvent(new CustomEvent('termflow:open-developer-center'))}
-      >
-        <Activity size={15} />
-      </button>
-      <button className="tb-btn" title="Help" aria-label="Open help" onClick={onOpenHelp}>
-        <CircleHelp size={15} />
-      </button>
-      <button className="tb-btn" title="Agent Config" aria-label="Open Agent Config" onClick={() => setAgentConfig(true)}>
-        <SlidersHorizontal size={15} />
-      </button>
-      <button className="tb-btn" title="Settings" onClick={onOpenSettings}>
+
+      <div className="tb-group" ref={moreRef} style={{ position: 'relative' }}>
+        <button className="tb-btn" title="More" aria-label="More actions" onClick={() => setMoreMenu((v) => !v)}>
+          <MoreHorizontal size={15} />
+        </button>
+        {moreMenu && (
+          <div className="menu" style={{ top: 36, right: 0 }}>
+            <div className="menu-label">Terminals</div>
+            <div
+              className={`menu-item ${disabled ? 'disabled' : ''} ${broadcastEnabled ? 'active' : ''}`}
+              title="Broadcast input to all terminals in group"
+              onClick={() => { if (disabled) return; toggleBroadcast() }}
+            >
+              <Radio size={14} color={broadcastEnabled ? 'var(--accent)' : undefined} />
+              Broadcast
+              {broadcastEnabled && <span style={{ marginLeft: 'auto' }}>✓</span>}
+            </div>
+            <div
+              className={`menu-item danger ${disabled ? 'disabled' : ''}`}
+              title="Close all terminals"
+              onClick={() => { if (disabled) return; setMoreMenu(false); window.dispatchEvent(new CustomEvent('termflow:close-all-terminals')) }}
+            >
+              <Trash2 size={14} />
+              Close All
+            </div>
+            <div
+              className="menu-item"
+              title="Search all terminals"
+              onClick={() => { setMoreMenu(false); setGlobalSearchModal(true) }}
+            >
+              <FileSearch size={14} />
+              Global Search
+            </div>
+
+            <div className="menu-sep" />
+            <div className="menu-label">Agents</div>
+            <div
+              className={`menu-item ${disabled ? 'disabled' : ''}`}
+              title="Agent flow templates"
+              onClick={() => { if (disabled) return; setMoreMenu(false); setFlowModal(true) }}
+            >
+              <Workflow size={14} />
+              Agent Flows
+            </div>
+            <div
+              className="menu-item"
+              title="Agent Config"
+              onClick={() => { setMoreMenu(false); setAgentConfig(true) }}
+            >
+              <SlidersHorizontal size={14} />
+              Agent Config
+            </div>
+            <div
+              className={`menu-item ${disabled ? 'disabled' : ''}`}
+              title="Agent metrics and credential vault"
+              onClick={() => { if (disabled) return; setMoreMenu(false); setAgentOps(true) }}
+            >
+              <Gauge size={14} />
+              Agent Ops
+            </div>
+
+            <div className="menu-sep" />
+            <div className="menu-label">Developer</div>
+            <div
+              className={`menu-item ${disabled ? 'disabled' : ''}`}
+              title="Developer Workbench"
+              onClick={() => { if (disabled) return; setMoreMenu(false); setWorkbench(true) }}
+            >
+              <PanelLeftOpen size={14} />
+              Workbench
+            </div>
+            <div
+              className={`menu-item ${disabled ? 'disabled' : ''}`}
+              title="Extensions and workflow packages"
+              onClick={() => { if (disabled) return; setMoreMenu(false); setPlugins(true) }}
+            >
+              <Puzzle size={14} />
+              Plugins / Extensions
+            </div>
+            <div
+              className={`menu-item ${disabled ? 'disabled' : ''}`}
+              title="Developer Center"
+              onClick={() => { if (disabled) return; setMoreMenu(false); window.dispatchEvent(new CustomEvent('termflow:open-developer-center')) }}
+            >
+              <Activity size={14} />
+              Developer Center
+            </div>
+
+            <div className="menu-sep" />
+            <div
+              className="menu-item"
+              title="Help"
+              onClick={() => { setMoreMenu(false); onOpenHelp() }}
+            >
+              <CircleHelp size={14} />
+              Help
+            </div>
+          </div>
+        )}
+      </div>
+
+      <button className="tb-btn" title="Settings" aria-label="Open Settings" onClick={onOpenSettings}>
         <Settings size={15} />
       </button>
 
