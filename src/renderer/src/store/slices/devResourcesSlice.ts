@@ -106,7 +106,7 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       appearancePatch.fontFamily = "'0xProto Nerd Font Mono', 'Cascadia Mono', Consolas, monospace"
       appearancePatch.fontSize = 12
     }
-    if (settings.terminalTheme === 'TermFlow Dark') appearancePatch.terminalTheme = 'Zeonica'
+    if (settings.terminalTheme === 'TermFlow Dark' || settings.terminalTheme === 'Zeonica') appearancePatch.terminalTheme = 'VS Code Dark'
     if (Object.keys(appearancePatch).length) settings = await window.termflow.settings.set(appearancePatch)
     set({ settings })
     document.documentElement.style.setProperty('--active-border', settings.activeBorderColor)

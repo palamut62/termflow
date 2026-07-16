@@ -429,7 +429,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lineHeight: 1.0,
   cursorStyle: 'block',
   cursorBlink: true,
-  terminalTheme: 'Zeonica',
+  terminalTheme: 'VS Code Dark',
   startAtLogin: true,
   minimizeToTray: true,
   providerProfiles: [
