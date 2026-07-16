@@ -75,7 +75,7 @@ export class PtyManager {
       rows: input.rows ?? 30,
       cwd: resolved.cwd,
       env: resolved.env,
-      useConpty: true
+      useConpty: process.platform === 'win32'
     })
 
     const managed: ManagedPty = {

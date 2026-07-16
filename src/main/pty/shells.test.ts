@@ -10,7 +10,9 @@ function make(partial: Partial<CreateTerminalInput>): CreateTerminalInput {
   return { workspaceId: 'w', name: 'n', kind: 'cmd', ...partial } as CreateTerminalInput
 }
 
-describe('resolveShell', () => {
+const isWin = process.platform === 'win32'
+
+describe.runIf(isWin)('resolveShell (win32)', () => {
   it('powershell returns powershell.exe with -NoLogo', () => {
     const r = resolveShell(make({ kind: 'powershell' }))
     expect(r.shell.toLowerCase()).toContain('powershell.exe')
@@ -60,5 +62,39 @@ describe('resolveShell', () => {
     expect(r.env.TF_TEST_VAR).toBe('x1')
     // some inherited var still present
     expect(Object.keys(r.env).length).toBeGreaterThan(1)
+  })
+})
+
+describe.runIf(!isWin)('resolveShell (posix)', () => {
+  it('agent kinds run inside an interactive host shell', () => {
+    for (const kind of ['claude', 'codex', 'opencode', 'ollama', 'ssh'] as const) {
+      const r = resolveShell(make({ kind }))
+      expect(r.args).toContain('-i')
+      expect(r.shell.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('bash kind resolves to a bash binary with -i', () => {
+    const r = resolveShell(make({ kind: 'bash' }))
+    expect(r.args).toEqual(['-i'])
+    expect(r.shell).toMatch(/bash|sh/)
+  })
+
+  it('custom + shell uses the provided shell/args', () => {
+    const r = resolveShell(make({ kind: 'custom', shell: '/usr/bin/env', args: ['-x'] }))
+    expect(r.shell).toBe('/usr/bin/env')
+    expect(r.args).toEqual(['-x'])
+  })
+
+  it('falls back to HOME/cwd when cwd not provided', () => {
+    const r = resolveShell(make({ kind: 'bash', cwd: undefined }))
+    const expected = process.env.HOME || process.cwd()
+    expect(r.cwd).toBe(expected)
+  })
+
+  it('windows-only kinds fall back to the host shell', () => {
+    const r = resolveShell(make({ kind: 'powershell' }))
+    expect(r.args).toEqual(['-i'])
+    expect(r.shell.length).toBeGreaterThan(0)
   })
 })

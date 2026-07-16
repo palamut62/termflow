@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs'
+import { writeFile, rename } from 'fs/promises'
 import { nanoid } from 'nanoid'
 import type {
   Workspace,
@@ -61,10 +62,70 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   return store.settings
 }
 
+// ---- Persistence: debounced async writes with an in-flight lock ----
+//
+// persist() marks the store dirty and schedules a debounced async flush.
+// A single-slot lock prevents overlapping writes: if more mutations arrive
+// while a flush is running, one more flush runs when it completes.
+// Writes stay atomic (temp file + rename). flushSync() forces a synchronous
+// write on shutdown so nothing is lost.
+
+const DEBOUNCE_MS = 150
+let dirty = false
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+let flushing = false
+
+function serialize(): string {
+  return JSON.stringify(store, null, 2)
+}
+
+async function flush(): Promise<void> {
+  if (flushing) return
+  flushing = true
+  try {
+    while (dirty) {
+      dirty = false
+      const data = serialize()
+      const tmp = filePath + '.tmp'
+      try {
+        await writeFile(tmp, data, 'utf-8')
+        await rename(tmp, filePath)
+      } catch (err) {
+        console.error('[database] flush failed:', err)
+      }
+    }
+  } finally {
+    flushing = false
+  }
+}
+
 function persist(): void {
-  const tmp = filePath + '.tmp'
-  writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8')
-  renameSync(tmp, filePath)
+  dirty = true
+  if (flushTimer) return
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    void flush()
+  }, DEBOUNCE_MS)
+}
+
+/**
+ * Cancel any pending debounce and write the store synchronously.
+ * Call on app shutdown (before-quit / window-all-closed) to avoid data loss.
+ */
+export function flushSync(): void {
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  if (!dirty && !filePath) return
+  dirty = false
+  try {
+    const tmp = filePath + '.tmp'
+    writeFileSync(tmp, serialize(), 'utf-8')
+    renameSync(tmp, filePath)
+  } catch (err) {
+    console.error('[database] flushSync failed:', err)
+  }
 }
 
 function now(): string {

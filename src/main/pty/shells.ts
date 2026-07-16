@@ -21,6 +21,9 @@ function firstExisting(paths: string[]): string | undefined {
   return paths.find((p) => existsSync(p))
 }
 
+const isWin = process.platform === 'win32'
+const basename = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p
+
 const winDir = process.env.SystemRoot || 'C:\\Windows'
 const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files'
 const localAppData = process.env['LOCALAPPDATA'] || ''
@@ -43,8 +46,35 @@ function gitBashPath(): string | undefined {
   ])
 }
 
+/** POSIX (macOS/Linux) shell discovery. */
+function discoverPosixShells(): ShellCandidate[] {
+  const candidates: ShellCandidate[] = []
+  const userShell = process.env.SHELL
+  if (userShell && existsSync(userShell)) {
+    candidates.push({
+      kind: 'sh',
+      label: `Default (${basename(userShell)})`,
+      shell: userShell,
+      args: ['-i'],
+      available: true
+    })
+  }
+  const zsh = firstExisting(['/bin/zsh', '/usr/bin/zsh'])
+  const bash = firstExisting(['/bin/bash', '/usr/bin/bash'])
+  const fish = firstExisting(['/usr/bin/fish', '/opt/homebrew/bin/fish', '/usr/local/bin/fish'])
+  const sh = firstExisting(['/bin/sh', '/usr/bin/sh'])
+  candidates.push(
+    { kind: 'zsh', label: 'Zsh', shell: zsh ?? '', args: ['-i'], available: !!zsh },
+    { kind: 'bash', label: 'Bash', shell: bash ?? '', args: ['-i'], available: !!bash },
+    { kind: 'fish', label: 'Fish', shell: fish ?? '', args: ['-i'], available: !!fish },
+    { kind: 'sh', label: 'sh', shell: sh ?? '/bin/sh', args: ['-i'], available: !!sh }
+  )
+  return candidates
+}
+
 /** Discover which shells are available on this machine (PRD FR-010). */
 export function discoverShells(): ShellCandidate[] {
+  if (!isWin) return discoverPosixShells()
   const pwsh = pwshPath()
   const gitBash = gitBashPath()
   const wsl = firstExisting([join(winDir, 'System32', 'wsl.exe')])
@@ -64,11 +94,65 @@ export function discoverShells(): ShellCandidate[] {
 }
 
 /**
+ * Resolve a terminal-creation request on macOS/Linux. The host shell is the
+ * user's $SHELL (fallback /bin/bash). Agent CLIs run inside an interactive
+ * host shell so they resolve via the user's PATH.
+ */
+function resolvePosixShell(input: CreateTerminalInput): ResolvedShell {
+  const cwd = input.cwd || process.env.HOME || process.cwd()
+  const env = { ...process.env, ...(input.env || {}) } as Record<string, string>
+  const userShell = (process.env.SHELL && existsSync(process.env.SHELL) && process.env.SHELL) || '/bin/bash'
+
+  // Explicit custom command / shell wins.
+  if (input.kind === 'custom' && input.startupCommand) {
+    return { shell: userShell, args: ['-i'], cwd, env }
+  }
+  if (input.kind === 'custom' && input.shell) {
+    return { shell: input.shell, args: input.args ?? [], cwd, env }
+  }
+
+  const host = (): ResolvedShell => ({ shell: userShell, args: ['-i'], cwd, env })
+
+  switch (input.kind) {
+    case 'zsh':
+      return { shell: firstExisting(['/bin/zsh', '/usr/bin/zsh']) ?? userShell, args: ['-i'], cwd, env }
+    case 'bash':
+      return { shell: firstExisting(['/bin/bash', '/usr/bin/bash']) ?? userShell, args: ['-i'], cwd, env }
+    case 'fish':
+      return {
+        shell: firstExisting(['/usr/bin/fish', '/opt/homebrew/bin/fish', '/usr/local/bin/fish']) ?? userShell,
+        args: ['-i'],
+        cwd,
+        env
+      }
+    case 'sh':
+      return { shell: firstExisting(['/bin/sh', '/usr/bin/sh']) ?? '/bin/sh', args: ['-i'], cwd, env }
+    // Windows-only kinds fall back to the user's shell on POSIX.
+    case 'powershell':
+    case 'pwsh':
+    case 'cmd':
+    case 'wsl':
+    case 'gitbash':
+      return host()
+    case 'ssh':
+    case 'claude':
+    case 'codex':
+    case 'opencode':
+    case 'ollama':
+      return host()
+    default:
+      return host()
+  }
+}
+
+/**
  * Resolve a terminal-creation request into a concrete shell + args.
  * AI tools (claude/codex/opencode/ollama) run inside a host shell so the CLI
  * is launched via the user's PATH. (PRD §18)
  */
 export function resolveShell(input: CreateTerminalInput): ResolvedShell {
+  if (!isWin) return resolvePosixShell(input)
+
   const cwd = input.cwd || process.env.USERPROFILE || process.cwd()
   const env = { ...process.env, ...(input.env || {}) } as Record<string, string>
 

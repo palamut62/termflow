@@ -3,6 +3,10 @@ productName: TermFlow
 directories:
   output: dist
   buildResources: resources
+publish:
+  provider: github
+  owner: palamut62
+  repo: termflow
 files:
   - out/**
   - '!**/*.map'
@@ -26,3 +30,16 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
+mac:
+  icon: build/icon.png
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+  artifactName: ${productName}-${version}-${arch}.${ext}
+linux:
+  icon: build/icon.png
+  category: Development
+  target:
+    - AppImage
+    - deb
+  artifactName: ${productName}-${version}-${arch}.${ext}

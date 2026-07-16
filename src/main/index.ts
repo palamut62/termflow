@@ -5,14 +5,20 @@ import { join } from 'path'
 const APP_ICON = app.isPackaged
   ? join(process.resourcesPath, 'resources', 'icon.ico')
   : join(__dirname, '../../resources/icon.ico')
-import { initDatabase } from './db/database'
+import { initDatabase, flushSync } from './db/database'
 import { registerIpc } from './ipc/registerIpc'
+import { initUpdater } from './updater'
 import type { PtyManager } from './pty/PtyManager'
 
 let mainWindow: BrowserWindow | null = null
 let ptyManager: PtyManager | null = null
 
 function createWindow(): void {
+  // titleBarStyle 'hidden' + titleBarOverlay are supported on Windows and
+  // macOS; on Linux they can break window controls, so fall back to a normal
+  // frame there.
+  const customTitleBar = process.platform === 'win32' || process.platform === 'darwin'
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -21,8 +27,12 @@ function createWindow(): void {
     show: false,
     backgroundColor: '#111318',
     icon: APP_ICON,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#20242c', symbolColor: '#a0a7b4', height: 44 },
+    ...(customTitleBar
+      ? {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: { color: '#20242c', symbolColor: '#a0a7b4', height: 44 }
+        }
+      : {}),
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -81,6 +91,7 @@ app.whenReady().then(() => {
   initDatabase()
   ptyManager = registerIpc(() => mainWindow)
   createWindow()
+  initUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -89,9 +100,11 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   ptyManager?.killAll()
+  flushSync()
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
   ptyManager?.killAll()
+  flushSync()
 })

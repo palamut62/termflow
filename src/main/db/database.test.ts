@@ -19,7 +19,8 @@ import {
   listWorkspaces,
   upsertTerminal,
   listTerminals,
-  deleteTerminal
+  deleteTerminal,
+  flushSync
 } from './database'
 import type { TerminalSession } from '../../shared/types'
 
@@ -81,9 +82,11 @@ describe('database round-trip', () => {
       updatedAt: new Date().toISOString()
     }
     upsertTerminal(term)
+    flushSync()
     expect(listTerminals(wsId).map((t) => t.id)).toContain('term-1')
 
     deleteTerminal('term-1')
+    flushSync()
     expect(listTerminals(wsId).map((t) => t.id)).not.toContain('term-1')
   })
 })
