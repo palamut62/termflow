@@ -45,7 +45,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
   return (
     <div className="sidebar">
       <div className="filter">
-        <Search size={14} />
+        <Search size={12} />
         <input placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
 
@@ -90,7 +90,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                 onClick={() => !isActive && openWorkspace(ws.id)}
               >
                 <span className="ico">
-                  <Folder size={15} />
+                  <Folder size={14} />
                 </span>
                 {editingWs === ws.id ? (
                   <input
