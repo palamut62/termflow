@@ -120,7 +120,7 @@ export interface ProcStats {
   memory: number
 }
 
-export type ThemeMode = 'system' | 'latte' | 'frappe' | 'macchiato' | 'mocha' | 'matcha' | 'kanagawa' | 'ayu' | 'rose-pine' | 'dark' | 'light'
+export type ThemeMode = 'system' | 'vscode-dark' | 'vscode-light' | 'one-dark-pro' | 'tokyo-night'
 
 export type ConnectionType =
   | 'control'
@@ -413,7 +413,7 @@ export interface AiProviderProfile {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: 'dark',
+  theme: 'vscode-dark',
   activeBorderColor: '#f5e642',
   scrollback: 10000,
   passiveThrottleMs: 250,

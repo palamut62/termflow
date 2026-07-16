@@ -107,6 +107,20 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       appearancePatch.fontSize = 12
     }
     if (settings.terminalTheme === 'TermFlow Dark' || settings.terminalTheme === 'Zeonica') appearancePatch.terminalTheme = 'VS Code Dark'
+    const THEME_MIGRATION: Record<string, AppSettings['theme']> = {
+      dark: 'vscode-dark',
+      light: 'vscode-light',
+      mocha: 'vscode-dark',
+      latte: 'vscode-light',
+      matcha: 'vscode-light',
+      frappe: 'vscode-dark',
+      macchiato: 'vscode-dark',
+      kanagawa: 'tokyo-night',
+      ayu: 'one-dark-pro',
+      'rose-pine': 'tokyo-night'
+    }
+    const migratedTheme = THEME_MIGRATION[settings.theme as string]
+    if (migratedTheme) appearancePatch.theme = migratedTheme
     if (Object.keys(appearancePatch).length) settings = await window.termflow.settings.set(appearancePatch)
     set({ settings })
     document.documentElement.style.setProperty('--active-border', settings.activeBorderColor)

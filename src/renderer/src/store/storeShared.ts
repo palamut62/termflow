@@ -159,9 +159,22 @@ export function applyTheme(theme: AppSettings['theme'], transparency: number): v
   const root = document.documentElement
   const systemDark = (): boolean =>
     window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : true
+  const LEGACY: Record<string, string> = {
+    dark: 'vscode-dark',
+    light: 'vscode-light',
+    mocha: 'vscode-dark',
+    latte: 'vscode-light',
+    matcha: 'vscode-light',
+    frappe: 'vscode-dark',
+    macchiato: 'vscode-dark',
+    kanagawa: 'tokyo-night',
+    ayu: 'one-dark-pro',
+    'rose-pine': 'tokyo-night'
+  }
   const resolve = (): void => {
-    const resolved = theme === 'system' ? (systemDark() ? 'mocha' : 'latte') : theme === 'dark' ? 'mocha' : theme === 'light' ? 'latte' : theme
-    const isLight = resolved === 'latte' || resolved === 'matcha'
+    const raw: string = theme === 'system' ? (systemDark() ? 'vscode-dark' : 'vscode-light') : theme
+    const resolved = LEGACY[raw] ?? raw
+    const isLight = resolved === 'vscode-light'
     root.setAttribute('data-theme', resolved)
     const opacity = Math.max(45, Math.min(100, transparency))
     root.toggleAttribute('data-transparency', opacity < 100)

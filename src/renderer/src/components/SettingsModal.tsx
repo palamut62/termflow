@@ -139,14 +139,10 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
               <label>Theme</label>
               <select value={settings.theme} onChange={(e) => update({ theme: e.target.value as typeof settings.theme })}>
                 <option value="system">System</option>
-                <option value="latte">Catppuccin Latte</option>
-                <option value="frappe">Catppuccin Frappé</option>
-                <option value="macchiato">Catppuccin Macchiato</option>
-                <option value="mocha">Catppuccin Mocha</option>
-                <option value="matcha">Matcha</option>
-                <option value="kanagawa">Kanagawa</option>
-                <option value="ayu">Ayu Mirage</option>
-                <option value="rose-pine">Rosé Pine</option>
+                <option value="vscode-dark">VS Code Dark</option>
+                <option value="vscode-light">VS Code Light</option>
+                <option value="one-dark-pro">One Dark Pro</option>
+                <option value="tokyo-night">Tokyo Night</option>
               </select>
             </div>
 
