@@ -1,6 +1,6 @@
 {
   "name": "termflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TermFlow — Windows multi-terminal & multi-agent canvas workspace",
   "main": "./out/main/index.js",
   "author": "TermFlow",
@@ -19,8 +19,8 @@
     "start": "electron-vite preview",
     "package": "electron-vite build && electron-builder --win",
     "package:verify": "npm run package && node scripts/verify-artifacts.mjs",
-    "icons": "node scripts/gen-icons.mjs"
-    ,"plugin": "node scripts/termflow-plugin.mjs"
+    "icons": "node scripts/gen-icons.mjs",
+    "plugin": "node scripts/termflow-plugin.mjs"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.12",
