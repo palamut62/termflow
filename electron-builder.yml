@@ -20,7 +20,7 @@ extraResources:
 asarUnpack:
   - '**/node_modules/@lydell/node-pty*/**'
 win:
-  icon: build/icon.ico
+  icon: resources/icon.ico
   target:
     - nsis
     - zip
@@ -28,6 +28,6 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
-  installerHeaderIcon: build/icon.ico
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  installerHeaderIcon: resources/icon.ico

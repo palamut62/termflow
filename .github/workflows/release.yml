@@ -29,6 +29,7 @@ jobs:
         with:
           name: TermFlow ${{ github.ref_name }}
           generate_release_notes: true
+          overwrite_files: true
           files: |
             dist/TermFlow-*-x64.exe
             dist/TermFlow-*-x64.exe.blockmap
