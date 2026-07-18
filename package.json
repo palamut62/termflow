@@ -10,6 +10,10 @@
     "url": "https://github.com/palamut62/termflow.git"
   },
   "scripts": {
+    "version:sync": "node scripts/sync-version.mjs",
+    "prebuild": "npm run version:sync",
+    "preverify": "npm run version:sync",
+    "prepackage": "npm run version:sync",
     "dev": "electron-vite dev",
     "typecheck": "tsc --build --force",
     "test": "vitest run src",

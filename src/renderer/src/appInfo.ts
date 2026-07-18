@@ -1,16 +1,18 @@
-// Single source of truth for the About section. APP_VERSION is injected from
-// package.json at build time, so it always reflects the shipped release. Add a
-// new CHANGELOG entry (newest first) whenever the version is bumped.
+import { CURRENT_RELEASE } from './generatedRelease'
+
+// The version is injected from package.json. The visible release notes are
+// generated from release-manifest.json by scripts/sync-version.mjs.
 
 export const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
 export interface ChangelogEntry {
   version: string
   date: string
-  changes: string[]
+  changes: readonly string[]
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  CURRENT_RELEASE,
   {
     version: '0.1.0',
     date: '2026-07-15',
