@@ -434,6 +434,17 @@ input {
   border-color: var(--accent);
   color: var(--text-primary);
 }
+.sb-update { display: inline-flex; align-items: stretch; height: 24px; border: 1px solid var(--border-soft); border-radius: 6px; overflow: hidden; background: var(--bg-panel-2); }
+.sb-update button { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; white-space: nowrap; }
+.sb-update button:hover:not(:disabled) { background: var(--accent-soft); color: var(--text-primary); }
+.sb-update button:disabled { cursor: wait; opacity: .8; }
+.sb-update-auto { border-left: 1px solid var(--border-soft) !important; font-size: 10px !important; }
+.sb-update-auto.active { color: var(--success) !important; }
+.sb-update.available, .sb-update.ready { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-soft)); }
+.sb-update.ready .sb-update-main { color: var(--accent); font-weight: 650; }
+.sb-update.error .sb-update-main { color: var(--danger); }
+.sb-update .spin { animation: sb-spin 1s linear infinite; }
+@keyframes sb-spin { to { transform: rotate(360deg); } }
 
 /* ---- Canvas ---- */
 .canvas-wrap {
