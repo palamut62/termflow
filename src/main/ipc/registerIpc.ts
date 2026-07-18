@@ -43,6 +43,10 @@ import {
   ,type GitWorkbenchState
   ,type CredentialMeta
   ,type TermFlowPluginManifest
+  ,type CreateAgentTeamInput
+  ,type AgentTeam
+  ,type TeamMember
+  ,type TeamTask
 } from '../../shared/types'
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
@@ -254,6 +258,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   // ---- Layout ----
   ipcMain.handle(IPC.LAYOUT_GET, (_e, workspaceId: string) => dbApi.getLayout(workspaceId))
   ipcMain.handle(IPC.LAYOUT_SAVE, (_e, layout: WorkspaceLayout) => dbApi.saveLayout(layout))
+
+  // ---- Agent Teams ----
+  ipcMain.handle(IPC.TEAM_LIST, (_e, workspaceId: string) => dbApi.listAgentTeams(workspaceId))
+  ipcMain.handle(IPC.TEAM_CREATE, (_e, input: CreateAgentTeamInput) => dbApi.createAgentTeam(input))
+  ipcMain.handle(IPC.TEAM_UPDATE, (_e, id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>) => dbApi.updateAgentTeam(id, patch))
+  ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>) => dbApi.updateTeamMember(id, patch))
+  ipcMain.handle(IPC.TEAM_TASK_UPDATE, (_e, id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>) => dbApi.updateTeamTask(id, patch))
+  ipcMain.handle(IPC.TEAM_DELETE, (_e, id: string) => dbApi.deleteAgentTeam(id))
 
   // ---- Snippets ----
   ipcMain.handle(IPC.SNIPPET_LIST, (_e, workspaceId?: string) => dbApi.listSnippets(workspaceId))

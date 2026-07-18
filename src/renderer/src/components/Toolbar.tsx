@@ -24,6 +24,7 @@ import {
   ,Puzzle
   ,SlidersHorizontal
   ,Pencil
+  ,Users
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
@@ -48,6 +49,7 @@ interface Props {
   onOpenHelp: () => void
   onOpenTerminalLauncher: () => void
   onOpenProviderManager: () => void
+  onOpenTeams: () => void
 }
 
 const LAYOUTS: { mode: LayoutMode; label: string; icon: React.JSX.Element }[] = [
@@ -72,7 +74,7 @@ function useOutside(cb: () => void): React.RefObject<HTMLDivElement> {
   return ref
 }
 
-export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onOpenHelp, onOpenTerminalLauncher, onOpenProviderManager }: Props): React.JSX.Element {
+export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onOpenHelp, onOpenTerminalLauncher, onOpenProviderManager, onOpenTeams }: Props): React.JSX.Element {
   const addTerminal = useAppStore((s) => s.addTerminal)
   const setLayoutMode = useAppStore((s) => s.setLayoutMode)
   const layoutMode = useAppStore((s) => s.layoutMode)
@@ -293,6 +295,12 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
             ))}
           </div>
         )}
+      </div>
+
+      <div className="tb-group">
+        <button className="tb-btn" disabled={disabled} title="Agent Teams" onClick={onOpenTeams}>
+          <Users size={15} /> <span className="tb-label">Agent Teams</span>
+        </button>
       </div>
 
       <div className="tb-group" ref={layoutRef} style={{ position: 'relative' }}>

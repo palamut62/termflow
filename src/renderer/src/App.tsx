@@ -14,6 +14,7 @@ import HelpModal from './components/HelpModal'
 import TerminalLauncherModal from './components/TerminalLauncherModal'
 import ProviderManagerModal from './components/ProviderManagerModal'
 import RecoveryModal from './components/RecoveryModal'
+import AgentTeamsModal from './components/AgentTeamsModal'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
@@ -108,6 +109,7 @@ export default function App(): React.JSX.Element {
   const [showHelp, setShowHelp] = useState(false)
   const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
   const [showProviderManager, setShowProviderManager] = useState(false)
+  const [showAgentTeams, setShowAgentTeams] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
   const [pluginCommands, setPluginCommands] = useState<TermFlowPluginManifest[]>([])
   const [confirm, setConfirm] = useState<{
@@ -360,6 +362,7 @@ export default function App(): React.JSX.Element {
         onOpenHelp={() => setShowHelp(true)}
         onOpenTerminalLauncher={() => setShowTerminalLauncher(true)}
         onOpenProviderManager={() => setShowProviderManager(true)}
+        onOpenTeams={() => setShowAgentTeams(true)}
       />
       <div className="canvas-wrap" ref={canvasRef}>
         <ReactFlowProvider>
@@ -383,6 +386,7 @@ export default function App(): React.JSX.Element {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showTerminalLauncher && <TerminalLauncherModal onClose={() => setShowTerminalLauncher(false)} />}
       {showProviderManager && <ProviderManagerModal onClose={() => setShowProviderManager(false)} />}
+      {showAgentTeams && <AgentTeamsModal onClose={() => setShowAgentTeams(false)} />}
       {showRecovery && <RecoveryModal onRestore={() => { void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} onDiscard={() => { useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')); void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}

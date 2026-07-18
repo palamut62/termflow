@@ -412,6 +412,70 @@ export interface AiProviderProfile {
   fullPermissionArgs: string
 }
 
+// ---- Agent Teams ----
+export type TeamPermissionPolicy = 'review' | 'controlled' | 'balanced' | 'full'
+export type AgentTeamStatus = 'draft' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
+export type TeamMemberStatus = 'idle' | 'working' | 'waiting' | 'completed' | 'failed' | 'stopped'
+export type TeamTaskStatus = 'ready' | 'working' | 'approval' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled'
+
+export interface AgentTeam {
+  id: string
+  workspaceId: string
+  name: string
+  objective: string
+  status: AgentTeamStatus
+  permissionPolicy: TeamPermissionPolicy
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TeamMember {
+  id: string
+  teamId: string
+  name: string
+  role: 'lead' | 'researcher' | 'developer' | 'tester' | 'reviewer'
+  provider: 'claude'
+  status: TeamMemberStatus
+  terminalId?: string
+}
+
+export interface TeamTask {
+  id: string
+  teamId: string
+  title: string
+  description: string
+  assigneeId?: string
+  status: TeamTaskStatus
+  dependencies: string[]
+  acceptanceCriteria: string[]
+  result?: string
+  updatedAt: string
+}
+
+export interface TeamEvent {
+  id: string
+  teamId: string
+  memberId?: string
+  taskId?: string
+  type: 'team.created' | 'team.started' | 'team.stopped' | 'member.started' | 'task.updated' | 'note'
+  message: string
+  createdAt: string
+}
+
+export interface AgentTeamBundle {
+  team: AgentTeam
+  members: TeamMember[]
+  tasks: TeamTask[]
+  events: TeamEvent[]
+}
+
+export interface CreateAgentTeamInput {
+  workspaceId: string
+  objective: string
+  permissionPolicy: TeamPermissionPolicy
+  teamSize: 3 | 4 | 5
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'vscode-dark',
   activeBorderColor: '#f5e642',
@@ -602,5 +666,11 @@ export const IPC = {
   AGENT_SET_ROUTING: 'agent:setRouting',
   // Claude Code agent config files
   AGENT_CFG_READ: 'agentCfg:read',
-  AGENT_CFG_WRITE: 'agentCfg:write'
+  AGENT_CFG_WRITE: 'agentCfg:write',
+  TEAM_LIST: 'team:list',
+  TEAM_CREATE: 'team:create',
+  TEAM_UPDATE: 'team:update',
+  TEAM_DELETE: 'team:delete',
+  TEAM_MEMBER_UPDATE: 'team:member:update',
+  TEAM_TASK_UPDATE: 'team:task:update'
 } as const

@@ -25,6 +25,11 @@ import {
   ,type TermFlowPluginManifest
   ,type PluginDiagnostic
   ,type PluginRegistryEntry
+  ,type AgentTeamBundle
+  ,type CreateAgentTeamInput
+  ,type AgentTeam
+  ,type TeamMember
+  ,type TeamTask
 } from '../shared/types'
 
 // Windows OS build number (e.g. 26200 for current Win11). xterm's windowsPty
@@ -193,6 +198,14 @@ const api = {
   layout: {
     get: (workspaceId: string): Promise<WorkspaceLayout> => ipcRenderer.invoke(IPC.LAYOUT_GET, workspaceId),
     save: (layout: WorkspaceLayout): Promise<void> => ipcRenderer.invoke(IPC.LAYOUT_SAVE, layout)
+  },
+  teams: {
+    list: (workspaceId: string): Promise<AgentTeamBundle[]> => ipcRenderer.invoke(IPC.TEAM_LIST, workspaceId),
+    create: (input: CreateAgentTeamInput): Promise<AgentTeamBundle> => ipcRenderer.invoke(IPC.TEAM_CREATE, input),
+    update: (id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>): Promise<AgentTeamBundle> => ipcRenderer.invoke(IPC.TEAM_UPDATE, id, patch),
+    updateMember: (id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_MEMBER_UPDATE, id, patch),
+    updateTask: (id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_TASK_UPDATE, id, patch),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_DELETE, id)
   },
   // ---- Snippets ----
   snippets: {
