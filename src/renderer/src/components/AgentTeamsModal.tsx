@@ -2,16 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Bot, CheckCircle2, Circle, Pause, Play, Plus, Square, Users, X } from 'lucide-react'
 import type { AgentTeamBundle, TeamPermissionPolicy, TeamTaskStatus } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
-import { getActiveTerminalId } from '../paneUtils'
 import { useModalClose } from '../hooks/useModalClose'
-
-const ROLE_INSTRUCTIONS: Record<string, string> = {
-  lead: 'Takımın liderisin. Hedefi takip et, üyelerin görevlerini koordine et, sonuçları sentezle ve kalite kapıları geçmeden işi tamamlandı sayma.',
-  researcher: 'Araştırmacısın. Önce gerçek kodu incele, riskleri ve kök nedeni bul. Kod değiştirmeden uygulanabilir bir plan ve kanıt sun.',
-  developer: 'Geliştiricisin. Yalnızca atanan uygulama görevini yap. İlgili kodu önce oku, değişikliği hedefle sınırlı tut ve derleme sonucunu bildir.',
-  tester: 'Test uzmanısın. Değişikliği bağımsız doğrula. İlgili testleri çalıştır, kullanıcı davranışını kontrol et ve somut kanıt raporla.',
-  reviewer: 'Kod inceleyicisin. Değişiklikleri doğruluk, güvenlik, regresyon ve test kapsamı açısından incele. Engelleyici bulguları açıkça bildir.'
-}
 
 const POLICY_LABELS: Record<TeamPermissionPolicy, string> = {
   review: 'Sadece incele', controlled: 'Değişikliklerden önce sor', balanced: 'Güvenli değişiklikleri yap', full: 'Tam yetki'
@@ -21,25 +12,8 @@ const STATUS_LABELS: Record<TeamTaskStatus, string> = {
   ready: 'Hazır', working: 'Çalışıyor', approval: 'Onay bekliyor', blocked: 'Engellendi', review: 'İncelemede', completed: 'Tamamlandı', failed: 'Başarısız', cancelled: 'İptal edildi'
 }
 
-const STARTUP_BY_POLICY: Record<TeamPermissionPolicy, string> = {
-  review: 'claude --permission-mode plan',
-  controlled: 'claude',
-  balanced: 'claude --permission-mode acceptEdits',
-  full: 'claude --dangerously-skip-permissions'
-}
-
-async function waitForAgentReady(terminalId: string): Promise<void> {
-  const deadline = Date.now() + 15_000
-  while (Date.now() < deadline) {
-    const output = await window.termflow.pty.buffer(terminalId)
-    if (/claude code|how can i help|welcome/i.test(output)) return
-    await new Promise((resolve) => setTimeout(resolve, 400))
-  }
-}
-
 export default function AgentTeamsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const workspaceId = useAppStore((s) => s.activeWorkspaceId)
-  const addTerminal = useAppStore((s) => s.addTerminal)
   const [teams, setTeams] = useState<AgentTeamBundle[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -60,6 +34,11 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
   }
 
   useEffect(() => { void reload() }, [workspaceId])
+  useEffect(() => {
+    if (!selected || !['running', 'paused'].includes(selected.team.status)) return
+    const timer = setInterval(() => { void reload(selected.team.id) }, 1000)
+    return () => clearInterval(timer)
+  }, [selected?.team.id, selected?.team.status])
 
   const createTeam = async (): Promise<void> => {
     if (!workspaceId || !objective.trim()) return
@@ -81,20 +60,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
     setBusy(true)
     setError(null)
     try {
-      await window.termflow.teams.update(bundle.team.id, { status: 'running' })
-      for (const member of bundle.members) {
-        const tasks = bundle.tasks.filter((task) => task.assigneeId === member.id)
-        await addTerminal('claude', { name: member.name, agentRole: member.name, startupCommand: STARTUP_BY_POLICY[bundle.team.permissionPolicy] })
-        const state = useAppStore.getState()
-        const node = state.nodes.find((item) => item.id === state.activeNodeId)
-        const terminalId = node ? getActiveTerminalId(node.activePaneId, node.panes, node.terminalId) : undefined
-        if (!terminalId) continue
-        await window.termflow.teams.updateMember(member.id, { status: 'working', terminalId })
-        const taskText = tasks.length ? tasks.map((task) => `- ${task.title}: ${task.description}`).join('\n') : '- Takımın ilerlemesini izle ve sonuçları sentezle.'
-        const prompt = `${ROLE_INSTRUCTIONS[member.role]}\n\nTakım hedefi: ${bundle.team.objective}\n\nSana atanan görevler:\n${taskText}\n\nÇalışma klasörünün dışına çıkma. Başlamadan önce ilgili kodu incele. İlerlemeni ve sonucunu sade Türkçe ile bildir.`
-        await waitForAgentReady(terminalId)
-        window.termflow.pty.write(terminalId, `${prompt}\r`)
-      }
+      await window.termflow.teams.start(bundle.team.id)
       await reload(bundle.team.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Takım başlatılamadı')
@@ -105,16 +71,21 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
 
   const setTeamStatus = async (status: 'paused' | 'cancelled'): Promise<void> => {
     if (!selected) return
-    if (status === 'cancelled') {
-      for (const member of selected.members) if (member.terminalId) window.termflow.pty.kill(member.terminalId)
-    }
-    await window.termflow.teams.update(selected.team.id, { status })
+    if (status === 'cancelled') await window.termflow.teams.stop(selected.team.id)
+    else await window.termflow.teams.update(selected.team.id, { status })
     await reload(selected.team.id)
   }
 
   const setTaskStatus = async (taskId: string, status: TeamTaskStatus): Promise<void> => {
     await window.termflow.teams.updateTask(taskId, { status })
     if (selected) await reload(selected.team.id)
+  }
+
+  const approveTask = async (taskId: string): Promise<void> => {
+    if (!selected) return
+    await window.termflow.teams.updateTask(taskId, { approved: true, status: 'ready' })
+    await window.termflow.teams.start(selected.team.id)
+    await reload(selected.team.id)
   }
 
   return (
@@ -144,8 +115,9 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
             ) : selected ? (
               <>
                 <section className="team-summary"><div><span className="team-kicker">{POLICY_LABELS[selected.team.permissionPolicy]}</span><h2>{selected.team.name}</h2><p>{selected.team.objective}</p></div><div className="team-actions">{selected.team.status === 'draft' && <button className="btn primary" disabled={busy} onClick={() => void startTeam(selected)}><Play size={14} /> Takımı başlat</button>}{selected.team.status === 'running' && <button className="btn" onClick={() => void setTeamStatus('paused')}><Pause size={14} /> Duraklat</button>}<button className="btn danger" onClick={() => void setTeamStatus('cancelled')}><Square size={13} /> Durdur</button></div></section>
-                <section className="team-members">{selected.members.map((member) => <article key={member.id}><Bot size={16} /><div><strong>{member.name}</strong><span>Claude Code</span></div><em className={`team-status ${member.status}`}>{member.status}</em></article>)}</section>
-                <section className="team-tasks"><header><h4>Görevler</h4><span>{selected.tasks.filter((task) => task.status === 'completed').length}/{selected.tasks.length} tamamlandı</span></header>{selected.tasks.map((task) => { const member = selected.members.find((item) => item.id === task.assigneeId); return <article key={task.id}><button className="task-check" title="Durumu değiştir" onClick={() => void setTaskStatus(task.id, task.status === 'completed' ? 'ready' : 'completed')}>{task.status === 'completed' ? <CheckCircle2 size={18} /> : <Circle size={18} />}</button><div><strong>{task.title}</strong><p>{task.description}</p><span>{member?.name ?? 'Atanmadı'} · {STATUS_LABELS[task.status]}</span></div></article> })}</section>
+                <section className="team-members">{selected.members.map((member) => <article key={member.id}><Bot size={16} /><div><strong>{member.name}</strong>{selected.team.status === 'draft' ? <select value={member.provider} onChange={async (event) => { await window.termflow.teams.updateMember(member.id, { provider: event.target.value as typeof member.provider }); await reload(selected.team.id) }}><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="opencode">OpenCode</option><option value="generic">Generic CLI</option></select> : <span>{member.provider}</span>}</div><em className={`team-status ${member.status}`}>{member.status}</em></article>)}</section>
+                <section className="team-tasks"><header><h4>Görevler</h4><span>{selected.tasks.filter((task) => task.status === 'completed').length}/{selected.tasks.length} tamamlandı</span></header>{selected.tasks.map((task) => { const member = selected.members.find((item) => item.id === task.assigneeId); return <article key={task.id}><button className="task-check" title="Durumu değiştir" onClick={() => void setTaskStatus(task.id, task.status === 'completed' ? 'ready' : 'completed')}>{task.status === 'completed' ? <CheckCircle2 size={18} /> : <Circle size={18} />}</button><div><strong>{task.title}</strong><p>{task.description}</p><span>{member?.name ?? 'Atanmadı'} · {STATUS_LABELS[task.status]}</span>{task.status === 'approval' && <button className="btn primary" onClick={() => void approveTask(task.id)}>Planı onayla ve uygula</button>}</div></article> })}</section>
+                <section className="team-events"><header><h4>Canlı çalışma akışı</h4><span>{selected.events.length} olay</span></header>{selected.events.slice(-30).reverse().map((event) => <article key={event.id}><time>{new Date(event.createdAt).toLocaleTimeString()}</time><p>{event.message}</p></article>)}</section>
               </>
             ) : <div className="team-empty"><Users size={38} /><strong>İlk agent team'ini oluştur</strong><span>Teknik ayar gerekmez. Hedefini doğal dille yazman yeterli.</span></div>}
           </main>

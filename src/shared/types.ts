@@ -434,9 +434,10 @@ export interface TeamMember {
   teamId: string
   name: string
   role: 'lead' | 'researcher' | 'developer' | 'tester' | 'reviewer'
-  provider: 'claude'
+  provider: 'claude' | 'codex' | 'opencode' | 'generic'
   status: TeamMemberStatus
   terminalId?: string
+  sessionId?: string
 }
 
 export interface TeamTask {
@@ -449,6 +450,7 @@ export interface TeamTask {
   dependencies: string[]
   acceptanceCriteria: string[]
   result?: string
+  approved?: boolean
   updatedAt: string
 }
 
@@ -673,4 +675,6 @@ export const IPC = {
   TEAM_DELETE: 'team:delete',
   TEAM_MEMBER_UPDATE: 'team:member:update',
   TEAM_TASK_UPDATE: 'team:task:update'
+  ,TEAM_START: 'team:start'
+  ,TEAM_STOP: 'team:stop'
 } as const

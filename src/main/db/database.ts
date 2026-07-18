@@ -150,6 +150,11 @@ export function initDatabase(): void {
   } else {
     store = empty()
   }
+  // Agent subprocesses cannot survive an app restart. Resume their durable
+  // task records in a safe paused state instead of showing phantom workers.
+  for (const team of store.agentTeams) if (team.status === 'running') team.status = 'paused'
+  for (const member of store.teamMembers) if (member.status === 'working') member.status = 'idle'
+  for (const task of store.teamTasks) if (task.status === 'working') task.status = 'ready'
   if (store.workspaces.length === 0) {
     createWorkspace({
       name: 'Default',
@@ -471,6 +476,19 @@ export function listAgentTeams(workspaceId: string): AgentTeamBundle[] {
     .map(teamBundle)
 }
 
+export function getAgentTeam(id: string): AgentTeamBundle | undefined {
+  const team = store.agentTeams.find((item) => item.id === id)
+  return team ? teamBundle(team) : undefined
+}
+
+export function appendTeamEvent(input: Omit<TeamEvent, 'id' | 'createdAt'>): TeamEvent {
+  const event: TeamEvent = { id: nanoid(), ...input, createdAt: now() }
+  store.teamEvents.push(event)
+  if (store.teamEvents.length > 5000) store.teamEvents.splice(0, store.teamEvents.length - 5000)
+  persist()
+  return event
+}
+
 export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   const objective = input.objective.trim().slice(0, 2000)
   if (!objective) throw new Error('Takım hedefi boş olamaz')
@@ -523,14 +541,14 @@ export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'stat
   return teamBundle(team)
 }
 
-export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>): void {
+export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>): void {
   const member = store.teamMembers.find((item) => item.id === id)
   if (!member) throw new Error('Takım üyesi bulunamadı')
   Object.assign(member, patch)
   persist()
 }
 
-export function updateTeamTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>): void {
+export function updateTeamTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId' | 'approved'>>): void {
   const task = store.teamTasks.find((item) => item.id === id)
   if (!task) throw new Error('Görev bulunamadı')
   Object.assign(task, patch, { updatedAt: now() })

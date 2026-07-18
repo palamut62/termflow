@@ -203,9 +203,11 @@ const api = {
     list: (workspaceId: string): Promise<AgentTeamBundle[]> => ipcRenderer.invoke(IPC.TEAM_LIST, workspaceId),
     create: (input: CreateAgentTeamInput): Promise<AgentTeamBundle> => ipcRenderer.invoke(IPC.TEAM_CREATE, input),
     update: (id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>): Promise<AgentTeamBundle> => ipcRenderer.invoke(IPC.TEAM_UPDATE, id, patch),
-    updateMember: (id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_MEMBER_UPDATE, id, patch),
-    updateTask: (id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_TASK_UPDATE, id, patch),
+    updateMember: (id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_MEMBER_UPDATE, id, patch),
+    updateTask: (id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId' | 'approved'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_TASK_UPDATE, id, patch),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_DELETE, id)
+    ,start: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_START, id)
+    ,stop: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_STOP, id)
   },
   // ---- Snippets ----
   snippets: {
