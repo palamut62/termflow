@@ -84,6 +84,8 @@ export default function CanvasFlow(): React.JSX.Element {
       data: {},
       width: n.size.width,
       height: n.isMinimized ? 32 : n.size.height,
+      // v12 parseHandles drops measured handleBounds when `measured` is absent, breaking connection drags (bug fix)
+      measured: { width: n.size.width, height: n.isMinimized ? 32 : n.size.height },
       zIndex: n.zIndex,
       selected: n.id === activeNodeId
     }))

@@ -66,14 +66,18 @@ afterEach(() => {
 })
 
 describe('PtyManager routing', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
   it('routes a marker payload from source to target', () => {
     mgr.create('A', baseInput)
     mgr.create('B', baseInput)
     mgr.setRouting('A', [markerRule('c1', ['B'])])
 
     registry[0].emit('@@HANDOFF@@hello@@END@@')
+    vi.runAllTimers()
 
-    expect(registry[1].writes).toContain('@@HANDOFF@@hello@@END@@\r')
+    expect(registry[1].writes.join('')).toBe('@@HANDOFF@@hello@@END@@\r')
   })
 
   it('blocks an echoed payload looping back A->B->A', () => {
@@ -84,10 +88,12 @@ describe('PtyManager routing', () => {
 
     // A emits -> routed into B (and recorded as inbound on B).
     registry[0].emit('@@HANDOFF@@hello@@END@@')
-    expect(registry[1].writes.length).toBe(1)
+    vi.runAllTimers()
+    expect(registry[1].writes.join('')).toBe('@@HANDOFF@@hello@@END@@\r')
 
     // B echoes the same payload -> must NOT be routed back to A.
     registry[1].emit('@@HANDOFF@@hello@@END@@')
+    vi.runAllTimers()
     expect(registry[0].writes.length).toBe(0)
   })
 
@@ -97,9 +103,15 @@ describe('PtyManager routing', () => {
     mgr.setRouting('A', [markerRule('c1', ['B'])])
 
     // 41 distinct payloads in one tight window; the loop backstop trips at 40.
+    // The routing decision runs synchronously at emit time, so all admitted
+    // payloads are scheduled before the single flush; their per-character writes
+    // then interleave. Each completed route submits exactly one Enter ('\r'),
+    // so counting those Enters is the faithful measure of routes that got through.
     for (let i = 0; i < 41; i++) registry[0].emit(`@@HANDOFF@@msg${i}@@END@@`)
+    vi.runAllTimers()
 
-    expect(registry[1].writes.length).toBe(40)
+    const enters = registry[1].writes.filter((w) => w === '\r').length
+    expect(enters).toBe(40)
   })
 })
 
