@@ -7,12 +7,21 @@ import StatusBar from './components/StatusBar'
 import WorkspaceModal from './components/WorkspaceModal'
 import SettingsModal from './components/SettingsModal'
 import SnippetModal from './components/SnippetModal'
+import ProjectManifestPanel from './components/ProjectManifestPanel'
+import DetachedSessionsPanel from './components/DetachedSessionsPanel'
+import DeveloperCenter from './components/DeveloperCenter'
+import HelpModal from './components/HelpModal'
+import TerminalLauncherModal from './components/TerminalLauncherModal'
+import ProviderManagerModal from './components/ProviderManagerModal'
+import RecoveryModal from './components/RecoveryModal'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
 import CanvasFlow from './canvas/CanvasFlow'
 import { useAppStore } from './store/appStore'
 import { getActiveTerminalId } from './paneUtils'
+import type { TermFlowPluginManifest } from '../../shared/types'
+import { pluginMatchesWorkspace } from '../../shared/pluginValidation'
 
 function ConnectionInspector(): React.JSX.Element | null {
   const id = useAppStore((s) => s.selectedConnectionId)
@@ -80,17 +89,27 @@ function ConnectionInspector(): React.JSX.Element | null {
 
 export default function App(): React.JSX.Element {
   const loadWorkspaces = useAppStore((s) => s.loadWorkspaces)
+  const developerCenterOpen = useAppStore((s) => s.developerCenterOpen)
   const loadSettings = useAppStore((s) => s.loadSettings)
   const startRuntimeListeners = useAppStore((s) => s.startRuntimeListeners)
   const setCanvasSize = useAppStore((s) => s.setCanvasSize)
   const flushPersist = useAppStore((s) => s.flushPersist)
   const nodes = useAppStore((s) => s.nodes)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
+  const snippets = useAppStore((s) => s.snippets)
+  const sshProfiles = useAppStore((s) => s.sshProfiles)
+  const projectManifest = useAppStore((s) => s.projectManifest)
+  const activeWorkspace = useAppStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId))
 
   const [showWsModal, setShowWsModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [showSnippetModal, setShowSnippetModal] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
+  const [showProviderManager, setShowProviderManager] = useState(false)
+  const [showRecovery, setShowRecovery] = useState(false)
+  const [pluginCommands, setPluginCommands] = useState<TermFlowPluginManifest[]>([])
   const [confirm, setConfirm] = useState<{
     title: string
     message: string
@@ -105,6 +124,37 @@ export default function App(): React.JSX.Element {
     onSubmit: (values: Record<string, string>) => void
   } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const openLauncher = (): void => setShowTerminalLauncher(true)
+    const openProviders = (): void => setShowProviderManager(true)
+    const closeAll = (): void => setConfirm({ title: 'Close all terminals', message: 'All terminal processes in this workspace will be terminated completely.', confirmLabel: 'Terminate All', tone: 'danger', onConfirm: () => useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')) })
+    window.addEventListener('termflow:open-terminal-launcher', openLauncher)
+    window.addEventListener('termflow:open-provider-manager', openProviders)
+    window.addEventListener('termflow:close-all-terminals', closeAll)
+    return () => {
+      window.removeEventListener('termflow:open-terminal-launcher', openLauncher)
+      window.removeEventListener('termflow:open-provider-manager', openProviders)
+      window.removeEventListener('termflow:close-all-terminals', closeAll)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    const loadPlugins = async (): Promise<void> => {
+      const [plugins, files] = await Promise.all([
+        window.termflow.plugins.list(),
+        activeWorkspace ? window.termflow.files.list(activeWorkspace.id).catch(() => []) : Promise.resolve([])
+      ])
+      const names = new Set(files.map((file) => file.name.toLowerCase()))
+      const platform = navigator.userAgent.includes('Windows') ? 'win32' : navigator.userAgent.includes('Mac') ? 'darwin' : 'linux'
+      if (active) setPluginCommands(plugins.filter((plugin) => plugin.enabled !== false && pluginMatchesWorkspace(plugin, names, platform)))
+    }
+    const onChanged = (): void => { void loadPlugins() }
+    void loadPlugins()
+    window.addEventListener('termflow:plugins-changed', onChanged)
+    return () => { active = false; window.removeEventListener('termflow:plugins-changed', onChanged) }
+  }, [activeWorkspace])
 
   const loadSnippets = useAppStore((s) => s.loadSnippets)
   const loadHighlightRules = useAppStore((s) => s.loadHighlightRules)
@@ -121,6 +171,7 @@ export default function App(): React.JSX.Element {
     loadSettings()
     startRuntimeListeners()
     loadWorkspaces().then(() => {
+      void window.termflow.recovery.status().then((status) => setShowRecovery(status.crashed))
       loadSnippets()
       loadHighlightRules()
       startGitPolling()
@@ -152,6 +203,30 @@ export default function App(): React.JSX.Element {
       { id: 'new-claude', title: 'Open Claude Code', run: () => s().addTerminal('claude') },
       { id: 'new-codex', title: 'Open Codex', run: () => s().addTerminal('codex') },
       { id: 'new-opencode', title: 'Open OpenCode', run: () => s().addTerminal('opencode') },
+      ...s().sshProfiles.map((profile) => ({
+        id: `ssh:${profile.id}`,
+        title: `SSH: ${profile.name} (${profile.user}@${profile.host})`,
+        run: () => s().launchSshProfile(profile)
+      })),
+      ...((s().projectManifest?.tasks ?? []).map((task) => ({
+        id: `manifest-task:${task.name}`,
+        title: `Task: ${task.name}`,
+        run: () => s().runManifestTask(task.name)
+      }))),
+      ...pluginCommands.flatMap((plugin) => plugin.commands.map((command) => ({
+        id: `plugin:${plugin.id}:${command.id}`,
+        title: `${command.category || plugin.name}: ${command.title}`,
+        run: () => s().addTerminal(command.shell || 'custom', {
+          name: command.title,
+          startupCommand: command.command,
+          cwd: command.cwd?.replaceAll('${workspaceFolder}', activeWorkspace?.path || '') || activeWorkspace?.path
+        })
+      }))),
+      {
+        id: 'apply-manifest',
+        title: 'Apply .termflow.json Manifest',
+        run: () => s().applyProjectManifest()
+      },
       { id: 'autofit', title: 'Auto Fit Terminals', run: () => s().setLayoutMode('auto_fit', canvasSize()) },
       { id: 'grid', title: 'Layout: Grid', run: () => s().setLayoutMode('grid', canvasSize()) },
       { id: 'focus', title: 'Layout: Focus + Mini', run: () => s().setLayoutMode('focus', canvasSize()) },
@@ -230,7 +305,7 @@ export default function App(): React.JSX.Element {
       { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
     ]
     return cmds
-  }, [canvasSize])
+  }, [canvasSize, snippets, sshProfiles, projectManifest, pluginCommands, activeWorkspace])
 
   // Keyboard shortcuts (PRD §21). Ctrl+Alt combos avoid clashing with terminal input.
   useEffect(() => {
@@ -276,18 +351,23 @@ export default function App(): React.JSX.Element {
   }, [canvasSize])
 
   return (
-    <div className="app">
+    <div className={`app${developerCenterOpen ? ' dev-docked' : ''}`}>
       <Sidebar onNewWorkspace={() => setShowWsModal(true)} />
       <Toolbar
         canvasSize={canvasSize}
         onOpenSettings={() => setShowSettings(true)}
         onOpenPalette={() => setShowPalette(true)}
+        onOpenHelp={() => setShowHelp(true)}
+        onOpenTerminalLauncher={() => setShowTerminalLauncher(true)}
+        onOpenProviderManager={() => setShowProviderManager(true)}
       />
       <div className="canvas-wrap" ref={canvasRef}>
         <ReactFlowProvider>
           <CanvasFlow />
         </ReactFlowProvider>
         <ConnectionInspector />
+        <ProjectManifestPanel />
+        <DetachedSessionsPanel />
         {nodes.length === 0 && (
           <div className="empty-canvas">
             <TerminalSquare size={40} strokeWidth={1.3} />
@@ -296,9 +376,14 @@ export default function App(): React.JSX.Element {
           </div>
         )}
       </div>
+      <DeveloperCenter />
       <StatusBar />
       {showWsModal && <WorkspaceModal onClose={() => setShowWsModal(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showTerminalLauncher && <TerminalLauncherModal onClose={() => setShowTerminalLauncher(false)} />}
+      {showProviderManager && <ProviderManagerModal onClose={() => setShowProviderManager(false)} />}
+      {showRecovery && <RecoveryModal onRestore={() => { void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} onDiscard={() => { useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')); void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
       {confirm && (

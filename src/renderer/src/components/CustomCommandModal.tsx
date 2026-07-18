@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
+import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
   onSubmit: (command: string) => void
@@ -13,6 +14,7 @@ export default function CustomCommandModal({ onSubmit, onClose }: Props): React.
   const [cmd, setCmd] = useState('')
   const [confirmedDanger, setConfirmedDanger] = useState(false)
   const danger = DANGER_RE.test(cmd)
+  useModalClose(onClose)
 
   const submit = (): void => {
     if (!cmd.trim()) return
@@ -24,7 +26,7 @@ export default function CustomCommandModal({ onSubmit, onClose }: Props): React.
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <h3>Custom Command</h3>
         <div className="field">

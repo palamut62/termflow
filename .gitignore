@@ -56,3 +56,19 @@ release/
 *.gif
 !resources/**/*.png
 !resources/**/*.ico
+
+# Playwright output
+test-results/
+playwright-report/
+
+# Local unpacked build kept for running (not a source artifact)
+dist-current/
+
+# Scratch / promo assets
+tmp-promo/
+
+# Scratch build variants
+dist-*/
+
+# Keep promo website assets
+!website/assets/**

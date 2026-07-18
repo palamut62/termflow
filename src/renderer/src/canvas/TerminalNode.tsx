@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import {
   Minus,
@@ -14,10 +14,16 @@ import {
   Bot,
   TerminalSquare,
   AlertTriangle,
-  GitBranch
+  GitBranch,
+  Copy,
+  Pin,
+  PinOff,
+  Sparkles,
+  MoreHorizontal
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
+import LogSummaryModal from '../components/LogSummaryModal'
 import { useAppStore } from '../store/appStore'
 import { profileFor } from '../profiles'
 import type { PaneNode } from '../../../shared/types'
@@ -107,8 +113,8 @@ function statusColor(status: string): string {
   return 'var(--text-secondary)'
 }
 
-const MINW = 420
-const MINH = 200
+const MINW = 300
+const MINH = 160
 
 // [class suffix, dirX, dirY] — dir ∈ {-1: top/left edge, 0: none, 1: bottom/right edge}
 const HANDLES: [string, number, number][] = [
@@ -129,6 +135,8 @@ const HANDLES: [string, number, number][] = [
  */
 function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
   const updateNode = useAppStore((s) => s.updateNode)
+  const tiled = useAppStore((s) => s.layoutMode !== 'manual' && s.layoutMode !== 'agent_graph')
+  const resizeFocusedNode = useAppStore((s) => s.resizeFocusedNode)
 
   const start = useCallback(
     (dirX: number, dirY: number) => (e: React.PointerEvent) => {
@@ -144,10 +152,15 @@ function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
       const startY = e.clientY
       const p0 = { ...node.position }
       const s0 = { ...node.size }
+      const isTiledDivider = tiled && dirX === 1 && dirY === 0
 
       const onMove = (ev: PointerEvent): void => {
         const dx = (ev.clientX - startX) / zoom
         const dy = (ev.clientY - startY) / zoom
+        if (isTiledDivider) {
+          resizeFocusedNode(nodeId, s0.width + dx)
+          return
+        }
         let x = p0.x
         let y = p0.y
         let width = s0.width
@@ -182,18 +195,21 @@ function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
         el.removeEventListener('pointermove', onMove)
         el.removeEventListener('pointerup', onUp)
         // Resolve collisions once, on release — stable, single pass (no drift).
-        useAppStore.getState().resolveCollisions(nodeId)
+        if (isTiledDivider) useAppStore.getState().persist()
+        else useAppStore.getState().resolveCollisions(nodeId)
       }
       el.addEventListener('pointermove', onMove)
       el.addEventListener('pointerup', onUp)
     },
-    [nodeId, updateNode]
+    [nodeId, resizeFocusedNode, tiled, updateNode]
   )
+
+  const handles = tiled ? HANDLES.filter(([dir]) => dir === 'e') : HANDLES
 
   return (
     <>
-      {HANDLES.map(([dir, dx, dy]) => (
-        <div key={dir} className={`rz rz-${dir} nodrag nowheel`} onPointerDown={start(dx, dy)} />
+      {handles.map(([dir, dx, dy]) => (
+        <div key={dir} className={`rz rz-${dir} ${tiled ? 'rz-tiled-divider' : ''} nodrag nowheel`} onPointerDown={start(dx, dy)} />
       ))}
     </>
   )
@@ -201,7 +217,7 @@ function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
 
 function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; path: number[] }): React.JSX.Element {
   const activeNodeId = useAppStore(s => s.activeNodeId)
-  const active = activeNodeId === nodeId
+  const activePaneId = useAppStore(s => s.nodes.find(n => n.id === nodeId)?.activePaneId)
   const updateNode = useAppStore(s => s.updateNode)
 
   if (pane.type === 'leaf') {
@@ -209,7 +225,8 @@ function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; 
     return (
       <div className="pane-leaf nodrag nowheel" key={pane.terminalId}>
         <TerminalView key={`${pane.terminalId}:${epoch}`}
-          terminalId={pane.terminalId} active={active} />
+          terminalId={pane.terminalId}
+          active={activeNodeId === nodeId && (activePaneId ?? pane.terminalId) === pane.terminalId} />
       </div>
     )
   }
@@ -269,6 +286,8 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const toggleInfo = useAppStore((s) => s.toggleInfo)
   const restartNode = useAppStore((s) => s.restartNode)
   const closeNode = useAppStore((s) => s.closeNode)
+  const duplicateNode = useAppStore((s) => s.duplicateNode)
+  const togglePin = useAppStore((s) => s.togglePin)
   const renameNode = useAppStore((s) => s.renameNode)
   const updateNode = useAppStore((s) => s.updateNode)
   const closePaneInNode = useAppStore((s) => s.closePaneInNode)
@@ -278,13 +297,38 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const startRecording = useAppStore((s) => s.startRecording)
   const stopRecording = useAppStore((s) => s.stopRecording)
   const saveRecording = useAppStore((s) => s.saveRecording)
+  const recordingLimitWarning = useAppStore((s) => s.recordingLimitWarning)
+  const dismissRecordingLimitWarning = useAppStore((s) => s.dismissRecordingLimitWarning)
   const gitStatus = useAppStore((s) => s.gitStatus)
+  const fetchGitRemote = useAppStore((s) => s.fetchGitRemote)
+  const refreshGitStatus = useAppStore((s) => s.refreshGitStatus)
+  const copyGitBranch = useAppStore((s) => s.copyGitBranch)
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const broadcastGroup = useAppStore((s) => s.broadcastGroup)
 
   const [editing, setEditing] = useState(false)
   const [closing, setClosing] = useState(false)
   const [recording, setRecording] = useState(false)
+  const [showLogSummary, setShowLogSummary] = useState(false)
+  const [showGitMenu, setShowGitMenu] = useState(false)
+  const [gitActionMsg, setGitActionMsg] = useState<string | null>(null)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+
+  useEffect(() => {
+    if (!showMoreMenu) return undefined
+    const onDocClick = (): void => setShowMoreMenu(false)
+    document.addEventListener('click', onDocClick)
+    return () => document.removeEventListener('click', onDocClick)
+  }, [showMoreMenu])
+
+  useEffect(() => {
+    if (recordingLimitWarning && recordingLimitWarning.terminalId === termId) {
+      setRecording(false)
+      const t = setTimeout(() => dismissRecordingLimitWarning(), 8000)
+      return () => clearTimeout(t)
+    }
+    return undefined
+  }, [recordingLimitWarning, termId, dismissRecordingLimitWarning])
 
   if (!node || !terminal) return <div />
 
@@ -333,66 +377,128 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
             {node.title}
           </span>
         )}
-        {node.agentRole && <span className="kind-tag">{node.agentRole}</span>}
-        <span className="kind-tag">{terminal.kind}</span>
-        {terminal.cwd && gitStatus[termId] && (
-          <span className="git-badge" title={`${gitStatus[termId]!.branch}${gitStatus[termId]!.dirty ? ' (dirty)' : ''}`}>
+        <span className="kind-tag">{node.agentRole ?? terminal.kind}</span>
+        {recording && <span className="rec-dot" title="Recording in progress" />}
+        {node.bypass && (
+          <span
+            title="This node was started with the permission-bypass flag"
+            style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+          >
+            <AlertTriangle size={12} color="var(--danger)" />
+          </span>
+        )}
+        {termId && terminal.cwd && gitStatus[termId] && (
+          <span
+            className="git-badge nodrag"
+            style={{ cursor: 'pointer', position: 'relative' }}
+            title={`${gitStatus[termId]!.branch}${gitStatus[termId]!.dirty ? ' (dirty)' : ''} — click for git actions`}
+            onClick={() => setShowGitMenu((v) => !v)}
+          >
             <GitBranch size={11} />
             {gitStatus[termId]!.branch}
             {gitStatus[termId]!.dirty && <span className="git-dirty">&#9679;</span>}
+            {!!gitStatus[termId]!.ahead && <span style={{ marginLeft: 3, fontSize: 10 }}>↑{gitStatus[termId]!.ahead}</span>}
+            {!!gitStatus[termId]!.behind && <span style={{ marginLeft: 2, fontSize: 10 }}>↓{gitStatus[termId]!.behind}</span>}
+            {showGitMenu && (
+              <div
+                className="menu"
+                style={{ position: 'absolute', top: '100%', left: 0, zIndex: 20, minWidth: 160 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="menu-item" onClick={async () => { setGitActionMsg('git fetch…'); const res = await fetchGitRemote(termId); setGitActionMsg(res.message); setTimeout(() => setGitActionMsg(null), 3000) }}>
+                  <RotateCw size={12} /> Fetch
+                </div>
+                <div className="menu-item" onClick={() => { void refreshGitStatus(termId); setShowGitMenu(false) }}>
+                  <GitBranch size={12} /> Refresh status
+                </div>
+                <div className="menu-item" onClick={() => { void copyGitBranch(termId); setShowGitMenu(false) }}>
+                  <Copy size={12} /> Copy branch name
+                </div>
+              </div>
+            )}
           </span>
         )}
+        {gitActionMsg && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{gitActionMsg}</span>}
         <div className="hactions nodrag">
-          {termId && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
             <button
-              className={`hbtn ${isBroadcasting ? 'active' : ''}`}
-              title={isBroadcasting ? 'Remove from broadcast group' : 'Add to broadcast group'}
-              onClick={() => {
-                if (broadcastGroup.includes(termId)) removeFromBroadcastGroup(termId)
-                else addToBroadcastGroup(termId)
+              className={`hbtn ${showMoreMenu ? 'active' : ''}`}
+              title="More actions"
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowMoreMenu((v) => !v)
               }}
             >
-              <Radio size={13} />
+              <MoreHorizontal size={15} />
             </button>
-          )}
-          {termId && (
-            <button
-              className={`hbtn ${recording ? 'active' : ''}`}
-              title={recording ? 'Stop recording' : 'Start recording'}
-              onClick={async () => {
-                if (recording) {
-                  await stopRecording(termId)
-                  setRecording(false)
-                } else {
-                  startRecording(termId)
-                  setRecording(true)
-                }
-              }}
-            >
-              <CircleStop size={13} />
-            </button>
-          )}
-          {termId && (
-            <button className="hbtn" title="Save recording" onClick={() => saveRecording(termId)}>
-              <Save size={13} />
-            </button>
-          )}
-          <button className="hbtn" title="Info" onClick={() => toggleInfo(id)}>
-            {node.showInfo ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-          </button>
+            {showMoreMenu && (
+              <div
+                className="menu"
+                style={{ position: 'absolute', top: '100%', right: 0, zIndex: 20, minWidth: 180 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {termId && (
+                  <div
+                    className="menu-item"
+                    onClick={() => {
+                      if (broadcastGroup.includes(termId)) removeFromBroadcastGroup(termId)
+                      else addToBroadcastGroup(termId)
+                      setShowMoreMenu(false)
+                    }}
+                  >
+                    <Radio size={13} /> {isBroadcasting ? 'Remove from broadcast group' : 'Add to broadcast group'}
+                  </div>
+                )}
+                {termId && (
+                  <div
+                    className="menu-item"
+                    onClick={async () => {
+                      setShowMoreMenu(false)
+                      if (recording) {
+                        await stopRecording(termId)
+                        setRecording(false)
+                      } else {
+                        startRecording(termId)
+                        setRecording(true)
+                      }
+                    }}
+                  >
+                    <CircleStop size={13} /> {recording ? 'Stop recording' : 'Start recording'}
+                  </div>
+                )}
+                {termId && (
+                  <div className="menu-item" onClick={() => { saveRecording(termId); setShowMoreMenu(false) }}>
+                    <Save size={13} /> Save recording
+                  </div>
+                )}
+                <div className="menu-item" onClick={() => { toggleInfo(id); setShowMoreMenu(false) }}>
+                  {node.showInfo ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />} {node.showInfo ? 'Hide info panel' : 'Show info panel'}
+                </div>
+                <div className="menu-item" onClick={() => { restartNode(id); setShowMoreMenu(false) }}>
+                  <RotateCw size={13} /> Restart
+                </div>
+                <div className="menu-item" onClick={() => { duplicateNode(id); setShowMoreMenu(false) }}>
+                  <Copy size={13} /> Duplicate
+                </div>
+                <div className="menu-item" onClick={() => { togglePin(id); setShowMoreMenu(false) }}>
+                  {node.isPinned ? <PinOff size={13} /> : <Pin size={13} />} {node.isPinned ? 'Unpin' : 'Pin'}
+                </div>
+                <div className="menu-item" onClick={() => { setShowLogSummary(true); setShowMoreMenu(false) }}>
+                  <Sparkles size={13} /> AI summary
+                </div>
+              </div>
+            )}
+          </div>
           <button className="hbtn" title="Minimize" onClick={() => toggleMinimize(id)}>
             <Minus size={14} />
           </button>
           <button className="hbtn" title={node.isMaximized ? 'Restore' : 'Maximize'} onClick={() => toggleMaximize(id)}>
             {node.isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
           </button>
-          <button className="hbtn" title="Restart" onClick={() => restartNode(id)}>
-            <RotateCw size={13} />
-          </button>
-          <button className="hbtn danger" title="Close" onClick={() => setClosing(true)}>
-            <X size={15} />
-          </button>
         </div>
+        <button className="hbtn danger close-node nodrag" title="Close" aria-label={`Close ${node.title}`} onClick={() => setClosing(true)}>
+          <X size={15} />
+        </button>
       {node.panes && countLeaves(node.panes) > 1 && (
         <div className="tnode-tabs nodrag">
           {getLeafTerminalIds(node.panes).map(tid => {
@@ -410,27 +516,52 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
           })}
         </div>
       )}
-      </div>
-      {!node.isMinimized && (
-        <div className="tnode-body">
-          <PaneRenderer nodeId={id} pane={node.panes || { type: 'leaf', terminalId: node.terminalId!, title: node.title }} path={[]} />
-          {showInfo && <InfoArea nodeId={id} />}
+      {recordingLimitWarning && recordingLimitWarning.terminalId === termId && (
+        <div
+          className="nodrag"
+          style={{
+            padding: '4px 10px',
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'var(--danger)',
+            background: 'color-mix(in srgb, var(--danger) 14%, transparent)',
+            borderTop: '1px solid var(--danger)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
+        >
+          <span>
+            Recording hit the {recordingLimitWarning.reason === 'duration' ? 'duration' : 'size'} limit and was stopped automatically.
+          </span>
+          <button className="hbtn" onClick={() => dismissRecordingLimitWarning()} title="Dismiss">
+            <X size={12} />
+          </button>
         </div>
       )}
+      </div>
+      <div className="tnode-body">
+        <PaneRenderer nodeId={id} pane={node.panes || { type: 'leaf', terminalId: node.terminalId!, title: node.title }} path={[]} />
+        {showInfo && <InfoArea nodeId={id} />}
+      </div>
       {node.isMinimized && (
         <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--text-muted)' }}>
-          {terminal.status} · pid {terminal.pid ?? '—'} {hasError && '· ⚠ hata'}
+          {terminal.status} · pid {terminal.pid ?? '—'} {hasError && '· ⚠ error'}
         </div>
       )}
       {!node.isMinimized && (
         <div className="tnode-footer">
-          <span>{terminal.cwd}</span>
+          <span className="cwd" title={terminal.cwd}>{terminal.cwd}</span>
           <span style={{ marginLeft: 'auto', color: statusColor(terminal.status) }}>
             {terminal.status} · pid {terminal.pid ?? '—'}
           </span>
         </div>
       )}
       <Handle type="source" position={Position.Right} />
+
+      {showLogSummary && (
+        <LogSummaryModal sourceNodeId={id} onClose={() => setShowLogSummary(false)} />
+      )}
 
       {closing && (
         <CloseModal
@@ -448,7 +579,6 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
         />
       )}
       </div>
-      {active && !node.isMinimized && !node.isMaximized && <ResizeHandles nodeId={id} />}
     </div>
   )
 }

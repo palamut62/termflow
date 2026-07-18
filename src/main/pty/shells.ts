@@ -1,5 +1,6 @@
 import { existsSync } from 'fs'
 import { join } from 'path'
+import { execSync } from 'child_process'
 import type { CreateTerminalInput, ShellKind } from '../../shared/types'
 
 export interface ResolvedShell {
@@ -43,6 +44,13 @@ function gitBashPath(): string | undefined {
   ])
 }
 
+function sshPath(): string | undefined {
+  return firstExisting([
+    join(winDir, 'System32', 'OpenSSH', 'ssh.exe'),
+    join(programFiles, 'Git', 'usr', 'bin', 'ssh.exe')
+  ])
+}
+
 /** Discover which shells are available on this machine (PRD FR-010). */
 export function discoverShells(): ShellCandidate[] {
   const pwsh = pwshPath()
@@ -63,6 +71,54 @@ export function discoverShells(): ShellCandidate[] {
   ]
 }
 
+function expandEnvVars(value: string): string {
+  return value.replace(/%([^%]+)%/g, (match, name) => {
+    const found = process.env[name]
+    return found !== undefined ? found : match
+  })
+}
+
+function readRegPath(hive: 'HKLM' | 'HKCU'): string | undefined {
+  const key =
+    hive === 'HKLM'
+      ? 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'
+      : 'HKCU\\Environment'
+  const output = execSync(`reg query "${key}" /v Path`, { encoding: 'utf8', windowsHide: true })
+  const match = output.match(/Path\s+(REG_SZ|REG_EXPAND_SZ)\s+(.*)/)
+  if (!match) return undefined
+  return expandEnvVars(match[2].trim())
+}
+
+let pathCache: { value: string | null; ts: number } | null = null
+const PATH_CACHE_TTL_MS = 30_000
+
+function freshPath(): string | null {
+  const now = Date.now()
+  if (pathCache && now - pathCache.ts < PATH_CACHE_TTL_MS) {
+    return pathCache.value
+  }
+  try {
+    const machine = readRegPath('HKLM')
+    const user = readRegPath('HKCU')
+    const combined = [machine, user].filter((v): v is string => !!v).join(';')
+    const value = combined || null
+    pathCache = { value, ts: now }
+    return value
+  } catch {
+    pathCache = { value: null, ts: now }
+    return null
+  }
+}
+
+function mergePathValues(registryPath: string, currentPath: string): string {
+  const registryEntries = registryPath.split(';').filter(Boolean)
+  const seen = new Set(registryEntries.map((p) => p.toLowerCase()))
+  const extra = currentPath
+    .split(';')
+    .filter((p) => p && !seen.has(p.toLowerCase()))
+  return [...registryEntries, ...extra].join(';')
+}
+
 /**
  * Resolve a terminal-creation request into a concrete shell + args.
  * AI tools (claude/codex/opencode/ollama) run inside a host shell so the CLI
@@ -70,7 +126,45 @@ export function discoverShells(): ShellCandidate[] {
  */
 export function resolveShell(input: CreateTerminalInput): ResolvedShell {
   const cwd = input.cwd || process.env.USERPROFILE || process.cwd()
-  const env = { ...process.env, ...(input.env || {}) } as Record<string, string>
+  const env = { ...process.env } as Record<string, string>
+
+  if (input.cleanProviderEnv) {
+    const providerPrefixes = ['ANTHROPIC_', 'CLAUDE_CODE_', 'OPENAI_', 'OPENROUTER_', 'DEEPSEEK_', 'OLLAMA_']
+    for (const key of Object.keys(env)) {
+      if (providerPrefixes.some((prefix) => key.toUpperCase().startsWith(prefix))) delete env[key]
+    }
+  }
+
+  const registryPath = freshPath()
+  if (registryPath) {
+    const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'Path'
+    const currentPath = env[pathKey] || ''
+    env[pathKey] = mergePathValues(registryPath, currentPath)
+  }
+
+  // Embedded-terminal renk desteği: CLI'lar (claude/codex vb.) truecolor'ı
+  // COLORTERM üzerinden algılar; ConPTY altında bu değişkenler yoksa 16 renge düşerler.
+  // Advertise the capabilities xterm.js actually implements. The parent
+  // process may carry TERM=dumb and NO_COLOR=1, which force AI TUIs into a
+  // monochrome fallback even though this terminal supports truecolor.
+  env.TERM = 'xterm-256color'
+  env.COLORTERM = 'truecolor'
+  env.TERM_PROGRAM = 'TermFlow'
+  env.TERM_PROGRAM_VERSION = process.env.npm_package_version || '0.1.0'
+  delete env.WT_SESSION
+  delete env.WT_PROFILE_ID
+  delete env.NO_COLOR
+
+  // Claude Code's low-flicker TUI mode (on versions that support it); versions
+  // that don't recognise the flag ignore it. Only for claude agents (best-effort).
+  if (input.kind === 'claude' && !env.CLAUDE_CODE_NO_FLICKER) env.CLAUDE_CODE_NO_FLICKER = '1'
+
+  // The terminal advertises its actual color support through TERM/COLORTERM.
+  // Do not force a CLI-specific color mode: Claude Code owns its own theme and
+  // should not receive a fake Windows Terminal identity from an xterm.js host.
+  // Explicit input.env is applied afterwards, so a workspace can still opt
+  // into NO_COLOR deliberately without inheriting the launcher's global flag.
+  Object.assign(env, input.env || {})
 
   const psPath = powershellPath()
   const cmdPath = join(winDir, 'System32', 'cmd.exe')
@@ -107,8 +201,11 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
       return { shell: wsl, args: input.args ?? [], cwd, env }
     case 'gitbash':
       return { shell: gitBash ?? psPath, args: gitBash ? ['--login', '-i'] : ['-NoLogo'], cwd, env }
-    case 'ssh':
-      return host()
+    case 'ssh': {
+      const ssh = sshPath()
+      if (!ssh) return host()
+      return { shell: ssh, args: input.args ?? [], cwd, env }
+    }
     case 'claude':
     case 'codex':
     case 'opencode':

@@ -1,0 +1,138 @@
+import { Bot, FolderOpen, Grid2X2, HeartPulse, Info, Keyboard, Radio, Search, Settings, TerminalSquare, X, type LucideIcon } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useModalClose } from '../hooks/useModalClose'
+import { APP_VERSION, CHANGELOG, DEVELOPER } from '../appInfo'
+
+interface HelpTopic {
+  id: string
+  category: string
+  title: string
+  summary: string
+  steps: string[]
+  notes?: string[]
+}
+
+const topics: HelpTopic[] = [
+  { id: 'workspace', category: 'Getting started', title: 'Create and open a workspace', summary: 'A workspace keeps terminals, layouts, connections, snippets, providers, and developer settings together.', steps: ['Choose New Workspace in the sidebar.', 'Select the project folder and enter a workspace name.', 'Reopen the workspace from the sidebar whenever you return.'], notes: ['Workspace data is saved automatically.', 'Deleting a workspace removes its TermFlow layout, not the project folder on disk.'] },
+  { id: 'ws-templates', category: 'Getting started', title: 'Workspace templates and clone', summary: 'Reuse a workspace setup as a template or duplicate it.', steps: ['Use the sidebar icons to save the current workspace as a template.', 'Apply a saved template to set up a new workspace.', 'Clone an existing workspace to duplicate its layout and settings.'] },
+  { id: 'terminal', category: 'Terminals', title: 'Open a terminal', summary: 'Run CMD, PowerShell, PowerShell Core, WSL, Git Bash, SSH, or a custom command in a real PTY.', steps: ['Open the New Terminal menu.', 'Choose a shell type.', 'Click the terminal before typing so it becomes the active input target.'], notes: ['A green status means the PTY is running.', 'Restart or close controls are available from the terminal header.'] },
+  { id: 'folder', category: 'Terminals', title: 'Open a terminal at any folder', summary: 'Start the selected shell with a working directory different from the workspace root.', steps: ['Open New Terminal > Open terminal at folder.', 'Choose CMD, PowerShell, WSL, or Git Bash.', 'Browse to a folder or enter its full path.', 'Choose Open terminal.'] },
+  { id: 'more-actions', category: 'Terminals', title: 'More actions menu (⋯)', summary: 'Reach every per-terminal action from the ⋯ menu in the terminal header.', steps: ['Open the ⋯ menu in the terminal header.', 'Pick an action: broadcast, record start/stop, save recording, info panel, restart, duplicate, pin, or AI summary.', 'The header itself keeps only minimize, maximize, and close.'], notes: ['Grouping actions under ⋯ keeps the header compact while every control stays one click away.'] },
+  { id: 'row-actions', category: 'AI providers', title: 'Edit or remove an agent or provider', summary: 'Manage AI agent and provider rows directly from the New Terminal menu.', steps: ['Open the New Terminal menu.', 'Hover an AI agent or provider row to reveal the edit and delete controls.', 'Edit the profile, or delete it to hide it from the menu.'], notes: ['Deleting a built-in agent first resets its override, then hides it.', 'Restore hidden built-in agents from Agent Manager > Hidden agents > Restore.'] },
+  { id: 'layout', category: 'Layout', title: 'Adaptive tiled layout', summary: 'Terminals fill the fixed workspace without gaps and resize together.', steps: ['Click a terminal to focus it.', 'Drag the active terminal’s right divider.', 'Move right to enlarge it or left to give more room to the other terminals.', 'Release the mouse; the selected ratio is retained.'], notes: ['Clicking empty canvas space only clears selection; it does not reset sizes.', 'Adding a terminal recalculates the tiled layout so every panel fits.'] },
+  { id: 'manual', category: 'Layout', title: 'Manual and agent graph modes', summary: 'Use free positioning when the relationship between terminals matters more than dense tiling.', steps: ['Open Layout in the header.', 'Choose Manual for free movement or Agent Graph for connected agents.', 'Pan and zoom are enabled only in these canvas-oriented modes.'] },
+  { id: 'reorder', category: 'Layout', title: 'Drag to reorder tiled terminals', summary: 'Rearrange terminals in tiled modes by dragging them from their header.', steps: ['Use Grid, Columns, Rows, Auto Fit, or Focus mode.', 'Press and hold a terminal header, then drag it toward another position.', 'Release it over the target slot; the terminal snaps to the nearest slot and the others shift to make room.'], notes: ['Pinned and minimized terminals stay in place and are skipped while reordering.', 'The active terminal is highlighted in the sidebar so you can track which one is selected.'] },
+  { id: 'providers', category: 'AI providers', title: 'Configure DeepSeek, Ollama, or another provider', summary: 'Provider profiles connect a terminal command to model and API endpoint environment variables.', steps: ['Right-click empty canvas space.', 'Choose Configure providers.', 'Enter the CLI command, model, base URL, and variable names.', 'Save the profile.', 'Add the API key separately in Settings > Developer > Workspace Environment.', 'Right-click the canvas again and select the provider to launch it.'], notes: ['API keys are never stored inside provider profiles.', 'DeepSeek and Ollama starter profiles are included and may be edited.'] },
+  { id: 'agents', category: 'AI providers', title: 'Launch and observe AI agents', summary: 'Run Claude Code, Codex, OpenCode, Ollama, or provider-backed commands beside normal terminals.', steps: ['Choose New Agent or an AI entry under New Terminal.', 'Select an agent role when role labeling is useful.', 'Open Agent Activity to inspect detected tasks, tools, handoffs, and statuses.'], notes: ['Auto-approve mode grants broad CLI permissions; use it only in trusted folders.'] },
+  { id: 'agent-config', category: 'AI providers', title: 'Agent Config editor', summary: 'Edit Claude configuration files through a form instead of hand-editing JSON.', steps: ['Click the SlidersHorizontal icon in the toolbar.', 'Edit ~/.claude/settings.json for model, env, and co-authored-by.', 'Edit ~/.claude.json for theme, notification channel, auto-update, and verbose.', 'Save your changes.'], notes: ['A .termflow-bak backup is written before each save.', 'Restart your Claude terminals so the new configuration takes effect.'] },
+  { id: 'broadcast', category: 'Workflows', title: 'Broadcast keyboard input', summary: 'Send the same keystrokes to multiple terminals at once.', steps: ['Use the radio icon in each terminal header to add it to the broadcast group.', 'Enable Broadcast in the main header.', 'Type in the active terminal.', 'Disable Broadcast before returning to single-terminal input.'], notes: ['Commands are executed independently by every terminal in the group.'] },
+  { id: 'recording', category: 'Workflows', title: 'Record and save a terminal session', summary: 'Capture terminal output with timing information and export it as an asciinema-compatible .cast file.', steps: ['Click the record icon in the terminal header.', 'Use the terminal normally while recording is active.', 'Click the record icon again to stop capturing.', 'Choose Save Recording and select a destination for the .cast file.'], notes: ['Recording captures terminal output and timing, not a video file.', 'The .cast format can be replayed with asciinema-compatible tools.', 'Save Recording exports the last captured recording for that terminal.'] },
+  { id: 'ai-summary', category: 'Workflows', title: 'AI log summary', summary: 'Ask an agent to explain what just happened in a terminal.', steps: ['Open the ⋯ menu in the terminal header.', 'Choose AI summary.', 'Send the terminal’s recent output to an existing agent or to a new Claude agent.', 'Read the returned summary of what happened, any errors, and suggested next steps.'] },
+  { id: 'global-search', category: 'Workflows', title: 'Search across all terminals', summary: 'Find text in every open terminal buffer at once.', steps: ['Click the file-search icon in the toolbar.', 'Type the text you are looking for.', 'Click a result; the canvas focuses the matching terminal node.'], notes: ['Global search covers all open terminal buffers, not just the active one.'] },
+  { id: 'flows', category: 'Workflows', title: 'Flows and agent flow templates', summary: 'Apply ready-made multi-agent pipelines or save your own agent layout as a template.', steps: ['Open Flows in the toolbar.', 'Apply a prebuilt multi-agent pipeline template; it is auto-fit tiled onto the canvas.', 'Save the current agent layout as a new template.'], notes: ['Import and export workflow packages from the Plugins window.'] },
+  { id: 'developer', category: 'Developer tools', title: 'Developer Center', summary: 'Check project health and launch workspace-aware tasks.', steps: ['Choose the activity icon in the header.', 'Refresh Workspace Health to check path, Git, Node, npm, and manifest status.', 'Run project tasks declared by .termflow.json.', 'Use Export Diagnostics for a sanitized support report.'] },
+  { id: 'triggers', category: 'Developer tools', title: 'Task triggers', summary: 'Run a command automatically when a process finishes or on a schedule.', steps: ['Open Developer Center.', 'Create a trigger that runs when a node’s process exits, optionally filtered by exit code.', 'Or create a timer-based trigger that runs a command on a schedule.'] },
+  { id: 'scripts', category: 'Developer tools', title: 'package.json scripts', summary: 'Detect and run workspace npm scripts without typing them.', steps: ['Open Developer Center.', 'Review the scripts detected from the workspace package.json.', 'Run any script in one click with npm, pnpm, or yarn.'] },
+  { id: 'git-badge', category: 'Developer tools', title: 'Deep Git badge', summary: 'See live Git state on the terminal header and act on it.', steps: ['Watch the Git badge in the terminal header for branch, dirty state, and ahead/behind counts.', 'Click the badge to open Fetch, Refresh, and Copy branch.'], notes: ['The working directory is tracked live through OSC 7, so the badge follows cd changes.'] },
+  { id: 'builtin-plugins', category: 'Developer tools', title: 'Built-in plugins', summary: 'Ship-with command plugins for common toolchains.', steps: ['Open the Plugins window.', 'Use Git Essentials, Node.js Dev, Docker Tools, and Windows System out of the box.'], notes: ['Built-in plugins cannot be deleted.', 'A user plugin that reuses a built-in id overrides it.'] },
+  { id: 'workbench', category: 'Developer tools', title: 'Developer Workbench', summary: 'Browse project files, preview text, inspect command history, and complete Git operations without leaving TermFlow.', steps: ['Choose the panel icon in the header.', 'Use Files for workspace-scoped browsing and safe text preview.', 'Use Command history to copy previously executed commands.', 'Use Git to review the diff, select paths, stage or unstage, and commit.'] },
+  { id: 'agent-ops', category: 'Developer tools', title: 'Agent metrics and credential vault', summary: 'Review agent duration/token/cost data and provide encrypted credentials to PTYs.', steps: ['Choose the gauge icon in the header.', 'Review per-session and aggregate metrics.', 'Add a credential name, provider, environment key, and secret value.', 'Choose workspace scope or make it available globally.', 'New PTYs receive matching credentials as environment variables.'], notes: ['Secret values are encrypted by Windows and never returned to the renderer.'] },
+  { id: 'plugins', category: 'Developer tools', title: 'Plugins and workflow packages', summary: 'Install declarative command plugins and move agent-flow templates between TermFlow installations.', steps: ['Choose the puzzle icon in the header.', 'Install a versioned plugin JSON manifest.', 'Review every exposed command before running it.', 'Use Export workflows or Import workflows for flow-template packages.'], notes: ['Plugins cannot inject renderer JavaScript.'] },
+  { id: 'tray', category: 'Application', title: 'Windows startup and system tray', summary: 'Keep terminals alive when the main window is closed.', steps: ['Open Settings > General.', 'Enable Start TermFlow with Windows if required.', 'Enable Keep running in the system tray when closed.', 'Close the window to hide it without stopping PTYs.', 'Double-click the tray icon to reopen, or choose Quit TermFlow to exit completely.'] },
+  { id: 'settings-layout', category: 'Application', title: 'Settings layout', summary: 'Find every preference through a categorized sidebar.', steps: ['Open Settings.', 'Use the left sidebar categories: Appearance, Terminal, Notifications, Behavior, System, Updates, Highlights, and Developer.'] },
+  { id: 'bell', category: 'Application', title: 'Terminal bell and notifications', summary: 'Hear a short sound when a claude or codex task finishes.', steps: ['Open Settings > Notifications.', 'Toggle Terminal bell sound to play a short chime when a claude or codex task completes (BEL).'], notes: ['By default desktop notifications are shown only for application updates.', 'Enable terminal notifications from Settings if you want them.'] },
+  { id: 'updates', category: 'Application', title: 'Stable and beta updates', summary: 'Check GitHub Releases and install a downloaded update after restart.', steps: ['Open Settings > General > Application updates.', 'Choose Stable or Beta.', 'Enable Automatic or use Check now.', 'Wait for the download status to reach Ready.', 'Choose Restart and install update.'], notes: ['Desktop notifications arrive only when a new version is found and when the update is ready to install.'] },
+  { id: 'recovery', category: 'Troubleshooting', title: 'Recover after a crash', summary: 'TermFlow detects an unclean exit and rebuilds persisted workspace terminals on the next launch.', steps: ['Restart TermFlow after an unexpected exit.', 'Choose Continue restored session to keep recreated terminals.', 'Choose Start clean to terminate restored PTYs and clear the canvas session.'] },
+  { id: 'shortcuts', category: 'Reference', title: 'Keyboard shortcuts', summary: 'Reach common actions without leaving the terminal.', steps: ['Ctrl+K — command palette', 'Ctrl+F — search inside the active terminal', 'Ctrl+Alt+V — vertical split', 'Ctrl+Alt+H — horizontal split', 'Ctrl+Alt+Enter — focus/restore terminal', 'Ctrl+Alt+Arrow — move focus between terminals'] },
+  { id: 'errors', category: 'Troubleshooting', title: 'Terminal shows error or PID 0', summary: 'The requested shell or provider command could not start.', steps: ['Confirm the CLI is installed and available in PATH.', 'Confirm the selected working directory exists.', 'Check provider command and environment variable names.', 'Use Restart after correcting the configuration.', 'Open Developer Center to verify Node, npm, Git, and manifest health.'] }
+]
+
+const categoryIcons: Record<string, LucideIcon> = {
+  'Getting started': Grid2X2, Terminals: TerminalSquare, Layout: Grid2X2,
+  'AI providers': Bot, Workflows: Radio, 'Developer tools': HeartPulse,
+  Application: Settings, Reference: Keyboard, Troubleshooting: HeartPulse, About: Info
+}
+
+function AboutPanel(): React.JSX.Element {
+  return (
+    <article className="help-article about-article">
+      <span className="help-kicker">About</span>
+      <h2>TermFlow</h2>
+      <p className="about-version">Version {APP_VERSION}</p>
+      <p>{DEVELOPER.bio}</p>
+
+      <h4>Developer</h4>
+      <p className="about-dev">
+        <strong>{DEVELOPER.name}</strong> · {DEVELOPER.role}
+      </p>
+      <div className="about-links">
+        {DEVELOPER.links.map((link) => (
+          <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer">
+            {link.label}
+          </a>
+        ))}
+      </div>
+
+      <h4>Changelog</h4>
+      {CHANGELOG.map((entry) => (
+        <div className="about-release" key={entry.version}>
+          <div className="about-release-head">
+            <strong>v{entry.version}</strong>
+            <em>{entry.date}</em>
+          </div>
+          <ul>
+            {entry.changes.map((change) => (
+              <li key={change}>{change}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </article>
+  )
+}
+
+export default function HelpModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const categories = [...new Set(topics.map((topic) => topic.category)), 'About']
+  const [category, setCategory] = useState(categories[0])
+  const [query, setQuery] = useState('')
+  const [activeId, setActiveId] = useState(topics[0].id)
+  const filtered = useMemo(() => topics.filter((topic) => {
+    const matchesQuery = `${topic.title} ${topic.summary} ${topic.steps.join(' ')}`.toLowerCase().includes(query.toLowerCase())
+    return matchesQuery && (!query || topic.category === category || query.length > 0)
+  }), [category, query])
+  const isAbout = category === 'About' && !query
+  const visible = query ? filtered : topics.filter((topic) => topic.category === category)
+  const active = visible.find((topic) => topic.id === activeId) ?? visible[0]
+  useModalClose(onClose)
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
+      <div className="modal help-center" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="help-head"><div><h3>TermFlow Help Center</h3><p>Features, setup guides, workflows, and troubleshooting.</p></div><button className="hbtn" aria-label="Close help" onClick={onClose}><X size={16} /></button></header>
+        <div className="help-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search help topics..." /></div>
+        <div className="help-layout">
+          <nav className="help-categories">
+            {categories.map((item) => { const Icon = categoryIcons[item] ?? FolderOpen; return <button className={category === item && !query ? 'active' : ''} key={item} onClick={() => { setQuery(''); setCategory(item); const first = topics.find((topic) => topic.category === item); if (first) setActiveId(first.id) }}><Icon size={14} /><span>{item}</span></button> })}
+          </nav>
+          <div className="help-topics">
+            {isAbout ? (
+              <button className="active"><strong>About TermFlow</strong><span>Version, changelog and developer.</span></button>
+            ) : (
+              <>
+                {visible.length === 0 && <div className="help-empty">No matching help topic.</div>}
+                {visible.map((topic) => <button className={active?.id === topic.id ? 'active' : ''} key={topic.id} onClick={() => setActiveId(topic.id)}><strong>{topic.title}</strong><span>{topic.summary}</span></button>)}
+              </>
+            )}
+          </div>
+          {isAbout ? (
+            <AboutPanel />
+          ) : (
+            <article className="help-article">
+              {active && <><span className="help-kicker">{active.category}</span><h2>{active.title}</h2><p>{active.summary}</p><h4>How to use it</h4><ol>{active.steps.map((step) => <li key={step}>{step}</li>)}</ol>{active.notes?.length && <><h4>Important notes</h4><ul>{active.notes.map((note) => <li key={note}>{note}</li>)}</ul></>}</>}
+            </article>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

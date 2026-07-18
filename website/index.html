@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TermFlow — The AI-native terminal workspace for Windows</title>
+  <meta name="description" content="TermFlow is a multi-terminal workspace for Windows with first-class AI agent support. Run Claude Code, Codex, OpenCode & Ollama side by side on an adaptive tiled canvas." />
+  <meta name="theme-color" content="#0b0d12" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="TermFlow — AI-native terminal workspace for Windows" />
+  <meta property="og:description" content="Run Claude Code, Codex, OpenCode & Ollama side by side on an adaptive tiled canvas. Flows, plugins, recording, git — all in one window." />
+  <meta property="og:image" content="./assets/shot-05.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow--1" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow--2" aria-hidden="true"></div>
+
+  <!-- ===== NAV ===== -->
+  <header class="nav" id="nav">
+    <a class="nav__brand" href="#top" aria-label="TermFlow home">
+      <svg class="nav__logo" viewBox="0 0 512 512" aria-hidden="true">
+        <rect x="24" y="24" width="464" height="464" rx="104" fill="#20242c" stroke="#2f3440" stroke-width="6" />
+        <path d="M136 176l60 60l-60 60" fill="none" stroke="#2f80ff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M256 316h96" fill="none" stroke="#f5e642" stroke-width="34" stroke-linecap="round" />
+      </svg>
+      <span>TermFlow</span>
+    </a>
+    <nav class="nav__links" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#agents">AI Agents</a>
+      <a href="#showcase">Showcase</a>
+      <a href="#changelog">Changelog</a>
+    </nav>
+    <div class="nav__actions">
+      <a class="btn btn--ghost" href="https://github.com/palamut62/termflow" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn--primary" href="#download">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-5.7 1.4-1.4L12 13.6V3h0ZM5 19h14v2H5z"/></svg>
+        Download
+      </a>
+    </div>
+    <button class="nav__burger" id="burger" aria-label="Menu"><span></span><span></span><span></span></button>
+  </header>
+
+  <main id="top">
+    <!-- ===== HERO ===== -->
+    <section class="hero">
+      <div class="hero__copy reveal">
+        <span class="pill"><span class="pill__dot"></span> Windows 10 / 11 · x64 · Free</span>
+        <h1 class="hero__title">The <span class="grad">AI-native</span> terminal workspace for Windows</h1>
+        <p class="hero__sub">
+          Run <strong>Claude Code</strong>, <strong>Codex</strong>, <strong>OpenCode</strong> and <strong>Ollama</strong> side by side with your shells on one adaptive, tiled canvas. Wire agents into flows, summarize logs with AI, record sessions, and manage git — all in a single window.
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--primary btn--lg" href="#download" id="hero-download">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-5.7 1.4-1.4L12 13.6V3h0ZM5 19h14v2H5z"/></svg>
+            Download for Windows
+          </a>
+          <a class="btn btn--ghost btn--lg" href="#showcase">See it in action</a>
+        </div>
+        <p class="hero__meta"><span id="dl-size">~91 MB</span> · v0.1.0 · Installer &amp; portable</p>
+      </div>
+
+      <div class="hero__visual reveal">
+        <div class="window">
+          <div class="window__bar">
+            <span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span>
+            <span class="window__title">TermFlow — Projeler</span>
+          </div>
+          <img class="window__media" src="./assets/demo-hero.gif" alt="TermFlow running multiple terminals on an adaptive canvas" loading="eager" width="800" />
+        </div>
+        <div class="workspace-status workspace-status--top"><span class="status-dot"></span> 4 agents active <b>·</b> one workspace</div>
+        <div class="workspace-status workspace-status--bottom"><span class="status-lock">⌑</span> Local workspace <b>·</b> Windows-encrypted</div>
+      </div>
+    </section>
+
+    <!-- ===== STAT STRIP ===== -->
+    <section class="stats reveal">
+      <div class="stat"><b>4+</b><span>AI agents, side by side</span></div>
+      <div class="stat"><b>7</b><span>Adaptive layout modes</span></div>
+      <div class="stat"><b>33</b><span>Built-in help topics</span></div>
+      <div class="stat"><b>100%</b><span>Native, offline-capable</span></div>
+    </section>
+
+    <!-- ===== PILLARS ===== -->
+    <section class="pillars" id="features">
+      <div class="section-head reveal">
+        <span class="eyebrow">Why TermFlow</span>
+        <h2>One window for every terminal <em>and</em> every agent</h2>
+        <p>Stop juggling tabs and windows. TermFlow tiles your shells and AI agents on a single, resizable canvas built for how developers actually work.</p>
+      </div>
+      <div class="pillar-grid">
+        <article class="card reveal" data-module="01">
+          <div class="card__icon icon-blue">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 4h16v4H4V4Zm0 6h7v10H4V10Zm9 0h7v10h-7V10Z"/></svg>
+          </div>
+          <h3>Adaptive tiled canvas</h3>
+          <p>Grid, columns, rows, focus and agent-graph modes. Drag terminals to reorder, resize together, pin favorites — no overlapping windows, ever.</p>
+        </article>
+        <article class="card reveal" data-module="02">
+          <div class="card__icon icon-orange">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2a5 5 0 0 1 5 5v1a5 5 0 0 1-4 4.9V17h3v2h-3v3h-2v-3H8v-2h3v-4.1A5 5 0 0 1 7 8V7a5 5 0 0 1 5-5Z"/></svg>
+          </div>
+          <h3>First-class AI agents</h3>
+          <p>Launch Claude Code, Codex, OpenCode, Ollama or custom providers like DeepSeek &amp; OpenRouter — with truecolor, correct TUI rendering and a bypass badge.</p>
+        </article>
+        <article class="card reveal" data-module="03">
+          <div class="card__icon icon-yellow">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M11 2 3 14h7l-1 8 8-12h-7l1-8Z"/></svg>
+          </div>
+          <h3>Automate the boring parts</h3>
+          <p>Agent flows, agent-to-agent routing, task triggers, one-click package.json scripts, session recording and global search across every buffer.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===== DEEP DIVE: AGENTS ===== -->
+    <section class="split" id="agents">
+      <div class="split__media reveal">
+        <div class="window">
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Claude Code · Codex · OpenCode</span></div>
+          <img class="window__media" src="./assets/demo-agents.gif" alt="Multiple AI agents running side by side in TermFlow" loading="lazy" width="800" />
+        </div>
+      </div>
+      <div class="split__copy reveal">
+        <span class="eyebrow eyebrow--orange">AI agents</span>
+        <h2>Your whole agent team, in view</h2>
+        <p>Run several coding agents at once and watch them work. TermFlow renders Claude Code and other TUIs exactly like Windows Terminal — crisp borders, truecolor, no flicker.</p>
+        <ul class="ticks">
+          <li>Claude Code, Codex, OpenCode, Ollama out of the box</li>
+          <li>Custom providers (DeepSeek, OpenRouter) with per-provider model &amp; endpoint</li>
+          <li>Agent Activity feed detects tasks, tools, handoffs &amp; status</li>
+          <li>AI log summary — hand a terminal's output to an agent for a verdict</li>
+          <li>Edit <code>~/.claude</code> config with a safe, form-based editor</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== DEEP DIVE: LAYOUTS ===== -->
+    <section class="split split--rev">
+      <div class="split__media reveal">
+        <div class="window">
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Auto Fit · Grid · Flows</span></div>
+          <img class="window__media" src="./assets/demo-layout.gif" alt="Adaptive layouts and drag-to-reorder in TermFlow" loading="lazy" width="800" />
+        </div>
+      </div>
+      <div class="split__copy reveal">
+        <span class="eyebrow eyebrow--yellow">Layouts &amp; flows</span>
+        <h2>Layouts that adapt to you</h2>
+        <p>Tile everything with Auto Fit, or arrange freely in Manual mode. Drag a terminal to reorder it; the rest slide into place. Save multi-agent pipelines as reusable Flows.</p>
+        <ul class="ticks">
+          <li>Grid · Columns · Rows · Focus · Agent Graph · Manual</li>
+          <li>Drag-to-reorder in every tiled mode</li>
+          <li>Flows: apply ready-made multi-agent pipelines instantly</li>
+          <li>Split panes, tabs, pin, duplicate &amp; broadcast input</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== DEEP DIVE: DEV TOOLS ===== -->
+    <section class="split">
+      <div class="split__media reveal">
+        <div class="window">
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Developer Center · Git · Plugins</span></div>
+          <img class="window__media" src="./assets/demo-tools.gif" alt="Developer tools, git and plugins in TermFlow" loading="lazy" width="800" />
+        </div>
+      </div>
+      <div class="split__copy reveal">
+        <span class="eyebrow eyebrow--green">Developer tools</span>
+        <h2>A workbench, not just a terminal</h2>
+        <p>Everything a project needs is one click away — health checks, scripts, git actions, an encrypted credential vault, and a plugin system you can extend yourself.</p>
+        <ul class="ticks">
+          <li>One-click <code>package.json</code> scripts (npm / pnpm / yarn)</li>
+          <li>Git badge with branch, dirty state, ahead/behind &amp; quick fetch</li>
+          <li>Task triggers — run a command on process exit or a timer</li>
+          <li>Built-in plugins (Git, Node, Docker, Windows) + in-app creator</li>
+          <li>Session recording to asciinema <code>.cast</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== SHOWCASE GALLERY ===== -->
+    <section class="showcase" id="showcase">
+      <div class="section-head reveal">
+        <span class="eyebrow">Showcase</span>
+        <h2>Real screens, real work</h2>
+        <p>Captured on Windows 11. Click any shot to view it full size.</p>
+      </div>
+      <div class="gallery">
+        <figure class="gallery__item gallery__item--wide reveal"><img src="./assets/shot-05.png" alt="Claude Code live inside TermFlow with four panes" loading="lazy" /><figcaption>Claude Code — live inside TermFlow</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-02.png" alt="A single terminal running natively on Windows" loading="lazy" /><figcaption>Native Windows PTYs</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-07.png" alt="OpenCode running side by side" loading="lazy" /><figcaption>OpenCode, side by side</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-04.png" alt="TermFlow adaptive layout" loading="lazy" /><figcaption>Adaptive tiling</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-08.png" alt="TermFlow full workspace" loading="lazy" /><figcaption>A full agent workspace</figcaption></figure>
+      </div>
+    </section>
+
+    <!-- ===== FULL FEATURES ===== -->
+    <section class="fulllist">
+      <div class="section-head reveal">
+        <span class="eyebrow">Everything inside</span>
+        <h2>Packed with features, none in your way</h2>
+      </div>
+      <div class="feat-cols reveal">
+        <div class="feat-col">
+          <h4>Terminals</h4>
+          <ul>
+            <li>CMD, PowerShell, PowerShell Core, WSL, Git Bash, SSH, custom</li>
+            <li>Open a terminal at any folder</li>
+            <li>Split panes, tabs, minimize / maximize / restart / duplicate</li>
+            <li>Windows Terminal visual parity (truecolor, Nerd Font)</li>
+          </ul>
+        </div>
+        <div class="feat-col">
+          <h4>AI &amp; providers</h4>
+          <ul>
+            <li>Claude Code · Codex · OpenCode · Ollama</li>
+            <li>DeepSeek &amp; OpenRouter provider profiles</li>
+            <li>Agent roles, agent graph &amp; agent-to-agent routing</li>
+            <li>Agent Config editor + credential vault</li>
+          </ul>
+        </div>
+        <div class="feat-col">
+          <h4>Workflow</h4>
+          <ul>
+            <li>Flows — multi-agent pipeline templates</li>
+            <li>Broadcast input to a group of terminals</li>
+            <li>Global search across all open buffers</li>
+            <li>AI log summary &amp; Agent Activity feed</li>
+          </ul>
+        </div>
+        <div class="feat-col">
+          <h4>Developer</h4>
+          <ul>
+            <li>Developer Center — health, tasks, diagnostics</li>
+            <li>package.json script runner &amp; task triggers</li>
+            <li>Deep git badge + quick actions</li>
+            <li>Plugins with built-in packs &amp; in-app creator</li>
+          </ul>
+        </div>
+        <div class="feat-col">
+          <h4>Experience</h4>
+          <ul>
+            <li>Categorized settings, 8+ themes, transparency</li>
+            <li>Terminal bell sound, update-only notifications</li>
+            <li>System tray, start-with-Windows, crash recovery</li>
+            <li>Workspace templates &amp; clone</li>
+          </ul>
+        </div>
+        <div class="feat-col">
+          <h4>Privacy &amp; safety</h4>
+          <ul>
+            <li>Secrets encrypted by Windows, never shown in the renderer</li>
+            <li>Context isolation + full Chromium sandbox</li>
+            <li>Plugins run only declared commands — no injected JS</li>
+            <li>Bypass badge marks full-permission agent sessions</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CHANGELOG ===== -->
+    <section class="changelog" id="changelog">
+      <div class="section-head reveal">
+        <span class="eyebrow">What's new</span>
+        <h2>Changelog</h2>
+        <p>A fast-moving project. Recent highlights:</p>
+      </div>
+      <div class="timeline reveal">
+        <div class="rel">
+          <div class="rel__tag"><span class="badge badge--new">v0.1.0</span><time>Latest</time></div>
+          <ul>
+            <li><span class="tg tg-feat">feat</span> In-app plugin creator &amp; editor</li>
+            <li><span class="tg tg-feat">feat</span> Claude Code config editor + provider env isolation</li>
+            <li><span class="tg tg-feat">feat</span> Atomic resize architecture &amp; categorized settings</li>
+            <li><span class="tg tg-feat">feat</span> Drag-to-reorder + compact terminal view</li>
+            <li><span class="tg tg-feat">feat</span> Terminal bell sound &amp; update-only notifications</li>
+            <li><span class="tg tg-feat">feat</span> Agent / provider inline edit &amp; delete</li>
+            <li><span class="tg tg-feat">feat</span> 4 built-in plugins (Git, Node, Docker, Windows)</li>
+          </ul>
+        </div>
+        <div class="rel">
+          <div class="rel__tag"><span class="badge">Rendering</span><time>Stability</time></div>
+          <ul>
+            <li><span class="tg tg-fix">fix</span> Windows Terminal parity — crisp TUI borders, no flicker</li>
+            <li><span class="tg tg-fix">fix</span> Solid box-drawing glyphs (lineHeight 1.0)</li>
+            <li><span class="tg tg-fix">fix</span> No corruption on resize / passive terminals</li>
+            <li><span class="tg tg-fix">fix</span> Correct color detection (truecolor / COLORTERM)</li>
+          </ul>
+        </div>
+        <div class="rel">
+          <div class="rel__tag"><span class="badge">Quality</span><time>Hardening</time></div>
+          <ul>
+            <li><span class="tg tg-perf">perf</span> Async filesystem IPC — no main-thread stalls</li>
+            <li><span class="tg tg-fix">fix</span> Memory-leak, ReDoS &amp; IPC error hardening</li>
+            <li><span class="tg tg-fix">fix</span> Accessibility — ESC to close, dialog roles</li>
+            <li><span class="tg tg-perf">perf</span> Debounced persistence &amp; Chromium sandbox on</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== DOWNLOAD ===== -->
+    <section class="download" id="download">
+      <div class="download__inner reveal">
+        <span class="eyebrow">Get TermFlow</span>
+        <h2>Download &amp; start in seconds</h2>
+        <p>Windows 10 / 11 (x64). Install once and keep your workspaces, layouts and settings on updates.</p>
+        <div class="download__cards download__cards--single">
+          <a class="dcard dcard--primary" id="dl-installer" href="#" target="_blank" rel="noopener">
+            <div class="dcard__head">
+              <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 3v10.6l3.3-3.3 1.4 1.4L12 17.4l-4.7-5.7 1.4-1.4L12 13.6V3h0ZM5 19h14v2H5z"/></svg>
+              <span class="dcard__badge">Recommended</span>
+            </div>
+            <h3>Installer (.exe)</h3>
+            <p>Guided setup, desktop shortcut &amp; auto-update ready.</p>
+            <span class="dcard__file">TermFlow-0.1.0-x64.exe · <span class="dl-size">~91 MB</span></span>
+          </a>
+        </div>
+        <ol class="steps">
+          <li><b>1.</b> Download the installer.</li>
+          <li><b>2.</b> If Windows SmartScreen appears, choose <em>More info → Run anyway</em>.</li>
+          <li><b>3.</b> Launch TermFlow and hit <em>New Terminal</em>.</li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer__brand">
+      <svg class="nav__logo" viewBox="0 0 512 512" aria-hidden="true">
+        <rect x="24" y="24" width="464" height="464" rx="104" fill="#20242c" stroke="#2f3440" stroke-width="6" />
+        <path d="M136 176l60 60l-60 60" fill="none" stroke="#2f80ff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M256 316h96" fill="none" stroke="#f5e642" stroke-width="34" stroke-linecap="round" />
+      </svg>
+      <div>
+        <b>TermFlow</b>
+        <span>The AI-native terminal workspace for Windows.</span>
+      </div>
+    </div>
+    <div class="footer__links">
+      <a href="#features">Features</a>
+      <a href="#showcase">Showcase</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/palamut62/termflow" target="_blank" rel="noopener">GitHub</a>
+    </div>
+    <p class="footer__legal">Designed and built by Umut Çelik. © <span id="year"></span> TermFlow. All rights reserved. <a href="https://github.com/palamut62/termflow" target="_blank" rel="noopener">GitHub repository</a><span class="footer__separator">/</span><a href="https://x.com/palamut62" target="_blank" rel="noopener">X</a></p>
+  </footer>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" aria-hidden="true"><img alt="" id="lightbox-img" /></div>
+
+  <script src="./main.js"></script>
+</body>
+</html>

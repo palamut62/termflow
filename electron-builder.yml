@@ -1,5 +1,10 @@
 appId: com.termflow.app
 productName: TermFlow
+publish:
+  provider: github
+  owner: palamut62
+  repo: termflow
+  releaseType: release
 directories:
   output: dist
   buildResources: resources
@@ -13,7 +18,7 @@ extraResources:
       - 'icon.ico'
       - 'icon.png'
 asarUnpack:
-  - '**/node_modules/node-pty/**'
+  - '**/node_modules/@lydell/node-pty*/**'
 win:
   icon: build/icon.ico
   target:

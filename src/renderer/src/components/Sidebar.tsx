@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Search, Plus, Folder, Bot, TerminalSquare, Trash2, X, Github, Download, Upload } from 'lucide-react'
+import { Search, Plus, Folder, Bot, TerminalSquare, Trash2, X, Github, Download, Upload, Copy, LayoutTemplate, Save } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { getActiveTerminalId } from '../paneUtils'
 import ConfirmModal from './ConfirmModal'
+import PromptModal, { type PromptField } from './PromptModal'
+import TemplatesModal from './TemplatesModal'
 
 const XIcon = ({ size = 13 }: { size?: number }): React.JSX.Element => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -27,6 +29,9 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
   const closeNode = useAppStore((s) => s.closeNode)
   const [filter, setFilter] = useState('')
   const [editingWs, setEditingWs] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [templatePrompt, setTemplatePrompt] = useState<{ workspaceId: string; defaultName: string } | null>(null)
   const [confirm, setConfirm] = useState<{
     title: string
     message: string
@@ -40,7 +45,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
   return (
     <div className="sidebar">
       <div className="filter">
-        <Search size={14} />
+        <Search size={12} />
         <input placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
 
@@ -48,12 +53,14 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
         <span>Workspaces</span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button title="Import workspace" onClick={async () => {
-            const wsId = await window.termflow.workspaces.import()
-            if (wsId) {
+            setImportError(null)
+            const result = await window.termflow.workspaces.import()
+            if (result?.id) {
               const workspaces = await window.termflow.workspaces.list()
               useAppStore.setState({ workspaces })
-              await openWorkspace(wsId)
+              await openWorkspace(result.id)
             }
+            if (result?.error) setImportError(result.error)
           }}>
             <Upload size={14} />
           </button>
@@ -63,11 +70,15 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
           }}>
             <Download size={14} />
           </button>
+          <button title="New workspace from template" onClick={() => setShowTemplates(true)}>
+            <LayoutTemplate size={14} />
+          </button>
           <button title="New workspace" onClick={onNewWorkspace}>
             <Plus size={14} />
           </button>
         </div>
       </div>
+      {importError && <div className="side-error" role="alert">{importError}</div>}
 
       <div className="ws-list">
         {filtered.map((ws) => {
@@ -79,7 +90,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                 onClick={() => !isActive && openWorkspace(ws.id)}
               >
                 <span className="ico">
-                  <Folder size={15} />
+                  <Folder size={14} />
                 </span>
                 {editingWs === ws.id ? (
                   <input
@@ -119,6 +130,42 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                 )}
                 {isActive && nodes.length > 0 && <span className="count">{nodes.length}</span>}
                 <button
+                  className="ws-action"
+                  title="Clone workspace"
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    const result = await window.termflow.workspaces.clone(ws.id)
+                    if (result.id) {
+                      const list = await window.termflow.workspaces.list()
+                      useAppStore.setState({ workspaces: list })
+                      await openWorkspace(result.id)
+                    } else if (result.error) {
+                      setImportError(result.error)
+                    }
+                  }}
+                  style={{
+                    marginLeft: isActive && nodes.length ? 6 : 'auto',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    display: 'inline-flex'
+                  }}
+                >
+                  <Copy size={13} />
+                </button>
+                <button
+                  className="ws-action"
+                  title="Save as template"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setTemplatePrompt({ workspaceId: ws.id, defaultName: ws.name })
+                  }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', display: 'inline-flex' }}
+                >
+                  <Save size={13} />
+                </button>
+                <button
+                  className="ws-action"
                   title="Delete"
                   onClick={(e) => {
                     e.stopPropagation()
@@ -129,13 +176,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                       onConfirm: () => deleteWorkspace(ws.id)
                     })
                   }}
-                  style={{
-                    marginLeft: isActive && nodes.length ? 6 : 'auto',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--text-muted)',
-                    display: 'inline-flex'
-                  }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', display: 'inline-flex' }}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -210,6 +251,18 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
           {...confirm}
           tone="danger"
           onClose={() => setConfirm(null)}
+        />
+      )}
+      {showTemplates && <TemplatesModal onClose={() => setShowTemplates(false)} />}
+      {templatePrompt && (
+        <PromptModal
+          title="Save as template"
+          submitLabel="Save"
+          fields={[{ key: 'name', label: 'Template name', required: true, defaultValue: templatePrompt.defaultName } as PromptField]}
+          onSubmit={async (values) => {
+            await window.termflow.templates.save(templatePrompt.workspaceId, values.name)
+          }}
+          onClose={() => setTemplatePrompt(null)}
         />
       )}
     </div>

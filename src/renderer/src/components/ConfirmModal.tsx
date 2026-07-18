@@ -1,3 +1,5 @@
+import { useModalClose } from '../hooks/useModalClose'
+
 interface Props {
   title: string
   message: string
@@ -15,9 +17,12 @@ export default function ConfirmModal({
   onConfirm,
   onClose
 }: Props): React.JSX.Element {
+  useModalClose(onClose)
   return (
     <div
       className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
       onMouseDown={(e) => {
         e.stopPropagation()
         onClose()

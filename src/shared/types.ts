@@ -8,8 +8,6 @@ export type LayoutMode =
   | 'rows'
   | 'focus'
   | 'agent_graph'
-  | 'monitoring'
-  | 'split_grid'
 
 export type ShellKind =
   | 'powershell'
@@ -83,6 +81,8 @@ export interface TerminalSession {
   args: string[]
   cwd: string
   env?: Record<string, string>
+  /** Keep provider routing/model variables out of standalone AI-agent launches. */
+  cleanProviderEnv?: boolean
   startupCommand?: string
   pid?: number
   status: TerminalStatus
@@ -107,6 +107,10 @@ export interface CanvasNode {
   isMaximized: boolean
   status: NodeStatus
   showInfo: boolean
+  /** Runtime-only: true when the node was spawned with the permission-bypass flag. Not persisted into startupCommand. */
+  bypass?: boolean
+  /** When true, auto-layout (grid/columns/rows/auto_fit/focus) skips repositioning this node. */
+  isPinned?: boolean
 }
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
@@ -116,7 +120,7 @@ export interface ProcStats {
   memory: number
 }
 
-export type ThemeMode = 'dark' | 'light' | 'system'
+export type ThemeMode = 'system' | 'vscode-dark' | 'vscode-light' | 'one-dark-pro' | 'tokyo-night'
 
 export type ConnectionType =
   | 'control'
@@ -183,6 +187,91 @@ export interface SshProfile {
   createdAt: string
 }
 
+// ---- Project Manifest (.termflow.json) ----
+export interface TermflowManifestTask {
+  name: string
+  command: string
+  cwd?: string
+  shell?: ShellKind
+}
+
+export interface TermflowManifestAgent {
+  name: string
+  role?: string
+  kind?: ShellKind
+  command?: string
+}
+
+export interface TermflowManifestEnv {
+  key: string
+  value?: string
+  masked?: boolean
+}
+
+export interface TermflowManifestSnippet {
+  name: string
+  command: string
+  scope?: 'workspace' | 'global'
+}
+
+export interface TermflowManifest {
+  name?: string
+  tasks?: TermflowManifestTask[]
+  agents?: TermflowManifestAgent[]
+  env?: TermflowManifestEnv[]
+  snippets?: TermflowManifestSnippet[]
+}
+
+// ---- Agent Flow Templates (feature: agent flow templates) ----
+export interface FlowTemplateNode {
+  title: string
+  kind: ShellKind
+  agentRole?: string
+  startupCommand?: string
+}
+
+export interface FlowTemplateConnection {
+  from: number // index into FlowTemplate.nodes
+  to: number
+  connectionType: ConnectionType
+  label?: string
+  triggerPattern?: string
+  routeBehavior?: 'marker' | 'continuous' | 'disabled'
+  routeDirection?: 'source_to_target' | 'bidirectional'
+}
+
+export interface FlowTemplate {
+  id: string
+  name: string
+  builtin?: boolean
+  nodes: FlowTemplateNode[]
+  connections: FlowTemplateConnection[]
+}
+
+// ---- Task Triggers (feature: expanded task triggers) ----
+// Beyond output-regex agent routing: fire a shell command when a specific
+// node's process exits (optionally filtered by exit code), or on a repeating
+// timer. ("when command finishes, run X")
+export type TaskTriggerKind = 'process_exit' | 'timer'
+export type ExitCodeFilter = 'any' | 'zero' | 'nonzero'
+
+export interface TaskTrigger {
+  id: string
+  workspaceId: string
+  name: string
+  kind: TaskTriggerKind
+  enabled: boolean
+  // process_exit
+  sourceNodeId?: string
+  exitCodeFilter?: ExitCodeFilter
+  // timer
+  intervalMs?: number
+  // action
+  command: string
+  shell?: ShellKind
+  cwd?: string
+}
+
 // ---- Env Vars (P2-11) ----
 export interface EnvEntry {
   id: string
@@ -192,10 +281,51 @@ export interface EnvEntry {
   masked: boolean
 }
 
-// ---- Git Status (P2-9) ----
+// ---- Git Status (P2-9, extended with ahead/behind for deep git) ----
 export interface GitStatus {
   branch: string
   dirty: boolean
+  ahead?: number
+  behind?: number
+}
+
+export interface WorkspaceFileEntry { name: string; path: string; directory: boolean; size: number }
+export interface GitWorkbenchState { branch: string; status: string; diff: string; isRepo: boolean }
+export interface CredentialMeta { id: string; name: string; provider: string; envKey: string; workspaceId: string | null; updatedAt: string }
+export interface AgentMetric { terminalId: string; agentName: string; startedAt: string; endedAt?: string; durationMs: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number }
+export type PluginPermission = 'terminal:execute' | 'workspace:read' | 'workspace:write' | 'network:access'
+export interface TermFlowPluginCommand {
+  id: string
+  title: string
+  command: string
+  shell?: ShellKind
+  cwd?: string
+  description?: string
+  category?: string
+}
+export interface TermFlowPluginManifest {
+  schemaVersion: 1 | 2
+  id: string
+  name: string
+  version: string
+  description?: string
+  publisher?: string
+  engines?: { termflow: string }
+  entry?: string
+  activationEvents?: string[]
+  permissions?: PluginPermission[]
+  builtin?: boolean
+  enabled?: boolean
+  commands: TermFlowPluginCommand[]
+}
+export interface PluginDiagnostic { pluginId: string; level: 'info' | 'warning' | 'error'; message: string; timestamp: string }
+export interface PluginRegistryEntry { id: string; name: string; version: string; description: string; publisher: string; packageUrl: string; sha256?: string }
+
+export interface WorkspaceHealthCheck {
+  id: string
+  label: string
+  status: 'ok' | 'warning' | 'error'
+  detail: string
 }
 
 // ---- Workspace Export (P0-3) ----
@@ -237,25 +367,91 @@ export interface AppSettings {
   cursorStyle: 'block' | 'underline' | 'bar'
   cursorBlink: boolean
   terminalTheme: string
-  ligatures: boolean
+  startAtLogin: boolean
+  minimizeToTray: boolean
+  providerProfiles: AiProviderProfile[]
+  customAgents: CustomAgentDef[]
+  /** Built-in agent kinds hidden from the New Terminal menu (deleted without an override). */
+  hiddenAgentKinds: ShellKind[]
+  transparency: number
+  // Desktop notifications (P2-13)
+  notificationsEnabled: boolean
+  notifyOnLongCommand: boolean
+  notifyOnError: boolean
+  notifyOnAgentWaiting: boolean
+  longCommandThresholdMs: number
+  autoUpdate: boolean
+  updateChannel: 'stable' | 'beta'
+  // Play a sound when a terminal rings the bell (\x07) — how claude/codex
+  // signal "task finished" in a regular terminal.
+  terminalBell: boolean
+  // New terminal nodes open with the right-side info panel (process/context) visible
+  infoPanelDefaultOpen: boolean
+}
+
+export interface CustomAgentDef {
+  id: string
+  name: string
+  command: string
+  fullPermissionArgs?: string
+  color: string
+  /** Built-in shell kind when this entry overrides a bundled agent profile. */
+  kind?: ShellKind
+}
+
+export interface AiProviderProfile {
+  id: string
+  name: string
+  command: string
+  model: string
+  baseUrl: string
+  apiKeyEnv: string
+  modelEnv: string
+  baseUrlEnv: string
+  color: string
+  fullPermissionArgs: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  theme: 'dark',
+  theme: 'vscode-dark',
   activeBorderColor: '#f5e642',
   scrollback: 10000,
   passiveThrottleMs: 250,
-  webgl: true,
+  webgl: false,
   snapToGrid: false,
   agentAutoApprove: false,
   minimap: false,
-  fontFamily: "'Cascadia Mono', 'JetBrains Mono', Consolas, monospace",
-  fontSize: 13,
-  lineHeight: 1.1,
+  fontFamily: "'0xProto Nerd Font Mono', 'Cascadia Mono', Consolas, monospace",
+  fontSize: 12,
+  // 1.0: box-drawing glyphs (│─╭╮ in TUI borders) are designed to fill the
+  // exact cell height; any value above 1 opens gaps between rows and makes
+  // frames look dashed. Match Windows Terminal's tight cell height.
+  lineHeight: 1.0,
   cursorStyle: 'block',
   cursorBlink: true,
-  terminalTheme: 'TermFlow Dark',
-  ligatures: true
+  terminalTheme: 'VS Code Dark',
+  startAtLogin: true,
+  minimizeToTray: true,
+  providerProfiles: [
+    { id: 'deepseek', name: 'DeepSeek', command: 'claude', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#111827', fullPermissionArgs: '--dangerously-skip-permissions' },
+    { id: 'openrouter', name: 'OpenRouter', command: 'claude', model: 'anthropic/claude-3.5-sonnet', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'ANTHROPIC_AUTH_TOKEN', modelEnv: 'ANTHROPIC_MODEL', baseUrlEnv: 'ANTHROPIC_BASE_URL', color: '#6467f2', fullPermissionArgs: '--dangerously-skip-permissions' },
+    { id: 'ollama', name: 'Ollama Local', command: 'ollama run llama3.2', model: 'llama3.2', baseUrl: 'http://127.0.0.1:11434', apiKeyEnv: '', modelEnv: 'OLLAMA_MODEL', baseUrlEnv: 'OLLAMA_HOST', color: '#b48ead', fullPermissionArgs: '' }
+  ],
+  customAgents: [],
+  hiddenAgentKinds: [],
+  transparency: 100,
+  // Desktop notifications are reserved for app-update events (new version
+  // available / update ready); terminal-event notifications default OFF and
+  // stay opt-in via Settings. (user request)
+  notificationsEnabled: true,
+  notifyOnLongCommand: false,
+  notifyOnError: false,
+  notifyOnAgentWaiting: false,
+  longCommandThresholdMs: 30000,
+  autoUpdate: true,
+  updateChannel: 'stable',
+  terminalBell: true,
+  infoPanelDefaultOpen: false
 }
 
 export interface CanvasViewport {
@@ -281,6 +477,7 @@ export interface CreateTerminalInput {
   args?: string[]
   cwd?: string
   env?: Record<string, string>
+  cleanProviderEnv?: boolean
   startupCommand?: string
   cols?: number
   rows?: number
@@ -297,9 +494,39 @@ export const IPC = {
   PTY_DATA: 'pty:data', // main -> renderer (batched)
   PTY_EXIT: 'pty:exit',
   PTY_BUFFER: 'pty:buffer', // request full buffer on attach
+  PTY_BUFFER_INFO: 'pty:bufferInfo',
   PTY_MODE: 'pty:mode', // renderer -> main: set render mode (active/passive/buffer)
   PTY_ACTIVITY: 'pty:activity', // main -> renderer: error/activity signal
+  PTY_AWAITING: 'pty:awaiting', // main -> renderer: process output looks like it's waiting on a y/n confirmation
+  PTY_ROUTE: 'pty:route', // main -> renderer: agent-to-agent data routed over a connection
+  PTY_CWD: 'pty:cwd', // main -> renderer: OSC 7 cwd change detected in a terminal's output
   PROC_STATS: 'proc:stats', // renderer -> main: get cpu/mem for pids
+  GIT_FETCH: 'git:fetch', // renderer -> main: run `git fetch` for a cwd
+  GIT_WORKBENCH: 'git:workbench',
+  GIT_STAGE: 'git:stage',
+  GIT_UNSTAGE: 'git:unstage',
+  GIT_COMMIT: 'git:commit',
+  FS_LIST: 'fs:list',
+  FS_READ_TEXT: 'fs:readText',
+  VAULT_LIST: 'vault:list',
+  VAULT_SAVE: 'vault:save',
+  VAULT_DELETE: 'vault:delete',
+  PLUGIN_LIST: 'plugin:list',
+  PLUGIN_INSTALL: 'plugin:install',
+  PLUGIN_SAVE: 'plugin:save',
+  PLUGIN_DELETE: 'plugin:delete',
+  PLUGIN_SET_ENABLED: 'plugin:setEnabled',
+  PLUGIN_DIAGNOSTICS: 'plugin:diagnostics',
+  PLUGIN_RELOAD: 'plugin:reload',
+  PLUGIN_REGISTRY_LIST: 'plugin:registryList',
+  PLUGIN_REGISTRY_INSTALL: 'plugin:registryInstall',
+  FLOW_PACKAGE_EXPORT: 'flowPackage:export',
+  FLOW_PACKAGE_IMPORT: 'flowPackage:import',
+  RECOVERY_STATUS: 'recovery:status',
+  RECOVERY_ACK: 'recovery:ack',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_STATUS: 'update:status',
   // shells
   SHELLS_DISCOVER: 'shells:discover',
   // settings
@@ -307,6 +534,7 @@ export const IPC = {
   SETTINGS_SET: 'settings:set',
   // window
   WINDOW_OVERLAY: 'window:overlay', // renderer -> main: set titlebar overlay colors
+  WINDOW_FOCUS: 'window:focus', // renderer -> main: restore/focus the main window (notification click)
   // dialog
   DIALOG_OPEN_DIR: 'dialog:openDir',
   DIALOG_CHECK_FILE: 'dialog:checkFile',
@@ -317,7 +545,15 @@ export const IPC = {
   WS_DELETE: 'ws:delete',
   WS_EXPORT: 'ws:export',
   WS_IMPORT: 'ws:import',
+  WS_CLONE: 'ws:clone',
   WS_CHECK_MANIFEST: 'ws:checkManifest',
+  WS_HEALTH: 'ws:health',
+  // workspace templates
+  TEMPLATE_SAVE: 'template:save',
+  TEMPLATE_LIST: 'template:list',
+  TEMPLATE_CREATE_WORKSPACE: 'template:createWorkspace',
+  TEMPLATE_DELETE: 'template:delete',
+  DIAGNOSTICS_EXPORT: 'diagnostics:export',
   // layout
   LAYOUT_GET: 'layout:get',
   LAYOUT_SAVE: 'layout:save',
@@ -342,6 +578,16 @@ export const IPC = {
   SSH_PROFILE_DELETE: 'ssh:delete',
   // git
   GIT_STATUS: 'git:status',
+  // package.json script runner
+  PKG_SCRIPTS: 'pkg:scripts',
+  // agent flow templates
+  FLOW_TEMPLATE_LIST: 'flowTemplate:list',
+  FLOW_TEMPLATE_SAVE: 'flowTemplate:save',
+  FLOW_TEMPLATE_DELETE: 'flowTemplate:delete',
+  // task triggers
+  TASK_TRIGGER_LIST: 'taskTrigger:list',
+  TASK_TRIGGER_SAVE: 'taskTrigger:save',
+  TASK_TRIGGER_DELETE: 'taskTrigger:delete',
   // env vars
   ENV_LIST: 'env:list',
   ENV_CREATE: 'env:create',
@@ -351,6 +597,10 @@ export const IPC = {
   REC_START: 'rec:start',
   REC_STOP: 'rec:stop',
   REC_SAVE: 'rec:save',
+  REC_LIMIT: 'rec:limit', // main -> renderer: recording auto-stopped (duration/size limit reached)
   // agent routing
-  AGENT_SET_ROUTING: 'agent:setRouting'
+  AGENT_SET_ROUTING: 'agent:setRouting',
+  // Claude Code agent config files
+  AGENT_CFG_READ: 'agentCfg:read',
+  AGENT_CFG_WRITE: 'agentCfg:write'
 } as const

@@ -1,5 +1,5 @@
 <h1 align="center">TermFlow</h1>
-<p align="center">Windows multi-terminal & multi-agent canvas workspace — run shells and AI agents side by side on an infinite drag-and-drop canvas.</p>
+<p align="center">A Windows multi-terminal and multi-agent workspace with adaptive tiled layouts, real PTY sessions, and developer-aware orchestration.</p>
 
 <p align="center">
   <a href="#getting-started">Docs</a> ·
@@ -29,7 +29,9 @@
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
 - [Usage](#usage)
+- [Testing](#testing)
 - [Packaging](#packaging)
+- [Deployment](#deployment)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Security](#security)
@@ -39,17 +41,18 @@
 
 ## Overview
 
-**TermFlow** is a Windows-native desktop application that combines real terminal emulation with an AI agent orchestration canvas. Think of it as tmux meets n8n — you can spawn multiple PowerShell, CMD, WSL, or Git Bash terminals, position them freely on an infinite canvas, and connect them to AI agents (Claude Code, Codex, OpenCode, Ollama) with typed connection edges.
+**TermFlow** is a Windows-native desktop application that combines real terminal emulation with an AI agent orchestration workspace. Think of it as tmux meets n8n: spawn PowerShell, CMD, WSL, or Git Bash terminals, tile them edge to edge inside a fixed workspace, and connect them to AI agents such as Claude Code, Codex, OpenCode, and Ollama.
 
-Every terminal is backed by a real **node-pty** process. The canvas is powered by **React Flow** for smooth drag-and-drop, resize, and minimap navigation. Workspaces, terminal sessions, layouts, connections, snippets, SSH profiles, highlights, and workspace environment variables are persisted in an atomic JSON store so your setup survives restarts.
+Every terminal is backed by a real **prebuilt node-pty** process. The canvas is powered by **React Flow** for smooth drag-and-drop, resize, and minimap navigation. Workspaces, terminal sessions, layouts, connections, snippets, SSH profiles, highlights, and workspace environment variables are persisted in an atomic JSON store with rolling backup and corrupt-file recovery.
 
 ## Features
 
 ### Terminal Engine
-- **Real PTY sessions** — every terminal card is a genuine Windows pseudo-terminal via `node-pty`
+- **Real PTY sessions** — every terminal card is a genuine Windows pseudo-terminal via `@lydell/node-pty`
 - **5 shell types** — PowerShell, PowerShell Core, CMD, WSL, Git Bash (auto-discovered at startup)
 - **Output batching** — 16 ms render batches with 10 000-line ring buffer per terminal
 - **Active/passive render modes** — only the focused terminal renders at full rate; unfocused terminals throttle to 250 ms
+- **Buffer mode under load** — inactive terminals switch to buffer-only streaming when large workspaces would otherwise stall the UI
 - **WebGL acceleration** — optional `xterm-addon-webgl` for smooth high-throughput output
 - **Process stats** — CPU and memory usage per terminal via `pidusage`
 
@@ -57,29 +60,60 @@ Every terminal is backed by a real **node-pty** process. The canvas is powered b
 - **4 agent backends** — Claude Code, Codex, OpenCode, Ollama (launched inside an interactive CMD host)
 - **10 predefined agent roles** — Planner, Coder, Reviewer, Tester, Debugger, Git, Documentation, Research, Shell, Ollama Local
 - **Typed connections** — control, data, log, error, dependency, parent-child, manual, and trigger edges between nodes
+- **Safe agent routing** — marker-based handoff routing plus sanitized, rate-limited one-way continuous routing
+- **Agent activity panel** — detects task, tool, handoff, and subagent-like events from agent terminal output
 - **Bypass permissions** — optional toggle to launch agents with full auto-approve flags
 
 ### Canvas & Layout
-- **Infinite canvas** — React Flow-based workspace with zoom, pan, and minimap
+- **Adaptive tiled workspace** — terminals fill the available page with no wasted gutter space
+- **Focus resizing** — clicking a terminal enlarges it while neighboring terminals share the remaining space
+- **Persistent mouse ratios** — drag the active divider to resize every terminal proportionally; custom sizes survive deselection and window resizing
+- **Manual graph canvas** — manual and agent-graph modes retain zoom, pan, free positioning, and minimap navigation
 - **8 layout modes** — manual, auto-fit, grid, columns, rows, focus, agent-graph, monitoring, split-grid
-- **Resizable terminal cards** — drag corners or use NodeResizer; minimize/maximize/info-toggle per card
+- **Responsive terminal fitting** — xterm columns and rows are recalculated whenever a panel changes size
 - **Viewport persistence** — zoom level and scroll position restored on workspace reload
 
 ### Workspace Management
 - **Multi-workspace** — create, rename, duplicate, delete entire workspaces
 - **Workspace persistence** — terminals, canvas nodes, connections, snippets, profiles, viewport, and settings all survive restart
-- **Developer tools** — workspace environment variables, SSH profile registry, terminal recording, snippets, and import/export
+- **Developer Center** — manifest task runner, Git/runtime/project health checks, and secret-free diagnostics export
+- **Developer tools** — workspace environment variables, validated SSH profiles, terminal recording, snippets, project manifests, and import/export
+- **Provider profiles** — configure DeepSeek, Ollama, or any CLI/API-compatible provider without storing API keys in profile data
+- **System tray lifecycle** — optionally start with Windows, keep PTYs running when the window closes, and quit explicitly from the tray
+- **Folder launcher and help** — open any supported shell at a chosen path and learn the main workflows from the in-app help page
+- **Unified themes and transparency** — MarkNote-compatible Latte, Frappé, Macchiato, Mocha, Matcha, Kanagawa, Ayu, and Rosé Pine palettes affect terminals, chrome, menus, and dialogs
+- **Full-permission path launch** — start Claude Code, Codex, DeepSeek-backed profiles, or other providers in a selected trusted directory
+- **Close All** — terminate every terminal process in the active workspace after an in-app confirmation
+- **Detached sessions** — remove a running terminal from the canvas and reattach it later without losing the process
 - **Command palette** — Ctrl+K quick-launch for terminals, agents, and workspace commands
 - **Settings panel** — active border color, scrollback size, WebGL toggle, snap-to-grid, minimap
+
+### Developer Productivity
+- **Developer Workbench** — browse workspace files, preview safe text files, inspect command history, and perform Git diff/stage/unstage/commit operations
+- **Global terminal search** — search across all live terminal buffers from one modal
+- **Package task runner** — detect npm, pnpm, yarn, or bun scripts and launch them with one click
+- **Workspace templates** — clone a reusable workspace definition or save the current workspace as a template
+- **Agent flow templates** — apply Planner-to-Coder-to-Reviewer pipelines or save the current agent graph
+- **Task triggers** — run follow-up tasks on process exit or a timer schedule
+- **AI log summary** — send terminal output to a selected agent for analysis
+- **Deep Git integration** — follow OSC 7 working-directory changes and expose repository actions per terminal
+- **Desktop notifications** — notify on long command completion, error output, or an agent waiting for approval
+- **Duplicate and pin** — duplicate terminal configuration and pin nodes against automatic layout movement
+- **Agent operations** — track session duration, reported token counts and cost, then manage encrypted provider credentials
+- **Credential vault** — Windows `safeStorage` encryption with global or workspace scope; secret values never return to the renderer
+- **Plugin SDK** — install validated manifest-only plugins that expose explicit terminal commands without injecting renderer code
+- **Workflow packages** — export and import reusable agent-flow template collections as versioned JSON packages
+- **Crash recovery** — detect unclean shutdowns, recreate persisted terminal sessions, and choose restore or clean start
+- **Stable/beta updates** — GitHub Releases updater with channel selection, download progress, and restart-to-install flow
 
 ## Tech Stack
 
 | Technology | Why it is used |
 | --- | --- |
-| **Electron 33** | Cross-platform desktop shell; gives us full Node.js access for PTY, filesystem, and process management |
+| **Electron 39** | Cross-platform desktop shell; gives us full Node.js access for PTY, filesystem, and process management |
 | **React 18 + TypeScript** | Component-based UI with type-safe IPC boundaries between main and renderer |
 | **xterm.js 5 + addons** | Industry-standard terminal emulator (fit, search, web-links, WebGL) |
-| **node-pty** | Native Windows pseudo-terminal; one process per terminal card |
+| **@lydell/node-pty** | Prebuilt native Windows pseudo-terminal; one process per terminal card |
 | **React Flow (@xyflow/react)** | Canvas-based node graph with built-in drag, resize, edge drawing, and minimap |
 | **Zustand** | Lightweight state management; single store for workspace, terminals, canvas, and settings |
 | **JSON store** | Atomic local persistence for workspace, terminal, layout, connection, snippet, SSH, env, and highlight data |
@@ -97,7 +131,7 @@ graph TD
     C --> F[Shell Discovery]
     D --> G[PowerShell / CMD / WSL / Git Bash]
     D --> H[Claude / Codex / OpenCode / Ollama]
-    E --> I[workspaces.db]
+    E --> I[termflow.json]
     A --> J[React Flow Canvas]
     A --> K[Zustand Store]
     A --> L[xterm.js Terminal Views]
@@ -138,6 +172,10 @@ graph TD
 │   │       │   ├── Toolbar.tsx       # Layout modes, add terminal, zoom controls
 │   │       │   ├── StatusBar.tsx     # Active process stats, connection count
 │   │       │   ├── TerminalView.tsx  # xterm.js mount + fit addon
+│   │       │   ├── DeveloperCenter.tsx # Tasks, runtime checks, diagnostics
+│   │       │   ├── AgentActivityPanel.tsx # Agent task/tool/handoff activity
+│   │       │   ├── DetachedSessionsPanel.tsx # Live detached-session recovery
+│   │       │   ├── ProjectManifestPanel.tsx # .termflow.json onboarding
 │   │       │   ├── CommandPalette.tsx # Ctrl+K quick actions
 │   │       │   ├── WorkspaceModal.tsx # Create/edit workspace dialog
 │   │       │   ├── SettingsModal.tsx  # App settings panel
@@ -155,7 +193,8 @@ graph TD
 │       └── types.ts            # Shared types, IPC channel names, data models
 ├── resources/                  # App icons (icon.ico, icon.png)
 ├── scripts/
-│   └── gen-icons.mjs           # Icon generation script (png → ico)
+│   ├── gen-icons.mjs           # Icon generation script (png → ico)
+│   └── verify-artifacts.mjs     # Installer/ZIP release artifact validation
 ├── electron-builder.yml         # electron-builder packaging config
 ├── electron.vite.config.ts     # electron-vite build configuration
 ├── package.json
@@ -207,7 +246,7 @@ Produces compiled output in `out/` (main + preload + renderer).
 npm run verify
 ```
 
-Runs TypeScript type-checking and a production Electron build. Use this before packaging or publishing a release.
+Runs unit tests, TypeScript type-checking, and a production Electron build. Use this before packaging or publishing a release.
 
 ## Configuration
 
@@ -222,6 +261,9 @@ TermFlow stores settings in the local JSON store and applies them at runtime. No
 | `snapToGrid` | `false` | Snap terminal cards to a grid when moving |
 | `agentAutoApprove` | `false` | Launch AI agents with full bypass permissions |
 | `minimap` | `false` | Show React Flow minimap overlay |
+| `transparency` | `100` | Unified window, terminal, menu, and dialog opacity (`100` disables transparency) |
+| `startAtLogin` | `true` | Start the packaged TermFlow application with Windows |
+| `minimizeToTray` | `true` | Keep PTYs running when the main window is closed |
 
 All settings are editable via the in-app Settings modal (gear icon in toolbar).
 
@@ -230,16 +272,61 @@ All settings are editable via the in-app Settings modal (gear icon in toolbar).
 1. **Launch the app** — you'll see an empty canvas with a sidebar and toolbar.
 2. **Create a workspace** — click "New Workspace" in the sidebar, give it a name and path.
 3. **Add terminals** — click the `+` button in the toolbar, pick a shell type (PowerShell, CMD, WSL, Git Bash).
-4. **Position panels** — drag terminal cards anywhere on the canvas; resize from any corner.
-5. **Switch focus** — click any terminal to make it active (yellow border). Only the active terminal receives keyboard input.
+4. **Use the tiled workspace** — terminals automatically divide the fixed workspace and shrink proportionally as more sessions are added.
+5. **Resize focus** — click a terminal, then drag its right divider. The active terminal and its neighbors resize together, and the chosen ratio is retained.
 6. **Auto-arrange** — select a layout mode from the toolbar dropdown (Grid, Columns, Rows, Focus, Auto-Fit, etc.).
 7. **Connect nodes** — right-click a terminal, choose "Start Connection", click the target to draw a typed edge.
 8. **Add AI agents** — select "Claude Code", "Codex", "OpenCode", or "Ollama" from the `+` menu. Agents launch in an interactive CMD host.
 9. **Broadcast input** — add terminals to the broadcast group from each terminal header, then toggle Broadcast in the toolbar.
 10. **Record sessions** — start/stop recording from a terminal header and save recordings as asciinema `.cast` files.
-11. **Developer settings** — Settings > Developer manages workspace env vars and SSH profile metadata.
-12. **Command palette** — `Ctrl+K` to search workspaces, terminals, profiles, snippets, and quick actions.
-13. **Minimize/Maximize** — use the card header buttons to collapse or expand terminal panels.
+11. **SSH profiles** — Settings > Developer creates SSH profiles, then launch them from the terminal menu or command palette.
+12. **Project manifest** — add `.termflow.json` to a repo to suggest tasks, agents, snippets, and env placeholders when the workspace opens.
+13. **Command palette** — `Ctrl+K` to search workspaces, terminals, SSH profiles, manifest tasks, snippets, and quick actions.
+14. **Minimize/Maximize** — use the card header buttons to collapse or expand terminal panels.
+15. **Developer Center** — run project tasks, inspect workspace health, and export sanitized diagnostics.
+16. **Detach/Reattach** — detach a live session from its close dialog and restore it from the detached-session panel.
+17. **Provider context menu** — right-click empty canvas space to launch a configured provider, open a terminal at a folder, or edit provider profiles.
+18. **System tray** — closing the window keeps TermFlow and its PTYs running when tray mode is enabled; use the tray menu to reopen or quit.
+
+### Project Manifest
+
+Create `.termflow.json` in a workspace root:
+
+```json
+{
+  "name": "My App",
+  "tasks": [
+    { "name": "Dev Server", "command": "npm run dev", "shell": "cmd" },
+    { "name": "Tests", "command": "npm test", "shell": "cmd" }
+  ],
+  "agents": [
+    { "name": "Reviewer", "role": "Reviewer", "kind": "codex" }
+  ],
+  "snippets": [
+    { "name": "Git Status", "command": "git status" }
+  ],
+  "env": [
+    { "key": "OPENAI_API_KEY", "masked": true }
+  ]
+}
+```
+
+When the workspace opens, TermFlow shows a manifest panel. Applying it imports snippets/env placeholders and starts declared agents. Tasks can be launched one by one without applying the full manifest.
+
+## Testing
+
+```bash
+npm run test
+npm run typecheck
+npm run verify
+```
+
+- `npm run test` runs the Vitest unit suite.
+- `npm run typecheck` validates the Electron main, preload, shared, and renderer TypeScript projects.
+- `npm run verify` runs tests, type-checking, and a production Electron build in sequence.
+- `npm run test:e2e` builds the app and launches a real Electron window with Playwright to verify Help and Developer Workbench surfaces.
+
+The current suite covers pane operations, validation, PTY routing/recording limits, and the refactored terminal/layout/developer-resource store slices.
 
 ## Packaging
 
@@ -254,6 +341,8 @@ This runs `electron-vite build` followed by `electron-builder --win`, producing:
 
 The installer supports custom install directory and generates Start Menu shortcuts.
 
+Use `npm run package:verify` for release work. It also rejects missing, truncated, or invalid installer/ZIP artifacts.
+
 ### Icons
 
 ```bash
@@ -262,14 +351,61 @@ npm run icons
 
 Generates `icon.ico` and `icon.png` from `resources/` source images using `sharp` + `png-to-ico`.
 
+## Deployment
+
+TermFlow is distributed as a Windows desktop application rather than a hosted web service. Run:
+
+```bash
+npm run package:verify
+```
+
+Publish the verified NSIS installer and ZIP from `dist/` to a GitHub Release. Do not publish `win-unpacked/` as the primary download; it is intended for local smoke testing.
+
+For automatic updates, stable releases use normal semantic versions and the `latest` channel. Beta releases use prerelease versions such as `0.2.0-beta.1` and are offered only to users on the beta channel. Upload the generated installer, blockmap, and channel metadata (`latest.yml` or beta metadata) together.
+
+### Plugin SDK
+
+TermFlow supports declarative workflow plugins and optional runtime plugins. Runtime code never loads into the renderer or main process: it runs in a dedicated utility process inside a restricted VM and receives only the declared capability API.
+
+```json
+{
+  "schemaVersion": 2,
+  "id": "acme.dev-tools",
+  "name": "ACME Dev Tools",
+  "version": "1.0.0",
+  "publisher": "ACME",
+  "entry": "entry.js",
+  "activationEvents": ["workspaceContains:package.json"],
+  "permissions": ["terminal:execute"],
+  "commands": [
+    { "id": "test", "title": "Run tests", "command": "npm test", "shell": "cmd" }
+  ]
+}
+```
+
+Create and package a plugin with the bundled SDK CLI:
+
+```bash
+npm run plugin -- init ./my-plugin
+npm run plugin -- validate ./my-plugin
+npm run plugin -- test ./my-plugin
+npm run plugin -- pack ./my-plugin
+```
+
+The resulting `.tfplugin` bundle contains its manifest and runtime files plus a SHA-256 integrity value. Install bundles from Extensions, or use `npm run plugin -- install ./my-plugin` during local development. Set `TERMFLOW_PLUGIN_DIR` to override the development install directory.
+
+Supported activation events are `onStartupFinished`, `workspaceContains:<file>`, `platform:win32`, `platform:linux`, `platform:darwin`, and `*`. Runtime permissions are explicit and shown in the manager. Plugins can be disabled per installation, reloaded during development, and inspected through Plugin diagnostics. A registry catalog can be supplied at `%APPDATA%/termflow/plugin-registry.json`; registry packages must use HTTPS and may pin the bundle SHA-256.
+
 ## Roadmap
 
 - [ ] Multi-monitor detached terminal windows
-- [ ] SSH session profiles with key management
-- [ ] Agent-to-agent message routing via edges
-- [ ] Workspace export/import (JSON + ZIP)
-- [ ] Terminal recording and replay
-- [ ] Plugin system for custom shell integrations
+- [x] SSH session profiles with key and jump-host launch
+- [x] Agent-to-agent message routing via edges
+- [x] Workspace export/import (JSON)
+- [x] Project manifest onboarding
+- [x] Agent activity detection panel
+- [ ] Terminal recording replay
+- [x] Plugin SDK, isolated runtime, diagnostics, signed-integrity packages, and registry catalog
 - [ ] Linux/macOS PTY support
 - [ ] Team workspace sharing via WebSocket
 
@@ -314,7 +450,6 @@ Distributed under the MIT License. See `LICENSE` for details.
 
 - [xterm.js](https://xtermjs.org/) — the gold-standard terminal emulator for the web
 - [React Flow](https://reactflow.dev/) — infinitely customizable node graph library
-- [node-pty](https://github.com/Tyriar/node-pty) — native pseudo-terminal bindings
 - [Electron](https://www.electronjs.org/) — the desktop app framework
-- [node-pty](https://github.com/microsoft/node-pty) — native pseudo-terminal bindings
+- [@lydell/node-pty](https://github.com/lydell/node-pty) — prebuilt native pseudo-terminal bindings
 - [Zustand](https://zustand-demo.pmnd.rs/) — minimal yet powerful state management

@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync } from 'fs'
 import { nanoid } from 'nanoid'
 import type {
   Workspace,
@@ -23,6 +23,9 @@ import { DEFAULT_SETTINGS } from '../../shared/types'
  * layouts. The API mirrors a repository layer so the storage backend can be
  * swapped later without touching IPC.
  * Writes are atomic (temp file + rename). (PRD §15 — same schema, JSON shape.)
+ *
+ * Mutations are debounced (500ms trailing); flushPersist() is called from the
+ * app's before-quit handler so pending writes never get lost on shutdown.
  */
 
 interface StoreShape {
@@ -61,10 +64,50 @@ export function setSettings(patch: Partial<AppSettings>): AppSettings {
   return store.settings
 }
 
-function persist(): void {
+// ---- Persistence (debounced, atomic write) ----
+
+const PERSIST_DEBOUNCE_MS = 500
+const BACKUP_INTERVAL_MS = 60_000
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let lastBackupAt = 0
+
+/** Synchronous atomic write. Backs up at most once per BACKUP_INTERVAL_MS. */
+function writeStore(): void {
   const tmp = filePath + '.tmp'
   writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8')
+  const nowMs = Date.now()
+  if (existsSync(filePath) && nowMs - lastBackupAt >= BACKUP_INTERVAL_MS) {
+    copyFileSync(filePath, filePath + '.bak')
+    lastBackupAt = nowMs
+  }
   renameSync(tmp, filePath)
+}
+
+/**
+ * Schedule a persist. Trailing debounce: coalesces bursts of mutations into a
+ * single disk write after PERSIST_DEBOUNCE_MS of quiescence. If a timer is
+ * already pending it is left in place (no reset), so writes cannot be starved.
+ */
+function persist(): void {
+  if (persistTimer) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    writeStore()
+  }, PERSIST_DEBOUNCE_MS)
+}
+
+/**
+ * Cancel any pending debounced write and flush the store to disk immediately
+ * (synchronous). Must be called on app shutdown so buffered mutations are not
+ * lost.
+ */
+export function flushPersist(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  writeStore()
 }
 
 function now(): string {
@@ -79,6 +122,18 @@ export function initDatabase(): void {
     try {
       store = { ...empty(), ...JSON.parse(readFileSync(filePath, 'utf-8')) }
     } catch {
+      const corruptPath = filePath.replace(/\.json$/, `.corrupt-${Date.now()}.json`)
+      renameSync(filePath, corruptPath)
+      const backupPath = filePath + '.bak'
+      if (existsSync(backupPath)) {
+        try {
+          store = { ...empty(), ...JSON.parse(readFileSync(backupPath, 'utf-8')) }
+          persist()
+          return
+        } catch {
+          // Keep the corrupt primary file and fall back to a new store.
+        }
+      }
       store = empty()
     }
   } else {
@@ -139,6 +194,10 @@ export function deleteWorkspace(id: string): void {
   store.terminals = store.terminals.filter((t) => t.workspaceId !== id)
   store.nodes = store.nodes.filter((n) => n.workspaceId !== id)
   store.connections = store.connections.filter((c) => c.workspaceId !== id)
+  store.snippets = store.snippets.filter((s) => s.workspaceId !== id)
+  store.highlightRules = store.highlightRules.filter((r) => r.workspaceId !== id)
+  store.sshProfiles = store.sshProfiles.filter((p) => p.workspaceId !== id)
+  store.envVars = store.envVars.filter((e) => e.workspaceId !== id)
   delete store.viewports[id]
   persist()
 }
@@ -292,6 +351,10 @@ export function deleteSshProfile(id: string): void {
 
 export function listEnvVars(workspaceId: string): EnvEntry[] {
   return store.envVars.filter((e) => e.workspaceId === workspaceId)
+}
+
+export function getEnvVar(id: string): EnvEntry | undefined {
+  return store.envVars.find((e) => e.id === id)
 }
 
 export function createEnvVar(input: Omit<EnvEntry, 'id'>): EnvEntry {
