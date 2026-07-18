@@ -71,6 +71,7 @@ interface ManagedPty {
   recentInbound: { sig: string; at: number }[] // payloads recently injected INTO this pty
   routeHops: Map<string, number[]> // connectionId -> recent route timestamps (loop backstop)
   routeQueues: Map<string, { buf: string; timer: NodeJS.Timeout | null }> // continuous accumulation
+  recentOutbound: Map<string, { sig: string; at: number }[]> // connectionId -> recently routed-out payloads
   loopWarned: Set<string> // connectionIds already warned about (avoids log spam)
   // Recording
   recording: boolean
@@ -129,6 +130,7 @@ export class PtyManager {
       recentInbound: [],
       routeHops: new Map(),
       routeQueues: new Map(),
+      recentOutbound: new Map(),
       loopWarned: new Set(),
       recording: false,
       recordingStart: 0,
@@ -148,6 +150,7 @@ export class PtyManager {
       // is gone. `buffer` is intentionally kept so the renderer can rehydrate.
       managed.recentInbound = []
       managed.routeHops.clear()
+      managed.recentOutbound.clear()
       managed.loopWarned.clear()
       for (const q of managed.routeQueues.values()) if (q.timer) clearTimeout(q.timer)
       managed.routeQueues.clear()
@@ -252,11 +255,23 @@ export class PtyManager {
             if (rule.transform) {
               output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
             }
-            output = this.sanitizeRouteData(output).slice(0, 4000)
+            // TUI line-wrapping injects newlines+indentation into the matched
+            // block; collapse to single spaces so the payload lands as one
+            // clean input line.
+            output = this.sanitizeRouteData(output).replace(/\s+/g, ' ').trim().slice(0, 4000)
             if (!output.trim()) continue
+            // TUI full-screen repaints replay the same marker block in the
+            // pty stream; skip identical payloads per connection for a short
+            // window so the target doesn't receive duplicates.
+            const outSig = this.routeSignature(output)
+            const now = Date.now()
+            const sent = (managed.recentOutbound.get(rule.connectionId) ?? []).filter((e) => now - e.at <= 20000)
+            if (sent.some((e) => e.sig === outSig)) continue
+            sent.push({ sig: outSig, at: now })
+            managed.recentOutbound.set(rule.connectionId, sent)
             if (this.shouldBlockRoute(managed, rule.connectionId, output)) continue
             for (const tid of rule.targetTerminalIds) {
-              this.write(tid, output + '\r')
+              this.writeRouted(tid, output)
               this.recordInbound(tid, output)
             }
             this.emitRoute(rule.connectionId)
@@ -274,9 +289,32 @@ export class PtyManager {
     }
   }
 
+  /**
+   * Write a routed payload into a target terminal, sending Enter separately
+   * after a short delay: TUI agents (claude/codex CLIs) treat a rapid burst
+   * of characters as a paste, and an Enter inside that burst is inserted as
+   * a newline instead of submitting the prompt.
+   */
+  private writeRouted(targetId: string, payload: string): void {
+    // TUI agents (claude/codex CLIs) mis-handle multi-char bursts as a
+    // paste (codex drops spaces); feed one character at a keystroke-like
+    // pace and press Enter separately so the prompt actually submits.
+    const CHUNK = 1
+    const STEP_MS = 25
+    for (let i = 0; i < payload.length; i += CHUNK) {
+      const part = payload.slice(i, i + CHUNK)
+      setTimeout(() => this.write(targetId, part), (i / CHUNK) * STEP_MS)
+    }
+    const doneAt = Math.ceil(payload.length / CHUNK) * STEP_MS
+    setTimeout(() => this.write(targetId, '\r'), doneAt + 150)
+  }
+
   private sanitizeRouteData(data: string): string {
     return data
-      .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+      // TUI agents position words with cursor-movement CSI sequences instead of
+      // literal spaces; stripping them to nothing glues words together, so
+      // replace with a space (marker routing collapses runs of whitespace after).
+      .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ' ')
       .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
   }
