@@ -425,6 +425,10 @@ export interface AgentTeam {
   objective: string
   status: AgentTeamStatus
   permissionPolicy: TeamPermissionPolicy
+  worktreePath?: string
+  worktreeBranch?: string
+  baseCommit?: string
+  appliedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -677,4 +681,5 @@ export const IPC = {
   TEAM_TASK_UPDATE: 'team:task:update'
   ,TEAM_START: 'team:start'
   ,TEAM_STOP: 'team:stop'
+  ,TEAM_APPLY: 'team:apply'
 } as const

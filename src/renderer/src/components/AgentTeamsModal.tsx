@@ -22,6 +22,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
   const [teamSize, setTeamSize] = useState<3 | 4 | 5>(4)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   useModalClose(onClose)
 
   const selected = useMemo(() => teams.find((item) => item.team.id === selectedId) ?? teams[0], [teams, selectedId])
@@ -88,6 +89,22 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
     await reload(selected.team.id)
   }
 
+  const applyResult = async (): Promise<void> => {
+    if (!selected) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await window.termflow.teams.apply(selected.team.id)
+      setNotice(result.message)
+      await reload(selected.team.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Takım sonucu uygulanamadı')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal agent-teams" onMouseDown={(event) => event.stopPropagation()}>
@@ -96,6 +113,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
           <button className="hbtn" title="Kapat" onClick={onClose}><X size={16} /></button>
         </header>
         {error && <div className="side-error" role="alert">{error}</div>}
+        {notice && <div className="side-success" role="status">{notice}</div>}
         <div className="team-layout">
           <aside className="team-list">
             <button className="btn primary" disabled={!workspaceId} onClick={() => setCreating(true)}><Plus size={14} /> Yeni Agent Team</button>
@@ -114,7 +132,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
               </section>
             ) : selected ? (
               <>
-                <section className="team-summary"><div><span className="team-kicker">{POLICY_LABELS[selected.team.permissionPolicy]}</span><h2>{selected.team.name}</h2><p>{selected.team.objective}</p></div><div className="team-actions">{selected.team.status === 'draft' && <button className="btn primary" disabled={busy} onClick={() => void startTeam(selected)}><Play size={14} /> Takımı başlat</button>}{selected.team.status === 'running' && <button className="btn" onClick={() => void setTeamStatus('paused')}><Pause size={14} /> Duraklat</button>}<button className="btn danger" onClick={() => void setTeamStatus('cancelled')}><Square size={13} /> Durdur</button></div></section>
+                <section className="team-summary"><div><span className="team-kicker">{POLICY_LABELS[selected.team.permissionPolicy]}</span><h2>{selected.team.name}</h2><p>{selected.team.objective}</p></div><div className="team-actions">{selected.team.status === 'draft' && <button className="btn primary" disabled={busy} onClick={() => void startTeam(selected)}><Play size={14} /> Takımı başlat</button>}{selected.team.status === 'running' && <button className="btn" onClick={() => void setTeamStatus('paused')}><Pause size={14} /> Duraklat</button>}{selected.team.status === 'completed' && selected.team.worktreePath && !selected.team.appliedAt && <button className="btn primary" disabled={busy} onClick={() => void applyResult()}><CheckCircle2 size={14} /> Sonucu projeye uygula</button>}{selected.team.appliedAt && <span className="team-applied"><CheckCircle2 size={14} /> Projeye uygulandı</span>}{['draft', 'running', 'paused'].includes(selected.team.status) && <button className="btn danger" onClick={() => void setTeamStatus('cancelled')}><Square size={13} /> Durdur</button>}</div></section>
                 <section className="team-members">{selected.members.map((member) => <article key={member.id}><Bot size={16} /><div><strong>{member.name}</strong>{selected.team.status === 'draft' ? <select value={member.provider} onChange={async (event) => { await window.termflow.teams.updateMember(member.id, { provider: event.target.value as typeof member.provider }); await reload(selected.team.id) }}><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="opencode">OpenCode</option><option value="generic">Generic CLI</option></select> : <span>{member.provider}</span>}</div><em className={`team-status ${member.status}`}>{member.status}</em></article>)}</section>
                 <section className="team-tasks"><header><h4>Görevler</h4><span>{selected.tasks.filter((task) => task.status === 'completed').length}/{selected.tasks.length} tamamlandı</span></header>{selected.tasks.map((task) => { const member = selected.members.find((item) => item.id === task.assigneeId); return <article key={task.id}><button className="task-check" title="Durumu değiştir" onClick={() => void setTaskStatus(task.id, task.status === 'completed' ? 'ready' : 'completed')}>{task.status === 'completed' ? <CheckCircle2 size={18} /> : <Circle size={18} />}</button><div><strong>{task.title}</strong><p>{task.description}</p><span>{member?.name ?? 'Atanmadı'} · {STATUS_LABELS[task.status]}</span>{task.status === 'approval' && <button className="btn primary" onClick={() => void approveTask(task.id)}>Planı onayla ve uygula</button>}</div></article> })}</section>
                 <section className="team-events"><header><h4>Canlı çalışma akışı</h4><span>{selected.events.length} olay</span></header>{selected.events.slice(-30).reverse().map((event) => <article key={event.id}><time>{new Date(event.createdAt).toLocaleTimeString()}</time><p>{event.message}</p></article>)}</section>

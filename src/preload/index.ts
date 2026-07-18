@@ -208,6 +208,7 @@ const api = {
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_DELETE, id)
     ,start: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_START, id)
     ,stop: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_STOP, id)
+    ,apply: (id: string): Promise<{ changed: boolean; message: string }> => ipcRenderer.invoke(IPC.TEAM_APPLY, id)
   },
   // ---- Snippets ----
   snippets: {

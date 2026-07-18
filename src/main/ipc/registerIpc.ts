@@ -127,7 +127,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     getTeam: (id) => dbApi.getAgentTeam(id),
     workspacePath: (workspaceId) => dbApi.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.path,
     runtimeRoot: () => app.getPath('userData'),
-    updateTeam: (id, status) => { dbApi.updateAgentTeam(id, { status }) },
+    updateTeam: (id, patch) => { dbApi.updateAgentTeam(id, patch) },
     updateMember: (id, patch) => dbApi.updateTeamMember(id, patch),
     updateTask: (id, patch) => dbApi.updateTeamTask(id, patch),
     event: (input) => { dbApi.appendTeamEvent(input) }
@@ -273,12 +273,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   // ---- Agent Teams ----
   ipcMain.handle(IPC.TEAM_LIST, (_e, workspaceId: string) => dbApi.listAgentTeams(workspaceId))
   ipcMain.handle(IPC.TEAM_CREATE, (_e, input: CreateAgentTeamInput) => dbApi.createAgentTeam(input))
-  ipcMain.handle(IPC.TEAM_UPDATE, (_e, id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>) => dbApi.updateAgentTeam(id, patch))
+  ipcMain.handle(IPC.TEAM_UPDATE, (_e, id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>) => {
+    if (patch.status === 'paused') {
+      teamRuntime.pause(id)
+      return dbApi.getAgentTeam(id)
+    }
+    return dbApi.updateAgentTeam(id, patch)
+  })
   ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>) => dbApi.updateTeamMember(id, patch))
   ipcMain.handle(IPC.TEAM_TASK_UPDATE, (_e, id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId' | 'approved'>>) => dbApi.updateTeamTask(id, patch))
   ipcMain.handle(IPC.TEAM_DELETE, (_e, id: string) => dbApi.deleteAgentTeam(id))
   ipcMain.handle(IPC.TEAM_START, (_e, id: string) => teamRuntime.start(id))
   ipcMain.handle(IPC.TEAM_STOP, (_e, id: string) => teamRuntime.stop(id))
+  ipcMain.handle(IPC.TEAM_APPLY, (_e, id: string) => teamRuntime.apply(id))
 
   // ---- Snippets ----
   ipcMain.handle(IPC.SNIPPET_LIST, (_e, workspaceId?: string) => dbApi.listSnippets(workspaceId))

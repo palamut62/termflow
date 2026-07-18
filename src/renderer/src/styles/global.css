@@ -1803,6 +1803,8 @@ input {
 .health-fix:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--text-primary); }
 .health-fix svg { display: block; color: var(--accent); }
 .side-error { margin: 0 8px 8px; padding: 7px 8px; border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); border-radius: 6px; color: var(--danger); font-size: 10px; }
+.side-success { margin: 0 8px 8px; padding: 7px 8px; border: 1px solid color-mix(in srgb, var(--success) 45%, transparent); border-radius: 6px; color: var(--success); font-size: 10px; }
+.team-applied { display: inline-flex; align-items: center; gap: 5px; color: var(--success); font-size: 11px; }
 .dev-footer { padding: 12px 10px; background: color-mix(in srgb, var(--bg-panel-2) 35%, transparent); }
 .dev-footer .btn { display: inline-flex; align-items: center; gap: 7px; }
 

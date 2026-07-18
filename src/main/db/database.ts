@@ -521,7 +521,13 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
     { id: testId, teamId, title: 'Doğrula ve test et', description: 'Uygulanan değişikliği test et ve kanıtları raporla.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['İlgili testler geçti', 'Kullanıcı sonucu doğrulandı'], updatedAt: ts }
   ]
   const reviewerId = member('reviewer')
-  if (reviewerId) tasks.push({ id: nanoid(), teamId, title: 'Son kod incelemesi', description: 'Değişiklikleri güvenlik, doğruluk ve kapsam açısından incele.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['Engelleyici bulgu kalmadı'], updatedAt: ts })
+  let finalDependency = testId
+  if (reviewerId) {
+    const reviewId = nanoid()
+    tasks.push({ id: reviewId, teamId, title: 'Son kod incelemesi', description: 'Değişiklikleri güvenlik, doğruluk ve kapsam açısından incele.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['Engelleyici bulgu kalmadı'], updatedAt: ts })
+    finalDependency = reviewId
+  }
+  tasks.push({ id: nanoid(), teamId, title: 'Sonucu sentezle', description: 'Tüm görev sonuçlarını birleştir; yapılanları, test kanıtlarını ve kalan riskleri kullanıcı dilinde özetle.', assigneeId: member('lead'), status: 'ready', dependencies: [finalDependency], acceptanceCriteria: ['Sonuç açık ve doğrulanabilir', 'Kalan riskler belirtildi'], updatedAt: ts })
   store.agentTeams.push(team)
   store.teamMembers.push(...members)
   store.teamTasks.push(...tasks)
@@ -530,13 +536,14 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   return teamBundle(team)
 }
 
-export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>): AgentTeamBundle {
+export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name' | 'worktreePath' | 'worktreeBranch' | 'baseCommit' | 'appliedAt'>>): AgentTeamBundle {
   const team = store.agentTeams.find((item) => item.id === id)
   if (!team) throw new Error('Takım bulunamadı')
-  if (patch.name) team.name = patch.name.trim().slice(0, 80)
-  if (patch.status) team.status = patch.status
+  const { name, ...rest } = patch
+  if (name) team.name = name.trim().slice(0, 80)
+  Object.assign(team, rest)
   team.updatedAt = now()
-  store.teamEvents.push({ id: nanoid(), teamId: id, type: patch.status === 'running' ? 'team.started' : 'team.stopped', message: patch.status === 'running' ? 'Takım çalışmaya başladı.' : `Takım durumu: ${patch.status ?? team.status}`, createdAt: team.updatedAt })
+  if (patch.status) store.teamEvents.push({ id: nanoid(), teamId: id, type: patch.status === 'running' ? 'team.started' : 'team.stopped', message: patch.status === 'running' ? 'Takım çalışmaya başladı.' : `Takım durumu: ${patch.status}`, createdAt: team.updatedAt })
   persist()
   return teamBundle(team)
 }

@@ -42,7 +42,7 @@ interface RuntimeCallbacks {
   getTeam(id: string): AgentTeamBundle | undefined
   workspacePath(workspaceId: string): string | undefined
   runtimeRoot(): string
-  updateTeam(id: string, status: 'running' | 'completed' | 'failed' | 'cancelled'): void
+  updateTeam(id: string, patch: Partial<Pick<AgentTeamBundle['team'], 'status' | 'worktreePath' | 'worktreeBranch' | 'baseCommit' | 'appliedAt'>>): void
   updateMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'sessionId'>>): void
   updateTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result'>>): void
   event(input: { teamId: string; memberId?: string; taskId?: string; type: 'member.started' | 'task.updated' | 'note'; message: string }): void
@@ -55,6 +55,7 @@ const ROLE_PROMPTS: Record<TeamMember['role'], string> = {
 export class TeamRuntime {
   private processes = new Map<string, ChildProcessWithoutNullStreams>()
   private teamCwds = new Map<string, string>()
+  private terminating = new Map<string, 'paused' | 'cancelled'>()
   constructor(private callbacks: RuntimeCallbacks) {}
 
   dispose(): void {
@@ -68,7 +69,7 @@ export class TeamRuntime {
     const workspace = this.callbacks.workspacePath(bundle.team.workspaceId)
     if (!workspace) throw new Error('Çalışma klasörü bulunamadı')
     this.teamCwds.set(teamId, this.prepareWorktree(bundle, workspace))
-    this.callbacks.updateTeam(teamId, 'running')
+    this.callbacks.updateTeam(teamId, { status: 'running' })
     this.schedule(teamId)
   }
 
@@ -79,26 +80,72 @@ export class TeamRuntime {
     const root = join(this.callbacks.runtimeRoot(), 'team-worktrees')
     mkdirSync(root, { recursive: true })
     const target = join(root, bundle.team.id)
-    if (existsSync(target)) return target
+    if (existsSync(target)) {
+      const branch = spawnSync('git', ['branch', '--show-current'], { cwd: target, windowsHide: true, encoding: 'utf8' }).stdout.trim()
+      const base = bundle.team.baseCommit || spawnSync('git', ['merge-base', 'HEAD', bundle.team.worktreeBranch || branch], { cwd: workspace, windowsHide: true, encoding: 'utf8' }).stdout.trim()
+      this.callbacks.updateTeam(bundle.team.id, { worktreePath: target, worktreeBranch: branch, baseCommit: base })
+      return target
+    }
     const branch = `termflow/team-${bundle.team.id.slice(0, 10)}`
+    const base = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: workspace, windowsHide: true, encoding: 'utf8' }).stdout.trim()
     const result = spawnSync('git', ['worktree', 'add', '-b', branch, target, 'HEAD'], { cwd: workspace, windowsHide: true, encoding: 'utf8' })
     if (result.status !== 0) {
       this.callbacks.event({ teamId: bundle.team.id, type: 'note', message: 'İzole worktree oluşturulamadı; takım ana çalışma klasöründe devam ediyor.' })
       return workspace
     }
     this.callbacks.event({ teamId: bundle.team.id, type: 'note', message: `Takım izole Git worktree üzerinde çalışıyor: ${target}` })
+    this.callbacks.updateTeam(bundle.team.id, { worktreePath: target, worktreeBranch: branch, baseCommit: base })
     return target
+  }
+
+  apply(teamId: string): { changed: boolean; message: string } {
+    const bundle = this.callbacks.getTeam(teamId)
+    if (!bundle) throw new Error('Takım bulunamadı')
+    if (bundle.team.status !== 'completed') throw new Error('Yalnızca tamamlanan takımın sonucu uygulanabilir.')
+    const workspace = this.callbacks.workspacePath(bundle.team.workspaceId)
+    const worktree = bundle.team.worktreePath
+    const base = bundle.team.baseCommit
+    if (!workspace || !worktree || !base) throw new Error('Bu takım izole bir çalışma alanı kullanmadı.')
+    const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: workspace, windowsHide: true, encoding: 'utf8' })
+    if (dirty.status !== 0 || dirty.stdout.trim()) throw new Error('Ana proje içinde kaydedilmemiş değişiklikler var. Önce onları kaydedin veya commit edin.')
+    spawnSync('git', ['add', '-N', '.'], { cwd: worktree, windowsHide: true, encoding: 'utf8' })
+    const diff = spawnSync('git', ['diff', '--binary', base], { cwd: worktree, windowsHide: true, encoding: 'buffer', maxBuffer: 100 * 1024 * 1024 })
+    if (diff.status !== 0) throw new Error('Takım değişiklikleri hazırlanamadı.')
+    if (!diff.stdout.length) return { changed: false, message: 'Uygulanacak dosya değişikliği bulunamadı.' }
+    const applied = spawnSync('git', ['apply', '--3way', '-'], { cwd: workspace, windowsHide: true, input: diff.stdout, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 })
+    if (applied.status !== 0) throw new Error(`Değişiklikler çakışma nedeniyle uygulanamadı: ${applied.stderr.trim()}`)
+    const appliedAt = new Date().toISOString()
+    this.callbacks.updateTeam(teamId, { appliedAt })
+    this.callbacks.event({ teamId, type: 'note', message: 'Takımın doğrulanmış değişiklikleri ana projeye uygulandı.' })
+    return { changed: true, message: 'Takım değişiklikleri ana projeye uygulandı.' }
   }
 
   stop(teamId: string): void {
     for (const [taskId, proc] of this.processes) {
       const task = this.callbacks.getTeam(teamId)?.tasks.find((item) => item.id === taskId)
       if (!task) continue
+      this.terminating.set(taskId, 'cancelled')
       proc.kill()
       this.processes.delete(taskId)
       this.callbacks.updateTask(taskId, { status: 'cancelled', result: 'Kullanıcı tarafından durduruldu.' })
     }
-    this.callbacks.updateTeam(teamId, 'cancelled')
+    this.callbacks.updateTeam(teamId, { status: 'cancelled' })
+  }
+
+  pause(teamId: string): void {
+    const bundle = this.callbacks.getTeam(teamId)
+    if (!bundle || bundle.team.status !== 'running') return
+    for (const [taskId, proc] of this.processes) {
+      const task = bundle.tasks.find((item) => item.id === taskId)
+      if (!task) continue
+      this.terminating.set(taskId, 'paused')
+      proc.kill()
+      this.processes.delete(taskId)
+      this.callbacks.updateTask(taskId, { status: 'ready', result: 'Görev duraklatıldı; devam edildiğinde yeniden çalıştırılacak.' })
+      if (task.assigneeId) this.callbacks.updateMember(task.assigneeId, { status: 'idle' })
+    }
+    this.callbacks.updateTeam(teamId, { status: 'paused' })
+    this.callbacks.event({ teamId, type: 'note', message: 'Takım ve çalışan görevler duraklatıldı.' })
   }
 
   private schedule(teamId: string): void {
@@ -117,7 +164,7 @@ export class TeamRuntime {
     if (ready.length) return
     if (!ready.length && !bundle.tasks.some((task) => task.status === 'working')) {
       const failed = bundle.tasks.some((task) => task.status === 'failed' || task.status === 'blocked')
-      this.callbacks.updateTeam(teamId, failed ? 'failed' : 'completed')
+      this.callbacks.updateTeam(teamId, { status: failed ? 'failed' : 'completed' })
     }
   }
 
@@ -143,6 +190,9 @@ export class TeamRuntime {
     proc.on('error', (error) => { output = error.message })
     proc.on('close', (code) => {
       this.processes.delete(task.id)
+      const termination = this.terminating.get(task.id)
+      this.terminating.delete(task.id)
+      if (termination) return
       const ok = code === 0
       this.callbacks.updateTask(task.id, { status: ok ? 'completed' : 'failed', result: output.trim() || (ok ? 'Görev tamamlandı.' : `Süreç ${code} koduyla kapandı.`) })
       this.callbacks.updateMember(member.id, { status: ok ? 'completed' : 'failed' })
