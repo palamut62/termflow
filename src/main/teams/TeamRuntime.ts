@@ -19,7 +19,7 @@ export const ADAPTERS: Record<TeamMember['provider'], RuntimeAdapter> = {
   claude: {
     id: 'claude', label: 'Claude Code', structured: true,
     build: (prompt, policy) => ({ command: 'claude', args: ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--permission-mode', policy === 'review' ? 'plan' : policy === 'balanced' ? 'acceptEdits' : policy === 'full' ? 'bypassPermissions' : 'default'] }),
-    parse: (line) => { const value = jsonLine(line); if (!value) return null; const type = String(value.type || ''); const sessionId = typeof value.session_id === 'string' ? value.session_id : undefined; if (type === 'result') return { type: 'result', message: String(value.result || 'Görev tamamlandı.'), sessionId }; if (type === 'assistant') return { type: 'message', message: JSON.stringify(value.message || '').slice(0, 1000), sessionId }; return null }
+    parse: (line) => { const value = jsonLine(line); if (!value) return null; const type = String(value.type || ''); const sessionId = typeof value.session_id === 'string' ? value.session_id : undefined; if (type === 'result') return { type: 'result', message: String(value.result || 'Task completed.'), sessionId }; if (type === 'assistant') return { type: 'message', message: JSON.stringify(value.message || '').slice(0, 1000), sessionId }; return null }
   },
   codex: {
     id: 'codex', label: 'Codex', structured: true,
@@ -49,7 +49,7 @@ interface RuntimeCallbacks {
 }
 
 const ROLE_PROMPTS: Record<TeamMember['role'], string> = {
-  lead: 'Takım lideri olarak sonuçları sentezle ve kalite kapılarını denetle.', researcher: 'Kodu incele, kök nedeni ve uygulanabilir planı kanıtlarla bildir.', developer: 'Atanan çözümü uygula. Kapsam dışına çıkma ve ilgili doğrulamayı çalıştır.', tester: 'Değişikliği bağımsız test et ve somut test kanıtı bildir.', reviewer: 'Değişiklikleri doğruluk, güvenlik ve regresyon açısından incele.'
+  lead: 'Act as the team lead: synthesize outcomes and enforce quality gates.', researcher: 'Inspect the code and report the root cause and an actionable plan with evidence.', developer: 'Implement the assigned solution. Stay within scope and run the relevant validation.', tester: 'Test the change independently and report concrete evidence.', reviewer: 'Review the changes for correctness, security, and regressions.'
 }
 
 export class TeamRuntime {
@@ -65,9 +65,9 @@ export class TeamRuntime {
 
   start(teamId: string): void {
     const bundle = this.callbacks.getTeam(teamId)
-    if (!bundle) throw new Error('Takım bulunamadı')
+    if (!bundle) throw new Error('Team not found')
     const workspace = this.callbacks.workspacePath(bundle.team.workspaceId)
-    if (!workspace) throw new Error('Çalışma klasörü bulunamadı')
+    if (!workspace) throw new Error('Workspace folder not found')
     this.teamCwds.set(teamId, this.prepareWorktree(bundle, workspace))
     this.callbacks.updateTeam(teamId, { status: 'running' })
     this.schedule(teamId)
@@ -90,34 +90,34 @@ export class TeamRuntime {
     const base = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: workspace, windowsHide: true, encoding: 'utf8' }).stdout.trim()
     const result = spawnSync('git', ['worktree', 'add', '-b', branch, target, 'HEAD'], { cwd: workspace, windowsHide: true, encoding: 'utf8' })
     if (result.status !== 0) {
-      this.callbacks.event({ teamId: bundle.team.id, type: 'note', message: 'İzole worktree oluşturulamadı; takım ana çalışma klasöründe devam ediyor.' })
+      this.callbacks.event({ teamId: bundle.team.id, type: 'note', message: 'Could not create an isolated worktree; the team will continue in the main workspace.' })
       return workspace
     }
-    this.callbacks.event({ teamId: bundle.team.id, type: 'note', message: `Takım izole Git worktree üzerinde çalışıyor: ${target}` })
+    this.callbacks.event({ teamId: bundle.team.id, type: 'note', message: `Team is working in an isolated Git worktree: ${target}` })
     this.callbacks.updateTeam(bundle.team.id, { worktreePath: target, worktreeBranch: branch, baseCommit: base })
     return target
   }
 
   apply(teamId: string): { changed: boolean; message: string } {
     const bundle = this.callbacks.getTeam(teamId)
-    if (!bundle) throw new Error('Takım bulunamadı')
-    if (bundle.team.status !== 'completed') throw new Error('Yalnızca tamamlanan takımın sonucu uygulanabilir.')
+    if (!bundle) throw new Error('Team not found')
+    if (bundle.team.status !== 'completed') throw new Error('Only a completed team result can be applied.')
     const workspace = this.callbacks.workspacePath(bundle.team.workspaceId)
     const worktree = bundle.team.worktreePath
     const base = bundle.team.baseCommit
-    if (!workspace || !worktree || !base) throw new Error('Bu takım izole bir çalışma alanı kullanmadı.')
+    if (!workspace || !worktree || !base) throw new Error('This team did not use an isolated worktree.')
     const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: workspace, windowsHide: true, encoding: 'utf8' })
-    if (dirty.status !== 0 || dirty.stdout.trim()) throw new Error('Ana proje içinde kaydedilmemiş değişiklikler var. Önce onları kaydedin veya commit edin.')
+    if (dirty.status !== 0 || dirty.stdout.trim()) throw new Error('The main workspace has uncommitted changes. Save or commit them first.')
     spawnSync('git', ['add', '-N', '.'], { cwd: worktree, windowsHide: true, encoding: 'utf8' })
     const diff = spawnSync('git', ['diff', '--binary', base], { cwd: worktree, windowsHide: true, encoding: 'buffer', maxBuffer: 100 * 1024 * 1024 })
-    if (diff.status !== 0) throw new Error('Takım değişiklikleri hazırlanamadı.')
-    if (!diff.stdout.length) return { changed: false, message: 'Uygulanacak dosya değişikliği bulunamadı.' }
+    if (diff.status !== 0) throw new Error('Could not prepare the team changes.')
+    if (!diff.stdout.length) return { changed: false, message: 'No file changes were found to apply.' }
     const applied = spawnSync('git', ['apply', '--3way', '-'], { cwd: workspace, windowsHide: true, input: diff.stdout, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 })
-    if (applied.status !== 0) throw new Error(`Değişiklikler çakışma nedeniyle uygulanamadı: ${applied.stderr.trim()}`)
+    if (applied.status !== 0) throw new Error(`Could not apply changes because of a conflict: ${applied.stderr.trim()}`)
     const appliedAt = new Date().toISOString()
     this.callbacks.updateTeam(teamId, { appliedAt })
-    this.callbacks.event({ teamId, type: 'note', message: 'Takımın doğrulanmış değişiklikleri ana projeye uygulandı.' })
-    return { changed: true, message: 'Takım değişiklikleri ana projeye uygulandı.' }
+    this.callbacks.event({ teamId, type: 'note', message: 'The team changes were applied to the main workspace.' })
+    return { changed: true, message: 'Team changes were applied to the main workspace.' }
   }
 
   stop(teamId: string): void {
@@ -127,7 +127,7 @@ export class TeamRuntime {
       this.terminating.set(taskId, 'cancelled')
       proc.kill()
       this.processes.delete(taskId)
-      this.callbacks.updateTask(taskId, { status: 'cancelled', result: 'Kullanıcı tarafından durduruldu.' })
+      this.callbacks.updateTask(taskId, { status: 'cancelled', result: 'Stopped by the user.' })
     }
     this.callbacks.updateTeam(teamId, { status: 'cancelled' })
   }
@@ -141,11 +141,11 @@ export class TeamRuntime {
       this.terminating.set(taskId, 'paused')
       proc.kill()
       this.processes.delete(taskId)
-      this.callbacks.updateTask(taskId, { status: 'ready', result: 'Görev duraklatıldı; devam edildiğinde yeniden çalıştırılacak.' })
+      this.callbacks.updateTask(taskId, { status: 'ready', result: 'Task paused; it will restart when the team resumes.' })
       if (task.assigneeId) this.callbacks.updateMember(task.assigneeId, { status: 'idle' })
     }
     this.callbacks.updateTeam(teamId, { status: 'paused' })
-    this.callbacks.event({ teamId, type: 'note', message: 'Takım ve çalışan görevler duraklatıldı.' })
+    this.callbacks.event({ teamId, type: 'note', message: 'The team and its active tasks were paused.' })
   }
 
   private schedule(teamId: string): void {
@@ -154,9 +154,9 @@ export class TeamRuntime {
     const completed = new Set(bundle.tasks.filter((task) => task.status === 'completed').map((task) => task.id))
     const ready = bundle.tasks.filter((task) => task.status === 'ready' && task.dependencies.every((id) => completed.has(id)))
     for (const task of ready) {
-      if (bundle.team.permissionPolicy === 'controlled' && task.title === 'Çözümü uygula' && !task.approved) {
-        this.callbacks.updateTask(task.id, { status: 'approval', result: 'Kod değişikliğine başlamadan önce kullanıcı onayı gerekiyor.' })
-        this.callbacks.event({ teamId, taskId: task.id, type: 'note', message: 'Uygulama planı hazır. Kod değişikliği için kullanıcı onayı bekleniyor.' })
+      if (bundle.team.permissionPolicy === 'controlled' && ['Implement the solution', 'Çözümü uygula'].includes(task.title) && !task.approved) {
+        this.callbacks.updateTask(task.id, { status: 'approval', result: 'User approval is required before changing code.' })
+        this.callbacks.event({ teamId, taskId: task.id, type: 'note', message: 'The implementation plan is ready. Waiting for approval to change code.' })
         continue
       }
       this.runTask(bundle, task)
@@ -171,9 +171,9 @@ export class TeamRuntime {
   private runTask(bundle: AgentTeamBundle, task: TeamTask): void {
     const member = bundle.members.find((item) => item.id === task.assigneeId) ?? bundle.members[0]
     const cwd = this.teamCwds.get(bundle.team.id) ?? this.callbacks.workspacePath(bundle.team.workspaceId)
-    if (!member || !cwd) { this.callbacks.updateTask(task.id, { status: 'failed', result: 'Üye veya çalışma klasörü bulunamadı.' }); return }
+    if (!member || !cwd) { this.callbacks.updateTask(task.id, { status: 'failed', result: 'Team member or workspace folder not found.' }); return }
     const context = task.dependencies.map((id) => bundle.tasks.find((item) => item.id === id)?.result).filter(Boolean).join('\n')
-    const prompt = `${ROLE_PROMPTS[member.role]}\n\nTakım hedefi: ${bundle.team.objective}\n\nGörev: ${task.title}\n${task.description}\n\nKabul kriterleri:\n${task.acceptanceCriteria.map((item) => `- ${item}`).join('\n')}\n${context ? `\nÖnceki görev sonuçları:\n${context}` : ''}`
+    const prompt = `${ROLE_PROMPTS[member.role]}\n\nTeam objective: ${bundle.team.objective}\n\nTask: ${task.title}\n${task.description}\n\nAcceptance criteria:\n${task.acceptanceCriteria.map((item) => `- ${item}`).join('\n')}\n${context ? `\nPrevious task results:\n${context}` : ''}`
     const adapter = ADAPTERS[member.provider]
     const effectivePolicy = task.approved && bundle.team.permissionPolicy === 'controlled' ? 'balanced' : bundle.team.permissionPolicy
     const spec = adapter.build(prompt, effectivePolicy)
@@ -181,7 +181,7 @@ export class TeamRuntime {
     this.processes.set(task.id, proc)
     this.callbacks.updateTask(task.id, { status: 'working' })
     this.callbacks.updateMember(member.id, { status: 'working' })
-    this.callbacks.event({ teamId: bundle.team.id, memberId: member.id, taskId: task.id, type: 'member.started', message: `${member.name}, ${task.title} görevine başladı.` })
+    this.callbacks.event({ teamId: bundle.team.id, memberId: member.id, taskId: task.id, type: 'member.started', message: `${member.name} started: ${task.title}.` })
     let output = ''
     let pending = ''
     const consume = (chunk: Buffer): void => { pending += chunk.toString('utf8'); const lines = pending.split(/\r?\n/); pending = lines.pop() || ''; for (const line of lines) { const event = adapter.parse(line); if (!event) continue; output = `${output}\n${event.message}`.slice(-12000); if (event.sessionId) this.callbacks.updateMember(member.id, { sessionId: event.sessionId }); this.callbacks.event({ teamId: bundle.team.id, memberId: member.id, taskId: task.id, type: 'note', message: event.message.slice(0, 500) }) } }
@@ -194,9 +194,9 @@ export class TeamRuntime {
       this.terminating.delete(task.id)
       if (termination) return
       const ok = code === 0
-      this.callbacks.updateTask(task.id, { status: ok ? 'completed' : 'failed', result: output.trim() || (ok ? 'Görev tamamlandı.' : `Süreç ${code} koduyla kapandı.`) })
+      this.callbacks.updateTask(task.id, { status: ok ? 'completed' : 'failed', result: output.trim() || (ok ? 'Task completed.' : `Process exited with code ${code}.`) })
       this.callbacks.updateMember(member.id, { status: ok ? 'completed' : 'failed' })
-      this.callbacks.event({ teamId: bundle.team.id, memberId: member.id, taskId: task.id, type: 'task.updated', message: `${task.title}: ${ok ? 'tamamlandı' : 'başarısız'}` })
+      this.callbacks.event({ teamId: bundle.team.id, memberId: member.id, taskId: task.id, type: 'task.updated', message: `${task.title}: ${ok ? 'completed' : 'failed'}` })
       this.schedule(bundle.team.id)
     })
   }

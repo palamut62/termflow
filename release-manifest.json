@@ -2,11 +2,11 @@
   "version": "0.2.1",
   "date": "2026-07-18",
   "changes": [
-    "Teknik ayar gerektirmeyen Agent Teams sihirbazı eklendi.",
-    "Takım lideri, araştırmacı, geliştirici, test uzmanı ve kod inceleyici rolleri eklendi.",
-    "Takımlar, üyeler, görevler ve çalışma olayları kalıcı hale getirildi.",
-    "Agent Team yetki seviyeleri gerçek Claude Code permission modlarına bağlandı.",
-    "Agent-to-agent yönlendirme ve provider ortam izolasyonu güçlendirildi.",
-    "GitHub Release tabanlı otomatik güncelleme ve sürüm senkronizasyonu tamamlandı."
+    "Added a no-setup Agent Teams wizard.",
+    "Added team lead, researcher, developer, test engineer, and code reviewer roles.",
+    "Made teams, members, tasks, and activity events persistent.",
+    "Connected Agent Team permission levels to real coding-agent permission modes.",
+    "Improved agent-to-agent routing and provider environment isolation.",
+    "Completed GitHub Release-based auto-updates and version synchronization."
   ]
 }

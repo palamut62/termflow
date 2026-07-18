@@ -5,11 +5,11 @@ import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
 
 const POLICY_LABELS: Record<TeamPermissionPolicy, string> = {
-  review: 'Sadece incele', controlled: 'Değişikliklerden önce sor', balanced: 'Güvenli değişiklikleri yap', full: 'Tam yetki'
+  review: 'Review only', controlled: 'Ask before changes', balanced: 'Apply safe changes', full: 'Full access'
 }
 
 const STATUS_LABELS: Record<TeamTaskStatus, string> = {
-  ready: 'Hazır', working: 'Çalışıyor', approval: 'Onay bekliyor', blocked: 'Engellendi', review: 'İncelemede', completed: 'Tamamlandı', failed: 'Başarısız', cancelled: 'İptal edildi'
+  ready: 'Ready', working: 'Working', approval: 'Awaiting approval', blocked: 'Blocked', review: 'In review', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled'
 }
 
 export default function AgentTeamsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
@@ -51,7 +51,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
       setCreating(false)
       await reload(bundle.team.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Takım oluşturulamadı')
+      setError(err instanceof Error ? err.message : 'Could not create the team')
     } finally {
       setBusy(false)
     }
@@ -64,7 +64,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
       await window.termflow.teams.start(bundle.team.id)
       await reload(bundle.team.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Takım başlatılamadı')
+      setError(err instanceof Error ? err.message : 'Could not start the team')
     } finally {
       setBusy(false)
     }
@@ -99,7 +99,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
       setNotice(result.message)
       await reload(selected.team.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Takım sonucu uygulanamadı')
+      setError(err instanceof Error ? err.message : 'Could not apply the team result')
     } finally {
       setBusy(false)
     }
@@ -109,7 +109,7 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal agent-teams" onMouseDown={(event) => event.stopPropagation()}>
         <header className="team-head">
-          <div><h3><Users size={18} /> Agent Teams</h3><p>Hedefini yaz. TermFlow rolleri, görevleri ve gerçek Claude Code oturumlarını hazırlasın.</p></div>
+          <div><h3><Users size={18} /> Agent Teams</h3><p>Describe your goal. TermFlow will prepare the roles, tasks, and real coding-agent sessions.</p></div>
           <button className="hbtn" title="Kapat" onClick={onClose}><X size={16} /></button>
         </header>
         {error && <div className="side-error" role="alert">{error}</div>}
@@ -117,27 +117,27 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
         <div className="team-layout">
           <aside className="team-list">
             <button className="btn primary" disabled={!workspaceId} onClick={() => setCreating(true)}><Plus size={14} /> Yeni Agent Team</button>
-            {teams.map((item) => <button key={item.team.id} className={selected?.team.id === item.team.id ? 'active' : ''} onClick={() => { setSelectedId(item.team.id); setCreating(false) }}><strong>{item.team.name}</strong><span>{item.members.length} üye · {item.tasks.length} görev</span><em>{item.team.status}</em></button>)}
+            {teams.map((item) => <button key={item.team.id} className={selected?.team.id === item.team.id ? 'active' : ''} onClick={() => { setSelectedId(item.team.id); setCreating(false) }}><strong>{item.team.name}</strong><span>{item.members.length} members · {item.tasks.length} tasks</span><em>{item.team.status}</em></button>)}
           </aside>
           <main className="team-main">
             {creating ? (
               <section className="team-wizard">
-                <span className="team-kicker">Yeni takım</span><h2>Takım ne yapacak?</h2>
-                <textarea autoFocus value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="Örnek: Giriş sistemindeki hatayı araştır, düzelt ve test et." />
+                <span className="team-kicker">New team</span><h2>What should the team accomplish?</h2>
+                <textarea autoFocus value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="Example: Investigate, fix, and test the sign-in issue." />
                 <div className="team-options">
-                  <label>Yetki seviyesi<select value={permissionPolicy} onChange={(event) => setPermissionPolicy(event.target.value as TeamPermissionPolicy)}>{Object.entries(POLICY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                  <label>Takım boyutu<select value={teamSize} onChange={(event) => setTeamSize(Number(event.target.value) as 3 | 4 | 5)}><option value={3}>3 üye</option><option value={4}>4 üye (önerilen)</option><option value={5}>5 üye</option></select></label>
+                  <label>Permission level<select value={permissionPolicy} onChange={(event) => setPermissionPolicy(event.target.value as TeamPermissionPolicy)}>{Object.entries(POLICY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                  <label>Team size<select value={teamSize} onChange={(event) => setTeamSize(Number(event.target.value) as 3 | 4 | 5)}><option value={3}>3 members</option><option value={4}>4 members (recommended)</option><option value={5}>5 members</option></select></label>
                 </div>
-                <div className="modal-actions"><button className="btn" onClick={() => setCreating(false)}>Vazgeç</button><button className="btn primary" disabled={busy || !objective.trim()} onClick={() => void createTeam()}>{busy ? 'Hazırlanıyor...' : 'Takımı hazırla'}</button></div>
+                <div className="modal-actions"><button className="btn" onClick={() => setCreating(false)}>Cancel</button><button className="btn primary" disabled={busy || !objective.trim()} onClick={() => void createTeam()}>{busy ? 'Preparing...' : 'Create team'}</button></div>
               </section>
             ) : selected ? (
               <>
-                <section className="team-summary"><div><span className="team-kicker">{POLICY_LABELS[selected.team.permissionPolicy]}</span><h2>{selected.team.name}</h2><p>{selected.team.objective}</p></div><div className="team-actions">{selected.team.status === 'draft' && <button className="btn primary" disabled={busy} onClick={() => void startTeam(selected)}><Play size={14} /> Takımı başlat</button>}{selected.team.status === 'running' && <button className="btn" onClick={() => void setTeamStatus('paused')}><Pause size={14} /> Duraklat</button>}{selected.team.status === 'completed' && selected.team.worktreePath && !selected.team.appliedAt && <button className="btn primary" disabled={busy} onClick={() => void applyResult()}><CheckCircle2 size={14} /> Sonucu projeye uygula</button>}{selected.team.appliedAt && <span className="team-applied"><CheckCircle2 size={14} /> Projeye uygulandı</span>}{['draft', 'running', 'paused'].includes(selected.team.status) && <button className="btn danger" onClick={() => void setTeamStatus('cancelled')}><Square size={13} /> Durdur</button>}</div></section>
+                <section className="team-summary"><div><span className="team-kicker">{POLICY_LABELS[selected.team.permissionPolicy]}</span><h2>{selected.team.name}</h2><p>{selected.team.objective}</p></div><div className="team-actions">{selected.team.status === 'draft' && <button className="btn primary" disabled={busy} onClick={() => void startTeam(selected)}><Play size={14} /> Start team</button>}{selected.team.status === 'running' && <button className="btn" onClick={() => void setTeamStatus('paused')}><Pause size={14} /> Pause</button>}{selected.team.status === 'completed' && selected.team.worktreePath && !selected.team.appliedAt && <button className="btn primary" disabled={busy} onClick={() => void applyResult()}><CheckCircle2 size={14} /> Apply results</button>}{selected.team.appliedAt && <span className="team-applied"><CheckCircle2 size={14} /> Applied to project</span>}{['draft', 'running', 'paused'].includes(selected.team.status) && <button className="btn danger" onClick={() => void setTeamStatus('cancelled')}><Square size={13} /> Stop</button>}</div></section>
                 <section className="team-members">{selected.members.map((member) => <article key={member.id}><Bot size={16} /><div><strong>{member.name}</strong>{selected.team.status === 'draft' ? <select value={member.provider} onChange={async (event) => { await window.termflow.teams.updateMember(member.id, { provider: event.target.value as typeof member.provider }); await reload(selected.team.id) }}><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="opencode">OpenCode</option><option value="generic">Generic CLI</option></select> : <span>{member.provider}</span>}</div><em className={`team-status ${member.status}`}>{member.status}</em></article>)}</section>
-                <section className="team-tasks"><header><h4>Görevler</h4><span>{selected.tasks.filter((task) => task.status === 'completed').length}/{selected.tasks.length} tamamlandı</span></header>{selected.tasks.map((task) => { const member = selected.members.find((item) => item.id === task.assigneeId); return <article key={task.id}><button className="task-check" title="Durumu değiştir" onClick={() => void setTaskStatus(task.id, task.status === 'completed' ? 'ready' : 'completed')}>{task.status === 'completed' ? <CheckCircle2 size={18} /> : <Circle size={18} />}</button><div><strong>{task.title}</strong><p>{task.description}</p><span>{member?.name ?? 'Atanmadı'} · {STATUS_LABELS[task.status]}</span>{task.status === 'approval' && <button className="btn primary" onClick={() => void approveTask(task.id)}>Planı onayla ve uygula</button>}</div></article> })}</section>
-                <section className="team-events"><header><h4>Canlı çalışma akışı</h4><span>{selected.events.length} olay</span></header>{selected.events.slice(-30).reverse().map((event) => <article key={event.id}><time>{new Date(event.createdAt).toLocaleTimeString()}</time><p>{event.message}</p></article>)}</section>
+                <section className="team-tasks"><header><h4>Tasks</h4><span>{selected.tasks.filter((task) => task.status === 'completed').length}/{selected.tasks.length} completed</span></header>{selected.tasks.map((task) => { const member = selected.members.find((item) => item.id === task.assigneeId); return <article key={task.id}><button className="task-check" title="Change status" onClick={() => void setTaskStatus(task.id, task.status === 'completed' ? 'ready' : 'completed')}>{task.status === 'completed' ? <CheckCircle2 size={18} /> : <Circle size={18} />}</button><div><strong>{task.title}</strong><p>{task.description}</p><span>{member?.name ?? 'Unassigned'} · {STATUS_LABELS[task.status]}</span>{task.status === 'approval' && <button className="btn primary" onClick={() => void approveTask(task.id)}>Approve plan and apply</button>}</div></article> })}</section>
+                <section className="team-events"><header><h4>Live activity</h4><span>{selected.events.length} events</span></header>{selected.events.slice(-30).reverse().map((event) => <article key={event.id}><time>{new Date(event.createdAt).toLocaleTimeString()}</time><p>{event.message}</p></article>)}</section>
               </>
-            ) : <div className="team-empty"><Users size={38} /><strong>İlk agent team'ini oluştur</strong><span>Teknik ayar gerekmez. Hedefini doğal dille yazman yeterli.</span></div>}
+            ) : <div className="team-empty"><Users size={38} /><strong>Create your first agent team</strong><span>No technical setup required. Just describe your goal in plain language.</span></div>}
           </main>
         </div>
       </div>

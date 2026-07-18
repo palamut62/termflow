@@ -27,7 +27,7 @@ import {
   ,Users
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
-import { PROFILES, AGENT_ROLES } from '../profiles'
+import { PROFILES } from '../profiles'
 import CustomCommandModal from './CustomCommandModal'
 import FlowTemplatesModal from './FlowTemplatesModal'
 import GlobalSearchModal from './GlobalSearchModal'
@@ -90,7 +90,6 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const agentOverrides = new Map(customAgents.filter((agent) => agent.kind).map((agent) => [agent.kind, agent]))
 
   const [termMenu, setTermMenu] = useState(false)
-  const [agentMenu, setAgentMenu] = useState(false)
   const [layoutMenu, setLayoutMenu] = useState(false)
   const [moreMenu, setMoreMenu] = useState(false)
   const [customModal, setCustomModal] = useState(false)
@@ -106,7 +105,6 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [pendingProviderDelete, setPendingProviderDelete] = useState<AiProviderProfile | null>(null)
   const [agentConfig, setAgentConfig] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
-  const agentRef = useOutside(() => setAgentMenu(false))
   const layoutRef = useOutside(() => setLayoutMenu(false))
   const moreRef = useOutside(() => setMoreMenu(false))
 
@@ -268,31 +266,6 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
             <div className="menu-item" onClick={() => { setTermMenu(false); onOpenProviderManager() }}>
               <Settings size={14} /> Configure providers...
             </div>
-          </div>
-        )}
-      </div>
-
-      <div className="tb-group" ref={agentRef} style={{ position: 'relative' }}>
-        <button className="tb-btn" disabled={disabled} title="New Agent" onClick={() => setAgentMenu((v) => !v)}>
-          <Bot size={15} /> <span className="tb-label">New Agent</span> <ChevronDown size={13} />
-        </button>
-        {agentMenu && (
-          <div className="menu" style={{ top: 36, left: 0, maxHeight: 360, overflowY: 'auto' }}>
-            <div className="menu-label">Agent Roles</div>
-            {AGENT_ROLES.map((r) => (
-              <div
-                key={r.role}
-                className="menu-item"
-                onClick={() => {
-                  setAgentMenu(false)
-                  if (r.defaultKind === 'custom') setCustomModal(true)
-                  else addTerminal(r.defaultKind, { agentRole: r.role, name: r.label })
-                }}
-              >
-                <Bot size={14} color={r.color} />
-                {r.label}
-              </div>
-            ))}
           </div>
         )}
       </div>

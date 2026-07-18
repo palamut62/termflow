@@ -125,6 +125,38 @@ function now(): string {
   return new Date().toISOString()
 }
 
+function migrateAgentTeamsToEnglish(): void {
+  const memberNames: Record<string, string> = { 'Takım Lideri': 'Team Lead', 'Araştırmacı': 'Researcher', 'Geliştirici': 'Developer', 'Test Uzmanı': 'Test Engineer', 'Kod İnceleyici': 'Code Reviewer' }
+  const taskTitles: Record<string, string> = { 'Hedefi incele ve planla': 'Investigate and plan', 'Çözümü uygula': 'Implement the solution', 'Doğrula ve test et': 'Validate and test', 'Son kod incelemesi': 'Final code review', 'Sonucu sentezle': 'Synthesize the outcome' }
+  const messages: Record<string, string> = {
+    'Takım ve görev planı oluşturuldu.': 'Team and task plan created.',
+    'Takım çalışmaya başladı.': 'Team started.',
+    'Takım ve çalışan görevler duraklatıldı.': 'The team and its active tasks were paused.',
+    'Takımın doğrulanmış değişiklikleri ana projeye uygulandı.': 'The team changes were applied to the main workspace.',
+    'Uygulama planı hazır. Kod değişikliği için kullanıcı onayı bekleniyor.': 'The implementation plan is ready. Waiting for approval to change code.'
+  }
+  for (const member of store.teamMembers) member.name = memberNames[member.name] ?? member.name
+  for (const task of store.teamTasks) {
+    task.title = taskTitles[task.title] ?? task.title
+    task.description = task.description
+      .replace('Onaylanan plana göre hedefi gerçekleştir:', 'Implement the approved plan for this objective:')
+      .replace('Uygulanan değişikliği test et ve kanıtları raporla.', 'Test the implementation independently and report concrete evidence.')
+      .replace('Değişiklikleri güvenlik, doğruluk ve kapsam açısından incele.', 'Review the changes for correctness, security, regressions, and scope.')
+      .replace('Tüm görev sonuçlarını birleştir; yapılanları, test kanıtlarını ve kalan riskleri kullanıcı dilinde özetle.', 'Combine all task results and summarize the changes, test evidence, and remaining risks in plain language.')
+    const criteria: Record<string, string> = { 'İlgili kod ve riskler belirlendi': 'Relevant code and risks identified', 'Uygulanabilir plan hazırlandı': 'Actionable plan prepared', 'Değişiklik hedefle sınırlı': 'Changes remain within scope', 'Kod derleniyor': 'Code builds successfully', 'İlgili testler geçti': 'Relevant tests pass', 'Kullanıcı sonucu doğrulandı': 'User-visible outcome verified', 'Engelleyici bulgu kalmadı': 'No blocking findings remain', 'Sonuç açık ve doğrulanabilir': 'Outcome is clear and verifiable', 'Kalan riskler belirtildi': 'Remaining risks are documented' }
+    task.acceptanceCriteria = task.acceptanceCriteria.map((item) => criteria[item] ?? item)
+    if (task.result === 'Kod değişikliğine başlamadan önce kullanıcı onayı gerekiyor.') task.result = 'User approval is required before changing code.'
+    if (task.result === 'Kullanıcı tarafından durduruldu.') task.result = 'Stopped by the user.'
+    if (task.result === 'Görev duraklatıldı; devam edildiğinde yeniden çalıştırılacak.') task.result = 'Task paused; it will restart when the team resumes.'
+  }
+  for (const event of store.teamEvents) {
+    event.message = messages[event.message] ?? event.message
+    for (const [oldTitle, newTitle] of Object.entries(taskTitles)) event.message = event.message.replace(oldTitle, newTitle)
+    for (const [oldName, newName] of Object.entries(memberNames)) event.message = event.message.replace(oldName, newName)
+    event.message = event.message.replace('Takım durumu:', 'Team status:').replace(' görevine başladı.', '.').replace(': tamamlandı', ': completed').replace(': başarısız', ': failed')
+  }
+}
+
 export function initDatabase(): void {
   const dir = app.getPath('userData')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -150,6 +182,7 @@ export function initDatabase(): void {
   } else {
     store = empty()
   }
+  migrateAgentTeamsToEnglish()
   // Agent subprocesses cannot survive an app restart. Resume their durable
   // task records in a safe paused state instead of showing phantom workers.
   for (const team of store.agentTeams) if (team.status === 'running') team.status = 'paused'
@@ -491,8 +524,8 @@ export function appendTeamEvent(input: Omit<TeamEvent, 'id' | 'createdAt'>): Tea
 
 export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   const objective = input.objective.trim().slice(0, 2000)
-  if (!objective) throw new Error('Takım hedefi boş olamaz')
-  if (![3, 4, 5].includes(input.teamSize)) throw new Error('Takım boyutu geçersiz')
+  if (!objective) throw new Error('Team objective cannot be empty')
+  if (![3, 4, 5].includes(input.teamSize)) throw new Error('Invalid team size')
   const ts = now()
   const teamId = nanoid()
   const team: AgentTeam = {
@@ -508,7 +541,7 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   const allRoles: TeamMember['role'][] = ['lead', 'researcher', 'developer', 'tester', 'reviewer']
   const roles = allRoles.slice(0, input.teamSize)
   const labels: Record<TeamMember['role'], string> = {
-    lead: 'Takım Lideri', researcher: 'Araştırmacı', developer: 'Geliştirici', tester: 'Test Uzmanı', reviewer: 'Kod İnceleyici'
+    lead: 'Team Lead', researcher: 'Researcher', developer: 'Developer', tester: 'Test Engineer', reviewer: 'Code Reviewer'
   }
   const members = roles.map<TeamMember>((role) => ({ id: nanoid(), teamId, name: labels[role], role, provider: 'claude', status: 'idle' }))
   const member = (role: TeamMember['role']): string | undefined => members.find((item) => item.role === role)?.id
@@ -516,48 +549,48 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   const buildId = nanoid()
   const testId = nanoid()
   const tasks: TeamTask[] = [
-    { id: planId, teamId, title: 'Hedefi incele ve planla', description: objective, assigneeId: member('researcher') ?? member('lead'), status: 'ready', dependencies: [], acceptanceCriteria: ['İlgili kod ve riskler belirlendi', 'Uygulanabilir plan hazırlandı'], updatedAt: ts },
-    { id: buildId, teamId, title: 'Çözümü uygula', description: `Onaylanan plana göre hedefi gerçekleştir: ${objective}`, assigneeId: member('developer') ?? member('lead'), status: 'ready', dependencies: [planId], acceptanceCriteria: ['Değişiklik hedefle sınırlı', 'Kod derleniyor'], updatedAt: ts },
-    { id: testId, teamId, title: 'Doğrula ve test et', description: 'Uygulanan değişikliği test et ve kanıtları raporla.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['İlgili testler geçti', 'Kullanıcı sonucu doğrulandı'], updatedAt: ts }
+    { id: planId, teamId, title: 'Investigate and plan', description: objective, assigneeId: member('researcher') ?? member('lead'), status: 'ready', dependencies: [], acceptanceCriteria: ['Relevant code and risks identified', 'Actionable plan prepared'], updatedAt: ts },
+    { id: buildId, teamId, title: 'Implement the solution', description: `Implement the approved plan for this objective: ${objective}`, assigneeId: member('developer') ?? member('lead'), status: 'ready', dependencies: [planId], acceptanceCriteria: ['Changes remain within scope', 'Code builds successfully'], updatedAt: ts },
+    { id: testId, teamId, title: 'Validate and test', description: 'Test the implementation independently and report concrete evidence.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['Relevant tests pass', 'User-visible outcome verified'], updatedAt: ts }
   ]
   const reviewerId = member('reviewer')
   let finalDependency = testId
   if (reviewerId) {
     const reviewId = nanoid()
-    tasks.push({ id: reviewId, teamId, title: 'Son kod incelemesi', description: 'Değişiklikleri güvenlik, doğruluk ve kapsam açısından incele.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['Engelleyici bulgu kalmadı'], updatedAt: ts })
+    tasks.push({ id: reviewId, teamId, title: 'Final code review', description: 'Review the changes for correctness, security, regressions, and scope.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['No blocking findings remain'], updatedAt: ts })
     finalDependency = reviewId
   }
-  tasks.push({ id: nanoid(), teamId, title: 'Sonucu sentezle', description: 'Tüm görev sonuçlarını birleştir; yapılanları, test kanıtlarını ve kalan riskleri kullanıcı dilinde özetle.', assigneeId: member('lead'), status: 'ready', dependencies: [finalDependency], acceptanceCriteria: ['Sonuç açık ve doğrulanabilir', 'Kalan riskler belirtildi'], updatedAt: ts })
+  tasks.push({ id: nanoid(), teamId, title: 'Synthesize the outcome', description: 'Combine all task results and summarize the changes, test evidence, and remaining risks in plain language.', assigneeId: member('lead'), status: 'ready', dependencies: [finalDependency], acceptanceCriteria: ['Outcome is clear and verifiable', 'Remaining risks are documented'], updatedAt: ts })
   store.agentTeams.push(team)
   store.teamMembers.push(...members)
   store.teamTasks.push(...tasks)
-  store.teamEvents.push({ id: nanoid(), teamId, type: 'team.created', message: 'Takım ve görev planı oluşturuldu.', createdAt: ts })
+  store.teamEvents.push({ id: nanoid(), teamId, type: 'team.created', message: 'Team and task plan created.', createdAt: ts })
   persist()
   return teamBundle(team)
 }
 
 export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name' | 'worktreePath' | 'worktreeBranch' | 'baseCommit' | 'appliedAt'>>): AgentTeamBundle {
   const team = store.agentTeams.find((item) => item.id === id)
-  if (!team) throw new Error('Takım bulunamadı')
+  if (!team) throw new Error('Team not found')
   const { name, ...rest } = patch
   if (name) team.name = name.trim().slice(0, 80)
   Object.assign(team, rest)
   team.updatedAt = now()
-  if (patch.status) store.teamEvents.push({ id: nanoid(), teamId: id, type: patch.status === 'running' ? 'team.started' : 'team.stopped', message: patch.status === 'running' ? 'Takım çalışmaya başladı.' : `Takım durumu: ${patch.status}`, createdAt: team.updatedAt })
+  if (patch.status) store.teamEvents.push({ id: nanoid(), teamId: id, type: patch.status === 'running' ? 'team.started' : 'team.stopped', message: patch.status === 'running' ? 'Team started.' : `Team status: ${patch.status}`, createdAt: team.updatedAt })
   persist()
   return teamBundle(team)
 }
 
 export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>): void {
   const member = store.teamMembers.find((item) => item.id === id)
-  if (!member) throw new Error('Takım üyesi bulunamadı')
+  if (!member) throw new Error('Team member not found')
   Object.assign(member, patch)
   persist()
 }
 
 export function updateTeamTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId' | 'approved'>>): void {
   const task = store.teamTasks.find((item) => item.id === id)
-  if (!task) throw new Error('Görev bulunamadı')
+  if (!task) throw new Error('Task not found')
   Object.assign(task, patch, { updatedAt: now() })
   store.teamEvents.push({ id: nanoid(), teamId: task.teamId, taskId: task.id, type: 'task.updated', message: `${task.title}: ${task.status}`, createdAt: task.updatedAt })
   persist()
