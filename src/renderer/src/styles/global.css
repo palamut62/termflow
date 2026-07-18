@@ -1851,6 +1851,8 @@ input {
 .about-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
 .about-links a { padding: 5px 11px; border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-secondary); font-size: 11px; text-decoration: none; }
 .about-links a:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--text-primary); }
+.about-coffee { display: inline-flex; align-items: center; gap: 7px; margin: 8px 0 12px; padding: 8px 13px; border: 1px solid #ffdd00; border-radius: 7px; background: #ffdd00; color: #171717; font-size: 11px; font-weight: 700; text-decoration: none; box-shadow: 0 4px 14px color-mix(in srgb, #ffdd00 22%, transparent); }
+.about-coffee:hover { background: #ffe84d; border-color: #ffe84d; transform: translateY(-1px); }
 .about-release { margin-bottom: 14px; }
 .about-release-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .about-release-head strong { color: var(--text-primary); font-size: 13px; }

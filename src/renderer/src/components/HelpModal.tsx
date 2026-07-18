@@ -1,4 +1,4 @@
-import { Bot, FolderOpen, Grid2X2, HeartPulse, Info, Keyboard, Radio, Search, Settings, TerminalSquare, X, type LucideIcon } from 'lucide-react'
+import { Bot, Coffee, FolderOpen, Grid2X2, HeartPulse, Info, Keyboard, Radio, Search, Settings, TerminalSquare, X, type LucideIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useModalClose } from '../hooks/useModalClose'
 import { APP_VERSION, CHANGELOG, DEVELOPER } from '../appInfo'
@@ -72,6 +72,9 @@ function AboutPanel(): React.JSX.Element {
           </a>
         ))}
       </div>
+      <a className="about-coffee" href="https://buymeacoffee.com/palamut62" target="_blank" rel="noopener noreferrer">
+        <Coffee size={16} /> Buy Me a Coffee
+      </a>
 
       <h4>Changelog</h4>
       {CHANGELOG.map((entry) => (
