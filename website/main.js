@@ -10,7 +10,7 @@
       and use "./download/TermFlow-0.2.2-x64.exe"
    ============================================================ */
 const DOWNLOADS = {
-  installer: 'https://zomlia6emkmpi3hi.public.blob.vercel-storage.com/downloads/TermFlow-0.2.2-x64.exe'
+  installer: 'https://zomlia6emkmpi3hi.public.blob.vercel-storage.com/downloads/TermFlow-0.2.2-x64-hYBWTLRz27gHLv2zj9d7S37qdQBidw.exe'
 }
 
 // Wire download buttons
