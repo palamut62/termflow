@@ -55,7 +55,7 @@ import { validateManifest, validateWorkspaceExport } from '../../shared/validati
 import { validatePluginManifest } from '../../shared/pluginValidation'
 import { PluginRuntime } from '../plugins/PluginRuntime'
 import { TeamRuntime, type RuntimeCallbacks } from '../teams/TeamRuntime'
-import { NativeTeamRuntime } from '../teams/NativeTeamRuntime'
+import { NativeTeamRuntime, type LeadFactory } from '../teams/NativeTeamRuntime'
 import type { NativeTeamState } from '../teams/NativeBridge'
 
 const MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
@@ -147,7 +147,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     completeOpenNativeTasks: (teamId) => { dbApi.completeOpenNativeTasks(teamId); pushTeam(teamId) }
   }
   const teamRuntime = new TeamRuntime(teamCallbacks)
-  const nativeRuntime = new NativeTeamRuntime(teamCallbacks)
+  // Run the native lead as a real UI terminal node (kind 'claude' launches the
+  // CLI inside an interactive host shell; the experimental flag rides in env and
+  // the team args are typed as the startup command). The renderer attaches to
+  // this PTY by its id, so no renderer-side pty.create is needed.
+  const leadFactory: LeadFactory = (teamId, spec) => {
+    const termId = `team-lead-${teamId}`
+    const workspaceId = dbApi.getAgentTeam(teamId)?.team.workspaceId ?? ''
+    pty.create(termId, {
+      workspaceId,
+      name: 'Team Lead — Claude',
+      kind: 'claude',
+      cwd: spec.cwd,
+      env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' },
+      startupCommand: `claude ${spec.claudeArgs.join(' ')}`
+    })
+    return {
+      terminal: { write: (d) => pty.write(termId, d), kill: () => pty.kill(termId) },
+      terminalId: termId,
+      onData: (cb) => pty.onTerminalData((id, data) => { if (id === termId) cb(data) }),
+      onExit: (cb) => pty.onTerminalExit((id) => { if (id === termId) cb() })
+    }
+  }
+  const nativeRuntime = new NativeTeamRuntime(teamCallbacks, leadFactory)
   // Native teams cannot survive an app restart (their CLI child died with the
   // previous process): mark any lingering 'running' native team as lost.
   for (const workspace of dbApi.listWorkspaces()) {

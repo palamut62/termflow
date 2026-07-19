@@ -19,12 +19,35 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, '').replace(CTRL_RE, '')
 }
 
+// Minimal terminal handle the runtime drives, so the lead session can be either
+// a private node-pty (default) or a real UI terminal node created by PtyManager.
+export interface LeadTerminal { write(d: string): void; kill(): void }
+export interface LeadSpec {
+  /** Resolved spawn spec for the direct node-pty path (default). */
+  launchCommand: string
+  launchArgs: string[]
+  /** Bare claude args, for a factory that launches via an interactive host shell. */
+  claudeArgs: string[]
+  cwd: string
+  env: { [key: string]: string }
+  teamName: string
+}
+export interface LeadHandle {
+  terminal: LeadTerminal
+  terminalId?: string
+  onData(cb: (data: string) => void): () => void
+  onExit(cb: () => void): () => void
+}
+export type LeadFactory = (teamId: string, spec: LeadSpec) => LeadHandle
+
 interface NativeSession {
-  proc: pty.IPty
+  terminal: LeadTerminal
   cwd: string
   ring: string
   lastNoteAt: number
   stopWatch?: () => void
+  offData?: () => void
+  offExit?: () => void
   stopping?: boolean
   // The task/team dir is created only after the lead acts on the create prompt,
   // so a fresh session must not be treated as "closed" until it is discovered.
@@ -48,12 +71,15 @@ const PROMPT_MAX_ATTEMPTS = 6
 // writes into ~/.claude.
 export class NativeTeamRuntime {
   private sessions = new Map<string, NativeSession>()
-  constructor(private callbacks: RuntimeCallbacks) {}
+  // Without a factory the runtime spawns a private node-pty (smoke test path).
+  // With one (registerIpc), the lead runs as a real PtyManager UI terminal node.
+  constructor(private callbacks: RuntimeCallbacks, private leadFactory?: LeadFactory) {}
 
   dispose(): void {
     for (const session of this.sessions.values()) {
       session.stopWatch?.()
-      try { session.proc.kill() } catch { /* already gone */ }
+      session.offData?.(); session.offExit?.()
+      try { session.terminal.kill() } catch { /* already gone */ }
     }
     this.sessions.clear()
   }
@@ -80,27 +106,51 @@ export class NativeTeamRuntime {
     // approvals) would stall every team tool call waiting for a user click.
     const policy = bundle.team.permissionPolicy
     const permissionMode = policy === 'review' ? 'plan' : policy === 'full' ? 'bypassPermissions' : 'acceptEdits'
-    const launch = buildClaudeLaunch(verify.path, ['--teammate-mode', 'in-process', '--permission-mode', permissionMode])
+    const claudeArgs = ['--teammate-mode', 'in-process', '--permission-mode', permissionMode]
+    // node-pty can't spawn a .cmd/.bat/.ps1 shim directly on Windows, so reuse
+    // the same launch builder that verifyClaudeBinary used for the direct path.
+    const launch = buildClaudeLaunch(verify.path, claudeArgs)
     // Snapshot existing task session dirs BEFORE spawning so the bridge can
     // diff-detect the new session-<hex> dir this run creates.
     const baseline = snapshotSessionDirs()
-    const proc = pty.spawn(launch.command, launch.args, { cwd, env, cols: 200, rows: 50 })
-    const session: NativeSession = { proc, cwd, ring: '', lastNoteAt: 0 }
-    this.sessions.set(teamId, session)
-    this.callbacks.updateTeam(teamId, { status: 'running', nativeTeamName: teamName })
 
-    proc.onData((data) => this.onData(teamId, data))
-    proc.onExit(() => {
+    // Build the lead session: either a real UI terminal (factory) or a private
+    // node-pty. onExit fires once per session; guard re-entrancy with a flag.
+    let exited = false
+    const onExit = (): void => {
+      if (exited) return
+      exited = true
       const current = this.sessions.get(teamId)
-      if (!current || current.proc !== proc) return
-      current.stopWatch?.()
+      if (!current || current !== session) return
+      current.stopWatch?.(); current.offData?.(); current.offExit?.()
       this.sessions.delete(teamId)
       const bundleNow = this.callbacks.getTeam(teamId)
       if (bundleNow && bundleNow.team.status === 'running' && !current.stopping) {
         this.callbacks.updateTeam(teamId, { status: 'failed' })
         this.callbacks.event({ teamId, type: 'runtime.lost', message: 'The native Claude session exited unexpectedly.' })
       }
-    })
+    }
+
+    let session: NativeSession
+    if (this.leadFactory) {
+      const handle = this.leadFactory(teamId, { launchCommand: launch.command, launchArgs: launch.args, claudeArgs, cwd, env, teamName })
+      session = { terminal: handle.terminal, cwd, ring: '', lastNoteAt: 0 }
+      session.offData = handle.onData((data) => this.onData(teamId, data))
+      session.offExit = handle.onExit(onExit)
+      if (handle.terminalId) {
+        const lead = bundle.members.find((m) => m.role === 'lead')
+        if (lead) this.callbacks.updateMember(lead.id, { terminalId: handle.terminalId, status: 'working' })
+      }
+    } else {
+      const proc = pty.spawn(launch.command, launch.args, { cwd, env, cols: 200, rows: 50 })
+      session = { terminal: { write: (d) => proc.write(d), kill: () => proc.kill() }, cwd, ring: '', lastNoteAt: 0 }
+      const dataSub = proc.onData((data) => this.onData(teamId, data))
+      const exitSub = proc.onExit(onExit)
+      session.offData = () => dataSub.dispose()
+      session.offExit = () => exitSub.dispose()
+    }
+    this.sessions.set(teamId, session)
+    this.callbacks.updateTeam(teamId, { status: 'running', nativeTeamName: teamName })
 
     // Instruct the lead to create the team. The interactive TUI can be showing
     // startup dialogs (folder trust, MCP selection) that swallow early input,
@@ -117,8 +167,8 @@ export class NativeTeamRuntime {
         this.callbacks.event({ teamId, type: 'note', message: 'The lead session did not create the team (startup dialogs may need attention). Use the message box to talk to it directly.' })
         return
       }
-      try { proc.write(prompt) } catch { return }
-      setTimeout(() => { if (this.sessions.get(teamId) === session) { try { proc.write('\r') } catch { /* gone */ } } }, 600)
+      try { session.terminal.write(prompt) } catch { return }
+      setTimeout(() => { if (this.sessions.get(teamId) === session) { try { session.terminal.write('\r') } catch { /* gone */ } } }, 600)
       setTimeout(sendPrompt, PROMPT_RETRY_MS)
     }
     setTimeout(sendPrompt, PROMPT_DELAY_MS)
@@ -179,23 +229,23 @@ export class NativeTeamRuntime {
     this.callbacks.completeOpenNativeTasks?.(teamId)
     this.callbacks.updateTeam(teamId, { status: 'completed' })
     this.callbacks.event({ teamId, type: 'note', message: summary.slice(0, 500) })
-    if (session) { session.stopping = true; session.stopWatch?.(); try { session.proc.write('Shut down the team and exit.\r') } catch { /* gone */ } }
+    if (session) { session.stopping = true; session.stopWatch?.(); try { session.terminal.write('Shut down the team and exit.\r') } catch { /* gone */ } }
   }
 
   sendMessage(teamId: string, text: string): void {
     const session = this.sessions.get(teamId)
     if (!session) throw new Error('Native runtime is not running.')
-    session.proc.write(`${text}\r`)
+    session.terminal.write(`${text}\r`)
   }
 
   stop(teamId: string): void {
     const session = this.sessions.get(teamId)
     if (session) {
       session.stopping = true
-      try { session.proc.write('Shut down the team and exit.\r') } catch { /* gone */ }
-      const proc = session.proc
-      setTimeout(() => { try { proc.kill() } catch { /* already exited */ } }, SHUTDOWN_GRACE_MS)
-      session.stopWatch?.()
+      try { session.terminal.write('Shut down the team and exit.\r') } catch { /* gone */ }
+      const terminal = session.terminal
+      setTimeout(() => { try { terminal.kill() } catch { /* already exited */ } }, SHUTDOWN_GRACE_MS)
+      session.stopWatch?.(); session.offData?.(); session.offExit?.()
       this.sessions.delete(teamId)
     }
     this.callbacks.updateTeam(teamId, { status: 'cancelled' })

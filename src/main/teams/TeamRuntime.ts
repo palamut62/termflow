@@ -102,7 +102,7 @@ export interface RuntimeCallbacks {
   workspacePath(workspaceId: string): string | undefined
   runtimeRoot(): string
   updateTeam(id: string, patch: Partial<Pick<AgentTeamBundle['team'], 'status' | 'worktreePath' | 'worktreeBranch' | 'baseCommit' | 'appliedAt' | 'nativeTeamName'>>): void
-  updateMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'sessionId'>>): void
+  updateMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'sessionId' | 'terminalId'>>): void
   updateTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result'>>): void
   event(input: { teamId: string; memberId?: string; taskId?: string; type: 'member.started' | 'task.updated' | 'note' | 'runtime.lost'; message: string }): void
   /** Native-only: reconcile the DB model with a normalized native team state. */

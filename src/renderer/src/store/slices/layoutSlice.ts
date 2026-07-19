@@ -9,7 +9,8 @@ import type {
   AgentTeamBundle,
   NodeStatus,
   TeamMemberStatus,
-  AgentType
+  AgentType,
+  TerminalSession
 } from '../../../../shared/types'
 import { computeLayout } from '../../autolayout'
 import { syncAgentRouting } from '../storeShared'
@@ -243,12 +244,22 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     const memberStatus = (s: TeamMemberStatus): NodeStatus =>
       s === 'working' ? 'running' : s === 'completed' ? 'completed' : s === 'failed' ? 'error' : 'idle'
     const providerToAgent: Record<string, AgentType> = { claude: 'claude', codex: 'codex', opencode: 'opencode', generic: 'custom' }
-    const existing = new Map(st.nodes.filter((n) => n.teamId === teamId).map((n) => [n.teamMemberId!, n]))
-    const cols = Math.max(1, Math.ceil(Math.sqrt(bundle.members.length)))
+    const existingByMember = new Map(st.nodes.filter((n) => n.teamId === teamId && n.teamMemberId).map((n) => [n.teamMemberId!, n]))
+    const existingById = new Map(st.nodes.filter((n) => n.teamId === teamId).map((n) => [n.id, n]))
+
+    // Native teams: the lead runs as a REAL terminal node (its main-side PTY id
+    // lands on member.terminalId). Render it as a terminal (type 'terminal' via
+    // an absent teamMemberId) once the id exists; skip it until then.
+    const isNative = bundle.team.runtimeType === 'native'
+    const leadMember = isNative ? bundle.members.find((m) => m.role === 'lead' && m.terminalId) : undefined
+    const leadTermId = leadMember?.terminalId
+    const agentMembers = leadMember ? bundle.members.filter((m) => m.id !== leadMember.id) : bundle.members
+
+    const cols = Math.max(1, Math.ceil(Math.sqrt(agentMembers.length || 1)))
     const GW = 360
     const GH = 300
-    const teamNodes: CanvasNode[] = bundle.members.map((m, i) => {
-      const prev = existing.get(m.id)
+    const teamNodes: CanvasNode[] = agentMembers.map((m, i) => {
+      const prev = existingByMember.get(m.id)
       const position = prev?.position ?? { x: 60 + (i % cols) * GW, y: 60 + Math.floor(i / cols) * GH }
       return {
         id: prev?.id ?? `team-${teamId}-${m.id}`,
@@ -268,7 +279,36 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
         teamId
       }
     })
-    const memberNodeId = new Map(bundle.members.map((m) => [m.id, teamNodes.find((n) => n.teamMemberId === m.id)!.id]))
+
+    const memberNodeId = new Map(agentMembers.map((m) => [m.id, teamNodes.find((n) => n.teamMemberId === m.id)!.id]))
+
+    // Build the lead terminal node + a synthetic session entry so TerminalNode
+    // (which requires terminals[id]) renders and attaches to the live PTY.
+    const extraTerminals: Record<string, TerminalSession> = {}
+    if (leadMember && leadTermId) {
+      const prev = existingById.get(leadTermId)
+      const ts = new Date().toISOString()
+      teamNodes.push({
+        id: leadTermId,
+        workspaceId: st.activeWorkspaceId!,
+        title: leadMember.name,
+        terminalId: leadTermId,
+        nodeType: 'terminal',
+        agentType: 'claude',
+        position: prev?.position ?? { x: 60 + (cols % Math.max(1, cols)) * GW, y: 60 + Math.floor(agentMembers.length / cols) * GH + GH },
+        size: prev?.size ?? { width: 460, height: 340 },
+        zIndex: prev?.zIndex ?? 1,
+        isMinimized: false,
+        isMaximized: false,
+        status: memberStatus(leadMember.status),
+        showInfo: false,
+        teamId
+      })
+      memberNodeId.set(leadMember.id, leadTermId)
+      if (!st.terminals[leadTermId]) {
+        extraTerminals[leadTermId] = { id: leadTermId, workspaceId: st.activeWorkspaceId!, name: leadMember.name, kind: 'claude', shell: 'claude', args: [], cwd: '', status: 'running', createdAt: ts, updatedAt: ts }
+      }
+    }
     const workingMembers = new Set(bundle.members.filter((m) => m.status === 'working').map((m) => m.id))
     const taskById = new Map(bundle.tasks.map((t) => [t.id, t]))
     const seen = new Set<string>()
@@ -301,7 +341,8 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     set((s) => ({
       teamBundles: { ...s.teamBundles, [teamId]: bundle },
       nodes: [...s.nodes.filter((n) => n.teamId !== teamId), ...teamNodes],
-      connections: [...s.connections.filter((c) => !c.id.startsWith(`teamconn-${teamId}-`)), ...teamConns]
+      connections: [...s.connections.filter((c) => !c.id.startsWith(`teamconn-${teamId}-`)), ...teamConns],
+      terminals: { ...s.terminals, ...extraTerminals }
     }))
   },
 
@@ -309,10 +350,16 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     set((s) => {
       const teamBundles = { ...s.teamBundles }
       delete teamBundles[teamId]
+      // Drop synthetic lead-terminal sessions this team owned; the PTY itself is
+      // torn down main-side (native stop), not here.
+      const removedTermIds = new Set(s.nodes.filter((n) => n.teamId === teamId && n.terminalId).map((n) => n.terminalId!))
+      const terminals = { ...s.terminals }
+      for (const id of removedTermIds) delete terminals[id]
       return {
         teamBundles,
         nodes: s.nodes.filter((n) => n.teamId !== teamId),
         connections: s.connections.filter((c) => !c.id.startsWith(`teamconn-${teamId}-`)),
+        terminals,
         activeNodeId: s.nodes.find((n) => n.id === s.activeNodeId)?.teamId === teamId ? null : s.activeNodeId
       }
     })

@@ -43,7 +43,7 @@ log('teamName:', teamName, 'status:', bundle.team.status)
 
 // Debug visibility: peek at the private PTY session ring and auto-accept
 // blocking interactive prompts (folder trust / theme pickers) with Enter.
-const sessions = (runtime as unknown as { sessions: Map<string, { proc: { write(d: string): void }; ring: string }> }).sessions
+const sessions = (runtime as unknown as { sessions: Map<string, { terminal: { write(d: string): void }; ring: string }> }).sessions
 const ESCJ = String.fromCharCode(27)
 const strip = (s: string): string => s.replace(new RegExp(`${ESCJ}\\[[0-9;?]*[a-zA-Z]|${ESCJ}\\][^${String.fromCharCode(7)}]*${String.fromCharCode(7)}|[^\\x20-\\x7e\\n]`, 'g'), '')
 let accepted = 0
@@ -58,11 +58,11 @@ const iv = setInterval(() => {
     const teamDirMissing = !existsSync(join(homedir(), '.claude', 'teams', teamName))
     if (accepted < 5 && elapsed >= 20 && elapsed % 15 === 0 && teamDirMissing && text.length > 0) {
       log('AUTO-ENTER (nudge: team dir still missing)')
-      session.proc.write('\r')
+      session.terminal.write('\r')
       accepted++
     } else if (accepted < 3 && /trust|proceed|dark mode|light mode|press enter|choose|select/.test(text)) {
       log('AUTO-ENTER (prompt detected)')
-      session.proc.write('\r')
+      session.terminal.write('\r')
       accepted++
     }
   }
