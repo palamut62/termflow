@@ -143,7 +143,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     updateMember: (id, patch) => { dbApi.updateTeamMember(id, patch); const team = dbApi.getTeamMember(id)?.teamId; if (team) pushTeam(team) },
     updateTask: (id, patch) => { dbApi.updateTeamTask(id, patch); const team = dbApi.getTeamTask(id)?.teamId; if (team) pushTeam(team) },
     event: (input) => { dbApi.appendTeamEvent(input); pushTeam(input.teamId) },
-    syncNativeState: (teamId, state) => { dbApi.syncNativeTeamState(teamId, state as NativeTeamState); pushTeam(teamId) }
+    syncNativeState: (teamId, state) => { dbApi.syncNativeTeamState(teamId, state as NativeTeamState); pushTeam(teamId) },
+    completeOpenNativeTasks: (teamId) => { dbApi.completeOpenNativeTasks(teamId); pushTeam(teamId) }
   }
   const teamRuntime = new TeamRuntime(teamCallbacks)
   const nativeRuntime = new NativeTeamRuntime(teamCallbacks)

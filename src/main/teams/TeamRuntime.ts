@@ -107,6 +107,8 @@ export interface RuntimeCallbacks {
   event(input: { teamId: string; memberId?: string; taskId?: string; type: 'member.started' | 'task.updated' | 'note' | 'runtime.lost'; message: string }): void
   /** Native-only: reconcile the DB model with a normalized native team state. */
   syncNativeState?(teamId: string, state: unknown): void
+  /** Native-only: mark any still-open synced tasks completed (files are transient). */
+  completeOpenNativeTasks?(teamId: string): void
 }
 
 // Isolate a team's work in a git worktree so no agent can touch the main

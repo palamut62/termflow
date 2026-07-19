@@ -21,7 +21,7 @@ log('workspace:', ws)
 
 const teamId = 'smoke' + Math.random().toString(36).slice(2, 7)
 const bundle: AgentTeamBundle = {
-  team: { id: teamId, workspaceId: 'w1', name: 'smoke', objective: "Create a file named SMOKE.txt containing exactly the word ok in the current directory, then shut down the team.", status: 'draft', permissionPolicy: 'balanced', runtimeType: 'native', createdAt: '', updatedAt: '' },
+  team: { id: teamId, workspaceId: 'w1', name: 'smoke', objective: "You MUST spawn at least one teammate (do not do the work yourself). Have a teammate create a file named SMOKE.txt containing exactly the word ok in the current directory, wait for it to finish, then shut down the team.", status: 'draft', permissionPolicy: 'balanced', runtimeType: 'native', createdAt: '', updatedAt: '' },
   members: [{ id: 'm1', teamId, name: 'Team Lead', role: 'lead', provider: 'claude', status: 'idle' }],
   tasks: [], events: []
 }

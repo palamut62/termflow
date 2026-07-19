@@ -1,7 +1,13 @@
 import * as pty from '@lydell/node-pty'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
 import { buildClaudeLaunch, verifyClaudeBinary } from './ClaudeBinary'
 import { prepareTeamWorktree, providerEnv, type RuntimeCallbacks } from './TeamRuntime'
-import { readNativeTeamState, watchTeam, type NativeTeamState } from './NativeBridge'
+import { parseDoneSentinel, readNativeTeamState, snapshotSessionDirs, watchTeam, type NativeTeamState } from './NativeBridge'
+
+// The lead writes this file in its cwd as the final step; it is the primary
+// completion signal because task JSONs are deleted as tasks finish.
+const DONE_SENTINEL = '.termflow-team-done.json'
 
 // Strip ANSI/VT escape sequences so PTY output can be surfaced as plain notes.
 // ESC (0x1b) and CSI (0x9b) introduce ANSI/VT sequences; build the matchers
@@ -15,13 +21,18 @@ function stripAnsi(text: string): string {
 
 interface NativeSession {
   proc: pty.IPty
+  cwd: string
   ring: string
   lastNoteAt: number
   stopWatch?: () => void
   stopping?: boolean
-  // The team dir is created only after the lead acts on the create prompt, so a
-  // fresh session must not be treated as "closed" until we've seen it appear.
+  // The task/team dir is created only after the lead acts on the create prompt,
+  // so a fresh session must not be treated as "closed" until it is discovered.
   seenTeamDir?: boolean
+  // Set only once real tasks/members are observed; gates the prompt retries
+  // (the session task dir itself is created at CLI boot and proves nothing).
+  seenWork?: boolean
+  finished?: boolean
 }
 
 const RING_MAX = 8000
@@ -70,8 +81,11 @@ export class NativeTeamRuntime {
     const policy = bundle.team.permissionPolicy
     const permissionMode = policy === 'review' ? 'plan' : policy === 'full' ? 'bypassPermissions' : 'acceptEdits'
     const launch = buildClaudeLaunch(verify.path, ['--teammate-mode', 'in-process', '--permission-mode', permissionMode])
+    // Snapshot existing task session dirs BEFORE spawning so the bridge can
+    // diff-detect the new session-<hex> dir this run creates.
+    const baseline = snapshotSessionDirs()
     const proc = pty.spawn(launch.command, launch.args, { cwd, env, cols: 200, rows: 50 })
-    const session: NativeSession = { proc, ring: '', lastNoteAt: 0 }
+    const session: NativeSession = { proc, cwd, ring: '', lastNoteAt: 0 }
     this.sessions.set(teamId, session)
     this.callbacks.updateTeam(teamId, { status: 'running', nativeTeamName: teamName })
 
@@ -95,10 +109,10 @@ export class NativeTeamRuntime {
     // the bridge sees the team dir appear (the Enter also accepts the safe
     // defaults of any startup dialog that ate the previous attempt).
     const objective = bundle.team.objective
-    const prompt = `Create an agent team named exactly '${teamName}'. Objective: ${objective}. Plan the work yourself, spawn teammates as needed, coordinate via the shared task list, and shut the team down when the objective is complete.`
+    const prompt = `Create an agent team named exactly '${teamName}'. Objective: ${objective}. Plan the work yourself, spawn teammates as needed, coordinate via the shared task list, and shut the team down when the objective is complete. When the objective is fully complete and you have shut the team down, write a file named exactly '${DONE_SENTINEL}' in the current working directory containing JSON: {"summary": "<one-paragraph outcome>"}. Do this as the very last step.`
     let attempts = 0
     const sendPrompt = (): void => {
-      if (this.sessions.get(teamId) !== session || session.seenTeamDir || session.stopping) return
+      if (this.sessions.get(teamId) !== session || session.seenWork || session.stopping) return
       if (attempts++ >= PROMPT_MAX_ATTEMPTS) {
         this.callbacks.event({ teamId, type: 'note', message: 'The lead session did not create the team (startup dialogs may need attention). Use the message box to talk to it directly.' })
         return
@@ -109,8 +123,8 @@ export class NativeTeamRuntime {
     }
     setTimeout(sendPrompt, PROMPT_DELAY_MS)
 
-    // Start the read-only state bridge.
-    session.stopWatch = watchTeam(teamName, (state) => this.applyState(teamId, teamName, state))
+    // Start the read-only state bridge (discovers the session dir vs. baseline).
+    session.stopWatch = watchTeam(teamName, baseline, (state) => this.applyState(teamId, teamName, state))
   }
 
   private onData(teamId: string, data: string): void {
@@ -129,22 +143,43 @@ export class NativeTeamRuntime {
   private applyState(teamId: string, teamName: string, state: NativeTeamState): void {
     if (state.parseError) return
     const session = this.sessions.get(teamId)
-    // The lead creates the team dir only after acting on the prompt. Until we've
-    // observed it appear (or any members/tasks), never treat the team as done —
-    // otherwise a brand-new session finalizes on its first empty poll.
-    if (session && (state.exists || state.members.length > 0 || state.tasks.length > 0)) session.seenTeamDir = true
+    if (!session || session.finished) return
+    // The task/team dir is created only after the lead acts on the prompt. Until
+    // it (or any member/task) is discovered, never treat the team as done — else
+    // a brand-new session finalizes on its first empty poll.
+    if (state.exists || state.members.length > 0 || state.tasks.length > 0) session.seenTeamDir = true
+    // The CLI creates its session task dir at boot, before the prompt is even
+    // accepted — so `exists` alone doesn't prove the lead got the objective.
+    // Only actual tasks (or a legacy team config member list) stop the retries.
+    if (state.tasks.length > 0 || state.members.length > 0) session.seenWork = true
     this.callbacks.syncNativeState?.(teamId, state)
-    const seen = session ? session.seenTeamDir === true : false
-    const closedOrGone = state.closed || (seen && !state.exists) // shut down in config, or dir appeared then was removed
-    const done = seen && closedOrGone && (state.tasks.length === 0 || state.tasks.every((t) => (t.status || '').toLowerCase() === 'completed'))
-    if (done) {
-      const bundle = this.callbacks.getTeam(teamId)
-      if (bundle && bundle.team.status === 'running') {
-        this.callbacks.updateTeam(teamId, { status: 'completed' })
-        this.callbacks.event({ teamId, type: 'note', message: 'The native agent team completed its objective.' })
-        if (session) { session.stopping = true; session.stopWatch?.(); try { session.proc.write('Shut down the team and exit.\r') } catch { /* gone */ } }
-      }
+
+    // Primary completion signal: the lead's sentinel file. Task JSONs are
+    // deleted as they finish, so an empty task dir alone is not conclusive.
+    const sentinel = join(session.cwd, DONE_SENTINEL)
+    if (existsSync(sentinel)) {
+      let summary = ''
+      try { summary = parseDoneSentinel(readFileSync(sentinel, 'utf8')).summary } catch { /* keep empty */ }
+      this.finishTeam(teamId, summary || 'The native agent team completed its objective.')
+      return
     }
+
+    // Fallback: a legacy team config that explicitly reports shutdown.
+    if (session.seenTeamDir && state.closed && state.tasks.every((t) => (t.status || '').toLowerCase() === 'completed')) {
+      this.finishTeam(teamId, 'The native agent team completed its objective.')
+    }
+  }
+
+  private finishTeam(teamId: string, summary: string): void {
+    const session = this.sessions.get(teamId)
+    const bundle = this.callbacks.getTeam(teamId)
+    if (!bundle || bundle.team.status !== 'running') return
+    if (session) session.finished = true
+    // Task files are transient, so mark any still-open synced tasks completed.
+    this.callbacks.completeOpenNativeTasks?.(teamId)
+    this.callbacks.updateTeam(teamId, { status: 'completed' })
+    this.callbacks.event({ teamId, type: 'note', message: summary.slice(0, 500) })
+    if (session) { session.stopping = true; session.stopWatch?.(); try { session.proc.write('Shut down the team and exit.\r') } catch { /* gone */ } }
   }
 
   sendMessage(teamId: string, text: string): void {

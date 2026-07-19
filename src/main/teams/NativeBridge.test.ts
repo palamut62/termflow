@@ -10,7 +10,7 @@ vi.mock('os', async (orig) => {
   return { ...actual, homedir: () => fakeHome }
 })
 
-import { parseTaskFile, parseTeamConfig, readNativeTeamState } from './NativeBridge'
+import { findNewSessionDir, parseDoneSentinel, parseTaskFile, parseTeamConfig, readNativeTeamState, readSessionTasks, snapshotSessionDirs } from './NativeBridge'
 
 describe('native team config parsing', () => {
   it('extracts members and lead from a config, tolerating unknown fields', () => {
@@ -89,5 +89,51 @@ describe('readNativeTeamState', () => {
     const state = readNativeTeamState(closedTeam)
     expect(state.exists).toBe(true)
     expect(state.closed).toBe(true)
+  })
+})
+
+describe('session-dir discovery (Claude Code 2.1.x layout)', () => {
+  it('diffs a baseline snapshot to find the newly created session dir', () => {
+    const tasksRoot = join(fakeHome, '.claude', 'tasks')
+    mkdirSync(join(tasksRoot, 'session-old0000'), { recursive: true })
+    const baseline = snapshotSessionDirs()
+    expect(baseline.has('session-old0000')).toBe(true)
+    mkdirSync(join(tasksRoot, 'session-new1111'), { recursive: true })
+    expect(findNewSessionDir(baseline)).toBe('session-new1111')
+  })
+
+  it('reads session tasks, skipping .lock/.highwatermark and non-JSON files', () => {
+    const dir = join(fakeHome, '.claude', 'tasks', 'session-read2222')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '1.json'), JSON.stringify({ id: '1', subject: 'First', status: 'in_progress', owner: 'smoke-writer' }))
+    writeFileSync(join(dir, '2.json'), JSON.stringify({ id: '2', subject: 'Second', status: 'completed' }))
+    writeFileSync(join(dir, '.highwatermark'), '2')
+    writeFileSync(join(dir, '.lock'), '')
+    const { tasks, parseError } = readSessionTasks('session-read2222')
+    expect(parseError).toBe(false)
+    expect(tasks.map((t) => t.title).sort()).toEqual(['First', 'Second'])
+    expect(tasks.find((t) => t.title === 'First')?.owner).toBe('smoke-writer')
+  })
+
+  it('surfaces session tasks via readNativeTeamState when the legacy teams dir is absent', () => {
+    const dir = join(fakeHome, '.claude', 'tasks', 'session-live3333')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '1.json'), JSON.stringify({ id: '1', subject: 'Write file', status: 'in_progress' }))
+    const state = readNativeTeamState('no-such-team', 'session-live3333')
+    expect(state.exists).toBe(true)
+    expect(state.sessionDir).toBe('session-live3333')
+    expect(state.tasks).toHaveLength(1)
+    expect(state.closed).toBe(false)
+  })
+})
+
+describe('completion sentinel parsing', () => {
+  it('extracts a summary from JSON, tolerating unknown fields', () => {
+    expect(parseDoneSentinel(JSON.stringify({ summary: 'All done', extra: 1 })).summary).toBe('All done')
+    expect(parseDoneSentinel(JSON.stringify({ outcome: 'Fallback key' })).summary).toBe('Fallback key')
+  })
+
+  it('falls back to trimmed text on malformed JSON without throwing', () => {
+    expect(parseDoneSentinel('  just text  ').summary).toBe('just text')
   })
 })

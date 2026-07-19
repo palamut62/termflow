@@ -2,9 +2,13 @@ import { existsSync, readdirSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
-// Normalized view of a native Claude agent team, mapped from the experimental
-// ~/.claude/teams/<name>/config.json + ~/.claude/tasks/<name>/*.json layout.
-// The on-disk schema is experimental, so every field lookup is defensive.
+// Normalized view of a native Claude agent team. Claude Code 2.1.x does NOT
+// create ~/.claude/teams/<name>/; instead the live task list lives under
+// ~/.claude/tasks/session-<hex>/ as <n>.json files (deleted once completed),
+// alongside .highwatermark and .lock. The team-name -> session mapping is not
+// known ahead of time, so we discover the new session dir by diffing a baseline
+// snapshot taken just before the CLI starts. The legacy teams/ layout is still
+// probed first for forward compatibility. Every field lookup is defensive.
 export interface NativeMemberState {
   name: string
   id?: string
@@ -22,10 +26,12 @@ export interface NativeTaskState {
 export interface NativeTeamState {
   members: NativeMemberState[]
   tasks: NativeTaskState[]
-  /** Whether the team directory exists on disk right now. */
+  /** True once the legacy teams dir OR a session task dir has been discovered. */
   exists: boolean
-  /** True only when the team config itself reports the team shut down/completed. */
+  /** True only when a legacy team config reports the team shut down/completed. */
   closed: boolean
+  /** The discovered ~/.claude/tasks/session-* dir name, if any. */
+  sessionDir?: string
   parseError?: boolean
 }
 
@@ -71,46 +77,113 @@ export function parseTaskFile(raw: string): NativeTaskState {
   }
 }
 
+// Parse the completion sentinel the lead writes as its final step. Tolerant of
+// unknown fields; always returns a summary string (possibly empty).
+export function parseDoneSentinel(raw: string): { summary: string } {
+  try {
+    const rec = JSON.parse(raw) as Record<string, unknown>
+    return { summary: str(pick(rec, ['summary', 'result', 'outcome'])) || '' }
+  } catch {
+    // The lead may write plain text instead of JSON — keep a trimmed snippet.
+    return { summary: raw.trim().slice(0, 500) }
+  }
+}
+
 function teamDir(teamName: string): string {
   return join(homedir(), '.claude', 'teams', teamName)
 }
-function tasksDir(teamName: string): string {
-  return join(homedir(), '.claude', 'tasks', teamName)
+function tasksRoot(): string {
+  return join(homedir(), '.claude', 'tasks')
 }
 
-// Read + normalize the current on-disk state for a native team. Never throws:
-// a malformed config/task surfaces as parseError instead of crashing.
-export function readNativeTeamState(teamName: string): NativeTeamState {
-  const cfgPath = join(teamDir(teamName), 'config.json')
-  const exists = existsSync(teamDir(teamName))
+// Snapshot the current set of session-* task dirs so a later diff can spot the
+// one the lead creates for this run.
+export function snapshotSessionDirs(): Set<string> {
+  const root = tasksRoot()
+  if (!existsSync(root)) return new Set()
+  try {
+    return new Set(readdirSync(root).filter((name) => /^session-/i.test(name)))
+  } catch { return new Set() }
+}
+
+// First session-* dir not present in the baseline snapshot, or null.
+export function findNewSessionDir(baseline: Set<string>): string | null {
+  const root = tasksRoot()
+  if (!existsSync(root)) return null
+  try {
+    for (const name of readdirSync(root)) {
+      if (/^session-/i.test(name) && !baseline.has(name)) return name
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+// Read the *.json task files in a session dir, skipping .lock/.highwatermark and
+// any non-JSON control files. Sets a parse-error flag out-of-band via the caller.
+export function readSessionTasks(dirName: string): { tasks: NativeTaskState[]; parseError: boolean } {
+  const dir = join(tasksRoot(), dirName)
+  const tasks: NativeTaskState[] = []
+  let parseError = false
+  if (!existsSync(dir)) return { tasks, parseError }
+  try {
+    for (const file of readdirSync(dir)) {
+      const lower = file.toLowerCase()
+      if (!lower.endsWith('.json') || lower.startsWith('.')) continue
+      try { tasks.push(parseTaskFile(readFileSync(join(dir, file), 'utf8'))) } catch { parseError = true }
+    }
+  } catch { parseError = true }
+  return { tasks, parseError }
+}
+
+// Read + normalize the current on-disk state. Never throws. `sessionDir` is the
+// session-* dir already discovered for this run (from the watch closure); when
+// absent, only the legacy teams/ layout is consulted.
+export function readNativeTeamState(teamName: string, sessionDir?: string): NativeTeamState {
+  const legacyDir = teamDir(teamName)
+  const legacyExists = existsSync(legacyDir)
   let members: NativeMemberState[] = []
   let closed = false
   let parseError = false
-  if (existsSync(cfgPath)) {
-    try {
-      const parsed = parseTeamConfig(readFileSync(cfgPath, 'utf8'))
-      members = parsed.members
-      closed = parsed.closed
-    } catch { parseError = true }
-  }
   const tasks: NativeTaskState[] = []
-  const tdir = tasksDir(teamName)
-  if (existsSync(tdir)) {
-    try {
-      for (const file of readdirSync(tdir)) {
-        if (!file.toLowerCase().endsWith('.json')) continue
-        try { tasks.push(parseTaskFile(readFileSync(join(tdir, file), 'utf8'))) } catch { parseError = true }
-      }
-    } catch { parseError = true }
+
+  if (legacyExists) {
+    const cfgPath = join(legacyDir, 'config.json')
+    if (existsSync(cfgPath)) {
+      try { const parsed = parseTeamConfig(readFileSync(cfgPath, 'utf8')); members = parsed.members; closed = parsed.closed }
+      catch { parseError = true }
+    }
+    const legacyTasks = join(homedir(), '.claude', 'tasks', teamName)
+    if (existsSync(legacyTasks)) {
+      try {
+        for (const file of readdirSync(legacyTasks)) {
+          if (!file.toLowerCase().endsWith('.json')) continue
+          try { tasks.push(parseTaskFile(readFileSync(join(legacyTasks, file), 'utf8'))) } catch { parseError = true }
+        }
+      } catch { parseError = true }
+    }
   }
-  return { members, tasks, exists, closed, parseError }
+
+  if (!legacyExists && sessionDir) {
+    const res = readSessionTasks(sessionDir)
+    tasks.push(...res.tasks)
+    if (res.parseError) parseError = true
+  }
+
+  const exists = legacyExists || !!sessionDir
+  return { members, tasks, exists, closed, sessionDir, parseError }
 }
 
-// Poll ~/.claude for a native team and invoke onState with each snapshot.
-// fs.watch is unreliable on Windows, so we use a steady 2s interval.
-export function watchTeam(teamName: string, onState: (state: NativeTeamState) => void, intervalMs = 2000): () => void {
+// Poll ~/.claude for a native team and invoke onState with each snapshot. The
+// session dir is discovered lazily by diffing against `baseline` (captured just
+// before the CLI started). fs.watch is unreliable on Windows, so we poll at 2s.
+export function watchTeam(teamName: string, baseline: Set<string>, onState: (state: NativeTeamState) => void, intervalMs = 2000): () => void {
   let stopped = false
-  const tick = (): void => { if (!stopped) onState(readNativeTeamState(teamName)) }
+  let sessionDir: string | undefined
+  const tick = (): void => {
+    if (stopped) return
+    if (!sessionDir) { const found = findNewSessionDir(baseline); if (found) sessionDir = found }
+    onState(readNativeTeamState(teamName, sessionDir))
+  }
   const timer = setInterval(tick, intervalMs)
   tick()
   return () => { stopped = true; clearInterval(timer) }

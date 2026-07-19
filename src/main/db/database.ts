@@ -647,20 +647,49 @@ export function syncNativeTeamState(teamId: string, state: NativeTeamState): voi
       changed = true
     }
   }
+  // Native teams expose no team config, so members are derived from task owners.
+  const memberIdByName = (name: string): string | undefined => store.teamMembers.find((x) => x.teamId === teamId && x.name.toLowerCase() === name.toLowerCase())?.id
+  for (const t of state.tasks) {
+    const owner = (t.owner || '').trim()
+    if (owner && !memberIdByName(owner)) {
+      store.teamMembers.push({ id: nanoid(), teamId, name: owner, role: 'developer', provider: 'claude', status: 'working' })
+      changed = true
+    }
+  }
   for (const t of state.tasks) {
     const title = (t.title || '').trim()
     if (!title) continue
     const existing = store.teamTasks.find((x) => x.teamId === teamId && x.title.toLowerCase() === title.toLowerCase())
     const status = mapNativeTaskStatus(t.status)
     if (existing) {
+      // Upsert-only: never regress a task the DB already marks completed (the
+      // disk JSON is transient and may vanish mid-run).
+      if (existing.status === 'completed') continue
       if (existing.status !== status || (t.description && existing.description !== t.description)) { existing.status = status; if (t.description) existing.description = t.description; existing.updatedAt = now(); changed = true }
     } else {
-      const owner = t.owner ? store.teamMembers.find((x) => x.teamId === teamId && x.name.toLowerCase() === t.owner!.toLowerCase())?.id : undefined
+      const owner = t.owner ? memberIdByName(t.owner) : undefined
       store.teamTasks.push({ id: nanoid(), teamId, title, description: t.description || '', assigneeId: owner, status, dependencies: [], acceptanceCriteria: [], updatedAt: now() })
       changed = true
     }
   }
   if (changed) { team.updatedAt = now(); persist() }
+}
+
+// Native completion: transient task files are gone, so flip any still-open
+// synced tasks (and their members) to completed when the team finishes.
+export function completeOpenNativeTasks(teamId: string): void {
+  const ts = now()
+  let changed = false
+  for (const task of store.teamTasks) {
+    if (task.teamId !== teamId) continue
+    if (['completed', 'failed', 'cancelled'].includes(task.status)) continue
+    task.status = 'completed'; task.updatedAt = ts; changed = true
+  }
+  for (const member of store.teamMembers) {
+    if (member.teamId !== teamId || member.status === 'completed') continue
+    member.status = 'completed'; changed = true
+  }
+  if (changed) persist()
 }
 
 export function getTeamMember(id: string): TeamMember | undefined {
