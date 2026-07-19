@@ -1,11 +1,11 @@
 import { memo, useMemo } from 'react'
-import { type NodeProps } from '@xyflow/react'
+import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Bot, CheckCircle2, Clock3, Radio } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
+import TerminalView from '../components/TerminalView'
 
-// PTY-less canvas node for an agent-team member. Reuses the ReactFlow node
-// wrapper/handles so measurement and edge routing behave like TerminalNode, but
-// the inner body is a read-only terminal-styled live log instead of an xterm.
+// Agent-team node backed by the member's real PTY. The task summary remains
+// visible above xterm so runtime state and actual CLI output agree.
 function TeamMemberNodeInner({ id }: NodeProps): React.JSX.Element {
   const node = useAppStore((s) => s.nodes.find((n) => n.id === id))
   const bundle = useAppStore((s) => (node?.teamId ? s.teamBundles[node.teamId] : undefined))
@@ -30,6 +30,7 @@ function TeamMemberNodeInner({ id }: NodeProps): React.JSX.Element {
   return (
     <div className="tnode-wrap">
       <div className={`tnode team-node ${active ? 'active' : ''} ${working ? 'team-working' : ''}`}>
+        <Handle type="target" position={Position.Left} />
         <div className="tnode-header">
           <Bot size={14} color="var(--accent)" />
           <span className="title">{member.name}</span>
@@ -42,6 +43,12 @@ function TeamMemberNodeInner({ id }: NodeProps): React.JSX.Element {
         </div>
         <div className="team-stage-progress"><span style={{ width: `${progress}%` }} /><em>{progress}%</em></div>
         <p className="team-stage-activity">{lastEvent?.message ?? (working ? 'Working on the assigned stage…' : 'Ready when the previous stage completes.')}</p>
+        <div className="team-terminal nodrag nowheel">
+          {member.terminalId
+            ? <TerminalView terminalId={member.terminalId} active={active} throttleWhenInactive />
+            : <div className="team-terminal-pending">Terminal is being prepared...</div>}
+        </div>
+        <Handle type="source" position={Position.Right} />
       </div>
     </div>
   )

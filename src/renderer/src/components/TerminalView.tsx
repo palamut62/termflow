@@ -38,6 +38,7 @@ function playBell(): void {
 interface Props {
   terminalId: string
   active: boolean
+  throttleWhenInactive?: boolean
 }
 
 function formatDroppedPaths(files: FileList): string {
@@ -96,7 +97,7 @@ function applyHighlights(
  * fit/resize -> node-pty resize. Render mode is pushed to main so passive
  * terminals stream at a throttled cadence. (PRD §10.4, §11, §12)
  */
-export default function TerminalView({ terminalId, active }: Props): React.JSX.Element {
+export default function TerminalView({ terminalId, active, throttleWhenInactive = false }: Props): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -249,9 +250,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       }
     })
 
-    // Every visible terminal stays live. Selection controls keyboard input only;
-    // it must not throttle or pause output from background terminals.
-    window.termflow.pty.setMode(terminalId, 'active')
+    window.termflow.pty.setMode(terminalId, throttleWhenInactive && !activeRef.current ? 'passive' : 'active')
 
     // Single atomic resize channel. Every resize source (observer, activation,
     // font/theme) funnels through here. We wait for the size to settle, then
@@ -303,15 +302,17 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId])
 
-  // Selection controls editing/focus only. All visible terminals remain live.
+  // Agent teams can own several busy PTYs at once. Keep the selected one at
+  // 60fps and throttle the others to avoid overwhelming the renderer.
   useEffect(() => {
+    if (throttleWhenInactive) window.termflow.pty.setMode(terminalId, active ? 'active' : 'passive')
     if (active && termRef.current) {
       termRef.current.focus()
       // Route through the single resize channel — it no-ops if the size hasn't
       // changed and applies xterm + PTY atomically otherwise.
       scheduleResizeRef.current?.()
     }
-  }, [active, terminalId])
+  }, [active, terminalId, throttleWhenInactive])
 
   // Keep xterm options in sync with settings changes (font, theme, cursor, etc.).
   useEffect(() => {

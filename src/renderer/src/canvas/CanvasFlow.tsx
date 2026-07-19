@@ -83,7 +83,7 @@ export default function CanvasFlow(): React.JSX.Element {
   const rfNodes: Node[] = useMemo(() => {
     return nodes.map((n) => ({
       id: n.id,
-      type: n.teamMemberId && !n.terminalId ? 'team' : 'terminal',
+      type: n.teamMemberId ? 'team' : 'terminal',
       position: n.position,
       data: {},
       width: n.size.width,

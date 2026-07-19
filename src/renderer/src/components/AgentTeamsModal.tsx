@@ -65,10 +65,18 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
 
   useEffect(() => { void reload() }, [workspaceId])
   useEffect(() => {
-    if (!selected || !['running', 'paused'].includes(selected.team.status)) return
-    const timer = setInterval(() => { void reload(selected.team.id) }, 1000)
-    return () => clearInterval(timer)
-  }, [selected?.team.id, selected?.team.status])
+    const off = window.termflow.teams.onEvent(({ bundle }) => {
+      if (bundle.team.workspaceId !== workspaceId) return
+      setTeams((current) => {
+        const index = current.findIndex((item) => item.team.id === bundle.team.id)
+        if (index < 0) return [bundle, ...current]
+        const next = [...current]
+        next[index] = bundle
+        return next
+      })
+    })
+    return () => off()
+  }, [workspaceId])
 
   const createTeam = async (): Promise<void> => {
     if (!workspaceId || !objective.trim()) return

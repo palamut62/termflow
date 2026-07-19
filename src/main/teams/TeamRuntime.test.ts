@@ -146,6 +146,34 @@ describe('agent team runtime scheduling', () => {
     expect(bundle.team.status).toBe('completed')
   })
 
+  it('surfaces a PTY task that stops producing output as waiting', () => {
+    vi.useFakeTimers()
+    try {
+      const bundle = makeBundle({}, [makeTask('a')])
+      const events: string[] = []
+      const runtime = new TeamRuntime({
+        getTeam: () => bundle,
+        workspacePath: () => 'C:/ws',
+        runtimeRoot: () => 'C:/rt',
+        updateTeam: (_id, patch) => Object.assign(bundle.team, patch),
+        updateMember: (id, patch) => { const member = bundle.members.find((item) => item.id === id); if (member) Object.assign(member, patch) },
+        updateTask: (id, patch) => { const task = bundle.tasks.find((item) => item.id === id); if (task) Object.assign(task, patch) },
+        event: (input) => { events.push(input.message) },
+        createTerminal: () => 'pty-m1',
+        writeTerminal: vi.fn()
+      })
+      runtime.start('t1')
+      vi.advanceTimersByTime(90_000)
+      expect(bundle.members[0].status).toBe('waiting')
+      expect(events.at(-1)).toMatch(/waiting for input/i)
+      runtime.handleTerminalData('pty-m1', 'resumed')
+      expect(bundle.members[0].status).toBe('working')
+      runtime.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('gates the implementation task on approval under the controlled policy', () => {
     const bundle = makeBundle({ permissionPolicy: 'controlled' }, [makeTask('impl', { title: 'Implement the solution' })])
     makeRuntime(bundle).start('t1')

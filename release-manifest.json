@@ -2,10 +2,10 @@
   "version": "0.2.2",
   "date": "2026-07-19",
   "changes": [
-    "Made Agent Teams easier to follow with active-agent, current-stage, task, progress, and live-activity displays.",
-    "Added professional team templates with specialist instructions, sequenced tasks, and quality gates.",
-    "Added selectable Claude Code, Codex, OpenCode, DeepSeek, configured provider, and custom-agent execution profiles.",
-    "Added live Agent Team canvas synchronization and clearer per-agent workflow cards.",
-    "Improved team pause, retry, approval, deletion, isolated worktree, and result-application behavior."
+    "Rendered every Agent Team member in a real xterm-backed PTY while keeping task state visible.",
+    "Reduced freezes by throttling inactive team terminals and replacing one-second polling with runtime events.",
+    "Added a waiting state when an agent produces no terminal output for 90 seconds.",
+    "Improved timer and PTY cleanup for team pause, stop, delete, and application shutdown.",
+    "Preserved published download URLs during same-version release builds."
   ]
 }

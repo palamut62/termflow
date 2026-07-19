@@ -34,10 +34,13 @@ await writeFile(indexPath, index, 'utf8')
 
 const mainPath = join(root, 'website/main.js')
 let main = await readFile(mainPath, 'utf8')
+const publishedInstallerVersion = main.match(/installer:\s*'[^']*TermFlow-(\d+\.\d+\.\d+)-x64(?:-[^'.]+)?\.exe'/)?.[1]
 main = main
   .replace(/v\d+\.\d+\.\d+\/TermFlow-\d+\.\d+\.\d+-x64\.exe/g, `v${release.version}/${installerName}`)
   .replace(/\.\/download\/TermFlow-\d+\.\d+\.\d+-x64\.exe/g, `./download/${installerName}`)
-  .replace(/installer:\s*'[^']+'/g, `installer: '${installerUrl}'`)
+if (publishedInstallerVersion !== release.version) {
+  main = main.replace(/installer:\s*'[^']+'/g, `installer: '${installerUrl}'`)
+}
 await writeFile(mainPath, main, 'utf8')
 
 console.log(`Version surfaces synchronized to ${release.version}`)

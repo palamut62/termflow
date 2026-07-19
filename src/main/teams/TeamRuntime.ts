@@ -123,11 +123,14 @@ export class TeamRuntime {
   private teamCwds = new Map<string, string>()
   private terminating = new Map<string, 'paused' | 'cancelled'>()
   private terminalTasks = new Map<string, { teamId: string; taskId: string; memberId: string; marker: string; output: string }>()
+  private terminalIdleTimers = new Map<string, NodeJS.Timeout>()
   constructor(private callbacks: RuntimeCallbacks) {}
 
   dispose(): void {
     for (const proc of this.processes.values()) proc.kill()
     this.processes.clear()
+    for (const timer of this.terminalIdleTimers.values()) clearTimeout(timer)
+    this.terminalIdleTimers.clear()
   }
 
   start(teamId: string): void {
@@ -216,6 +219,9 @@ export class TeamRuntime {
     for (const [terminalId, active] of this.terminalTasks) if (active.teamId === teamId) {
       this.callbacks.writeTerminal?.(terminalId, '\x03')
       this.terminalTasks.delete(terminalId)
+      const idleTimer = this.terminalIdleTimers.get(terminalId)
+      if (idleTimer) clearTimeout(idleTimer)
+      this.terminalIdleTimers.delete(terminalId)
     }
     for (const member of bundle?.members ?? []) if (member.status === 'working') this.callbacks.updateMember(member.id, { status: 'stopped' })
   }
@@ -224,6 +230,10 @@ export class TeamRuntime {
     const active = this.terminalTasks.get(terminalId)
     if (!active) return
     active.output = `${active.output}${data}`.slice(-24000)
+    this.armTerminalIdleTimer(terminalId)
+    const bundle = this.callbacks.getTeam(active.teamId)
+    const member = bundle?.members.find((item) => item.id === active.memberId)
+    if (member?.status === 'waiting') this.callbacks.updateMember(member.id, { status: 'working' })
     const plain = active.output.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '').replace(/\r/g, '')
     if (/hit your session limit|usage limit|rate limit exceeded/i.test(plain)) {
       this.finishTerminalTask(terminalId, false, plain)
@@ -241,6 +251,9 @@ export class TeamRuntime {
     const active = this.terminalTasks.get(terminalId)
     if (!active) return
     this.terminalTasks.delete(terminalId)
+    const idleTimer = this.terminalIdleTimers.get(terminalId)
+    if (idleTimer) clearTimeout(idleTimer)
+    this.terminalIdleTimers.delete(terminalId)
     const bundle = this.callbacks.getTeam(active.teamId)
     const task = bundle?.tasks.find((item) => item.id === active.taskId)
     const member = bundle?.members.find((item) => item.id === active.memberId)
@@ -249,6 +262,24 @@ export class TeamRuntime {
     this.callbacks.updateMember(member.id, { status: ok ? 'completed' : 'failed' })
     this.callbacks.event({ teamId: active.teamId, memberId: member.id, taskId: task.id, type: 'task.updated', message: `${task.title}: ${ok ? 'completed' : 'failed'}` })
     this.schedule(active.teamId)
+  }
+
+  private armTerminalIdleTimer(terminalId: string): void {
+    const previous = this.terminalIdleTimers.get(terminalId)
+    if (previous) clearTimeout(previous)
+    this.terminalIdleTimers.set(terminalId, setTimeout(() => {
+      this.terminalIdleTimers.delete(terminalId)
+      const active = this.terminalTasks.get(terminalId)
+      if (!active) return
+      this.callbacks.updateMember(active.memberId, { status: 'waiting' })
+      this.callbacks.event({
+        teamId: active.teamId,
+        memberId: active.memberId,
+        taskId: active.taskId,
+        type: 'note',
+        message: 'No terminal output for 90 seconds. The agent may be waiting for input or provider access.'
+      })
+    }, 90_000))
   }
 
   // Tear down a team that is about to be deleted: kill its live processes and
@@ -264,7 +295,13 @@ export class TeamRuntime {
       this.processes.delete(taskId)
     }
     this.teamCwds.delete(teamId)
-    for (const member of bundle?.members ?? []) if (member.terminalId) this.callbacks.killTerminal?.(member.terminalId)
+    for (const member of bundle?.members ?? []) if (member.terminalId) {
+      this.terminalTasks.delete(member.terminalId)
+      const idleTimer = this.terminalIdleTimers.get(member.terminalId)
+      if (idleTimer) clearTimeout(idleTimer)
+      this.terminalIdleTimers.delete(member.terminalId)
+      this.callbacks.killTerminal?.(member.terminalId)
+    }
     const worktreePath = bundle?.team.worktreePath
     const branch = bundle?.team.worktreeBranch
     if (worktreePath && workspace) {
@@ -279,6 +316,9 @@ export class TeamRuntime {
     for (const member of bundle.members) if (member.terminalId && this.terminalTasks.has(member.terminalId)) {
       this.callbacks.writeTerminal?.(member.terminalId, '\x03')
       this.terminalTasks.delete(member.terminalId)
+      const idleTimer = this.terminalIdleTimers.get(member.terminalId)
+      if (idleTimer) clearTimeout(idleTimer)
+      this.terminalIdleTimers.delete(member.terminalId)
       const task = bundle.tasks.find((item) => item.assigneeId === member.id && item.status === 'working')
       if (task) this.callbacks.updateTask(task.id, { status: 'ready', result: 'Task paused; it will restart when the team resumes.' })
       this.callbacks.updateMember(member.id, { status: 'idle' })
@@ -345,6 +385,7 @@ export class TeamRuntime {
           ? `@type "${promptFile}" | opencode run && echo ${marker}`
           : `@type "${promptFile}" | claude -p --permission-mode ${policy === 'review' ? 'plan' : policy === 'balanced' ? 'acceptEdits' : policy === 'full' ? 'bypassPermissions' : 'default'} && echo ${marker}`
       this.terminalTasks.set(member.terminalId, { teamId: bundle.team.id, taskId: task.id, memberId: member.id, marker, output: '' })
+      this.armTerminalIdleTimer(member.terminalId)
       this.callbacks.updateTask(task.id, { status: 'working' })
       this.callbacks.updateMember(member.id, { status: 'working' })
       this.callbacks.event({ teamId: bundle.team.id, memberId: member.id, taskId: task.id, type: 'member.started', message: `${member.name} started in its terminal: ${task.title}.` })

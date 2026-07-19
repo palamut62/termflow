@@ -250,8 +250,8 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     const orderedIds = bundle.tasks.map((task) => task.assigneeId).filter((id): id is string => Boolean(id))
     const uniqueIds = [...new Set([...orderedIds, ...bundle.members.map((member) => member.id)])]
     const orderedMembers = uniqueIds.map((id) => bundle.members.find((member) => member.id === id)).filter((member): member is typeof bundle.members[number] => Boolean(member))
-    const cardWidth = 320
-    const cardHeight = 250
+    const cardWidth = 520
+    const cardHeight = 440
     const gapX = 56
     const startX = 60
     const teamNodes: CanvasNode[] = orderedMembers.map((m, i) => {
