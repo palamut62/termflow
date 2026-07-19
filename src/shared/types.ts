@@ -111,6 +111,9 @@ export interface CanvasNode {
   bypass?: boolean
   /** When true, auto-layout (grid/columns/rows/auto_fit/focus) skips repositioning this node. */
   isPinned?: boolean
+  /** Ephemeral agent-team visualization node (no PTY). Set to the member/team it represents. */
+  teamMemberId?: string
+  teamId?: string
 }
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
@@ -425,6 +428,7 @@ export interface AgentTeam {
   objective: string
   status: AgentTeamStatus
   permissionPolicy: TeamPermissionPolicy
+  templateId?: string
   worktreePath?: string
   worktreeBranch?: string
   baseCommit?: string
@@ -439,7 +443,10 @@ export interface TeamMember {
   name: string
   role: 'lead' | 'researcher' | 'developer' | 'tester' | 'reviewer'
   provider: 'claude' | 'codex' | 'opencode' | 'generic'
+  /** Optional configured provider/custom-agent selection, e.g. provider:deepseek. */
+  executionProfileId?: string
   status: TeamMemberStatus
+  instructions?: string
   terminalId?: string
   sessionId?: string
 }
@@ -480,6 +487,24 @@ export interface CreateAgentTeamInput {
   objective: string
   permissionPolicy: TeamPermissionPolicy
   teamSize: 3 | 4 | 5
+  templateId?: string
+}
+
+export interface AgentTeamTemplate {
+  id: string
+  name: string
+  summary: string
+  category: 'delivery' | 'quality' | 'security' | 'performance' | 'architecture' | 'release'
+  recommendedPolicy: TeamPermissionPolicy
+  members: Array<Pick<TeamMember, 'name' | 'role' | 'provider'> & { instructions: string }>
+  tasks: Array<{
+    key: string
+    title: string
+    description: string
+    assigneeRole: TeamMember['role']
+    dependencies: string[]
+    acceptanceCriteria: string[]
+  }>
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -682,4 +707,5 @@ export const IPC = {
   ,TEAM_START: 'team:start'
   ,TEAM_STOP: 'team:stop'
   ,TEAM_APPLY: 'team:apply'
+  ,TEAM_EVENT: 'team:event' // main -> renderer: live team bundle push
 } as const

@@ -23,6 +23,7 @@ import type {
   CreateAgentTeamInput
 } from '../../shared/types'
 import { DEFAULT_SETTINGS } from '../../shared/types'
+import { getAgentTeamTemplate } from '../../shared/agentTeamTemplates'
 
 /**
  * Lightweight JSON-file persistence for workspaces, terminals and canvas
@@ -528,6 +529,7 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   if (![3, 4, 5].includes(input.teamSize)) throw new Error('Invalid team size')
   const ts = now()
   const teamId = nanoid()
+  const template = getAgentTeamTemplate(input.templateId)
   const team: AgentTeam = {
     id: teamId,
     workspaceId: input.workspaceId,
@@ -535,32 +537,48 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
     objective,
     status: 'draft',
     permissionPolicy: input.permissionPolicy,
+    templateId: template?.id,
     createdAt: ts,
     updatedAt: ts
   }
-  const allRoles: TeamMember['role'][] = ['lead', 'researcher', 'developer', 'tester', 'reviewer']
-  const roles = allRoles.slice(0, input.teamSize)
-  const labels: Record<TeamMember['role'], string> = {
-    lead: 'Team Lead', researcher: 'Researcher', developer: 'Developer', tester: 'Test Engineer', reviewer: 'Code Reviewer'
-  }
-  const members = roles.map<TeamMember>((role) => ({ id: nanoid(), teamId, name: labels[role], role, provider: 'claude', status: 'idle' }))
-  const member = (role: TeamMember['role']): string | undefined => members.find((item) => item.role === role)?.id
-  const planId = nanoid()
-  const buildId = nanoid()
-  const testId = nanoid()
-  const tasks: TeamTask[] = [
-    { id: planId, teamId, title: 'Investigate and plan', description: objective, assigneeId: member('researcher') ?? member('lead'), status: 'ready', dependencies: [], acceptanceCriteria: ['Relevant code and risks identified', 'Actionable plan prepared'], updatedAt: ts },
-    { id: buildId, teamId, title: 'Implement the solution', description: `Implement the approved plan for this objective: ${objective}`, assigneeId: member('developer') ?? member('lead'), status: 'ready', dependencies: [planId], acceptanceCriteria: ['Changes remain within scope', 'Code builds successfully'], updatedAt: ts },
-    { id: testId, teamId, title: 'Validate and test', description: 'Test the implementation independently and report concrete evidence.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['Relevant tests pass', 'User-visible outcome verified'], updatedAt: ts }
+  const defaultMembers: Array<Pick<TeamMember, 'name' | 'role' | 'provider'> & { instructions?: string }> = [
+    { name: 'Team Lead', role: 'lead', provider: 'claude' },
+    { name: 'Researcher', role: 'researcher', provider: 'claude' },
+    { name: 'Developer', role: 'developer', provider: 'claude' },
+    { name: 'Test Engineer', role: 'tester', provider: 'claude' },
+    { name: 'Code Reviewer', role: 'reviewer', provider: 'claude' }
   ]
-  const reviewerId = member('reviewer')
-  let finalDependency = testId
-  if (reviewerId) {
-    const reviewId = nanoid()
-    tasks.push({ id: reviewId, teamId, title: 'Final code review', description: 'Review the changes for correctness, security, regressions, and scope.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['No blocking findings remain'], updatedAt: ts })
-    finalDependency = reviewId
+  const memberPlan = (template?.members ?? defaultMembers).slice(0, input.teamSize)
+  const members = memberPlan.map<TeamMember>((item) => ({ id: nanoid(), teamId, ...item, status: 'idle' }))
+  const member = (role: TeamMember['role']): string | undefined => members.find((item) => item.role === role)?.id
+  let tasks: TeamTask[]
+  if (template) {
+    const taskIds = new Map(template.tasks.map((task) => [task.key, nanoid()]))
+    tasks = template.tasks.map((task) => ({
+      id: taskIds.get(task.key)!, teamId, title: task.title,
+      description: `${task.description}\n\nTeam objective: ${objective}`,
+      assigneeId: member(task.assigneeRole) ?? member('lead'), status: 'ready',
+      dependencies: task.dependencies.map((key) => taskIds.get(key)).filter((id): id is string => Boolean(id)),
+      acceptanceCriteria: task.acceptanceCriteria, updatedAt: ts
+    }))
+  } else {
+    const planId = nanoid()
+    const buildId = nanoid()
+    const testId = nanoid()
+    tasks = [
+      { id: planId, teamId, title: 'Investigate and plan', description: objective, assigneeId: member('researcher') ?? member('lead'), status: 'ready', dependencies: [], acceptanceCriteria: ['Relevant code and risks identified', 'Actionable plan prepared'], updatedAt: ts },
+      { id: buildId, teamId, title: 'Implement the solution', description: `Implement the approved plan for this objective: ${objective}`, assigneeId: member('developer') ?? member('lead'), status: 'ready', dependencies: [planId], acceptanceCriteria: ['Changes remain within scope', 'Code builds successfully'], updatedAt: ts },
+      { id: testId, teamId, title: 'Validate and test', description: 'Test the implementation independently and report concrete evidence.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['Relevant tests pass', 'User-visible outcome verified'], updatedAt: ts }
+    ]
+    const reviewerId = member('reviewer')
+    let finalDependency = testId
+    if (reviewerId) {
+      const reviewId = nanoid()
+      tasks.push({ id: reviewId, teamId, title: 'Final code review', description: 'Review the changes for correctness, security, regressions, and scope.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['No blocking findings remain'], updatedAt: ts })
+      finalDependency = reviewId
+    }
+    tasks.push({ id: nanoid(), teamId, title: 'Synthesize the outcome', description: 'Combine all task results and summarize the changes, test evidence, and remaining risks in plain language.', assigneeId: member('lead'), status: 'ready', dependencies: [finalDependency], acceptanceCriteria: ['Outcome is clear and verifiable', 'Remaining risks are documented'], updatedAt: ts })
   }
-  tasks.push({ id: nanoid(), teamId, title: 'Synthesize the outcome', description: 'Combine all task results and summarize the changes, test evidence, and remaining risks in plain language.', assigneeId: member('lead'), status: 'ready', dependencies: [finalDependency], acceptanceCriteria: ['Outcome is clear and verifiable', 'Remaining risks are documented'], updatedAt: ts })
   store.agentTeams.push(team)
   store.teamMembers.push(...members)
   store.teamTasks.push(...tasks)
@@ -581,7 +599,7 @@ export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'stat
   return teamBundle(team)
 }
 
-export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>): void {
+export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider' | 'executionProfileId'>>): void {
   const member = store.teamMembers.find((item) => item.id === id)
   if (!member) throw new Error('Team member not found')
   Object.assign(member, patch)
@@ -594,6 +612,14 @@ export function updateTeamTask(id: string, patch: Partial<Pick<TeamTask, 'status
   Object.assign(task, patch, { updatedAt: now() })
   store.teamEvents.push({ id: nanoid(), teamId: task.teamId, taskId: task.id, type: 'task.updated', message: `${task.title}: ${task.status}`, createdAt: task.updatedAt })
   persist()
+}
+
+export function getTeamMember(id: string): TeamMember | undefined {
+  return store.teamMembers.find((item) => item.id === id)
+}
+
+export function getTeamTask(id: string): TeamTask | undefined {
+  return store.teamTasks.find((item) => item.id === id)
 }
 
 export function deleteAgentTeam(id: string): void {

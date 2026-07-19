@@ -5,12 +5,12 @@
    Two options:
    1) GitHub Releases (recommended — no Vercel size limit):
       create a release and point these at the asset URLs, e.g.
-      https://github.com/palamut62/termflow/releases/download/v0.2.1/TermFlow-0.2.1-x64.exe
+      https://github.com/palamut62/termflow/releases/download/v0.2.2/TermFlow-0.2.2-x64.exe
    2) Self-host on Vercel: drop the files in website/public/download/
-      and use "./download/TermFlow-0.2.1-x64.exe"
+      and use "./download/TermFlow-0.2.2-x64.exe"
    ============================================================ */
 const DOWNLOADS = {
-  installer: 'https://zomlia6emkmpi3hi.public.blob.vercel-storage.com/downloads/TermFlow-0.2.1-x64.exe'
+  installer: 'https://zomlia6emkmpi3hi.public.blob.vercel-storage.com/downloads/TermFlow-0.2.2-x64.exe'
 }
 
 // Wire download buttons

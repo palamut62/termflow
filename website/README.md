@@ -36,14 +36,14 @@ Open `main.js` and set `DOWNLOADS` to where the binaries live. Two options:
 **A) GitHub Releases (recommended)** — no file-size limits:
 ```js
 const DOWNLOADS = {
-  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.2.0-x64.exe'
+  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.2.2-x64.exe'
 }
 ```
 Create the release once:
 ```bash
-gh release create v0.2.0 \
-  dist/TermFlow-0.2.0-x64.exe \
-  --repo palamut62/termflow --title "TermFlow v0.2.0" --notes "Latest release"
+gh release create v0.2.2 \
+  dist/TermFlow-0.2.2-x64.exe \
+  --repo palamut62/termflow --title "TermFlow v0.2.2" --notes "Latest release"
 ```
 The `latest/download/...` URLs then always point at the newest release.
 
@@ -51,7 +51,7 @@ The `latest/download/...` URLs then always point at the newest release.
 relative paths:
 ```js
 const DOWNLOADS = {
-  installer: './download/TermFlow-0.2.0-x64.exe'
+  installer: './download/TermFlow-0.2.2-x64.exe'
 }
 ```
 Note: the installer is ~91 MB; Vercel's Hobby plan caps individual serverless

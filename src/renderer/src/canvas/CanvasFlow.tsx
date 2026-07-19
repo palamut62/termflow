@@ -14,12 +14,16 @@ import {
   useReactFlow
 } from '@xyflow/react'
 import TerminalNode from './TerminalNode'
+import TeamMemberNode from './TeamMemberNode'
 import ConnectionModal, { type ConnectionFormResult } from '../components/ConnectionModal'
 import ConfirmModal from '../components/ConfirmModal'
 import { useAppStore } from '../store/appStore'
 import { Bot, FolderOpen, Settings } from 'lucide-react'
 
-const nodeTypes: NodeTypes = { terminal: TerminalNode as unknown as React.ComponentType<NodeProps> }
+const nodeTypes: NodeTypes = {
+  terminal: TerminalNode as unknown as React.ComponentType<NodeProps>,
+  team: TeamMemberNode as unknown as React.ComponentType<NodeProps>
+}
 
 const CONN_COLORS: Record<string, string> = {
   control: '#2f80ff',
@@ -79,7 +83,7 @@ export default function CanvasFlow(): React.JSX.Element {
   const rfNodes: Node[] = useMemo(() => {
     return nodes.map((n) => ({
       id: n.id,
-      type: 'terminal',
+      type: n.teamMemberId && !n.terminalId ? 'team' : 'terminal',
       position: n.position,
       data: {},
       width: n.size.width,

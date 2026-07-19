@@ -3,7 +3,7 @@ import { createHash } from 'crypto'
 import pidusage from 'pidusage'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, statSync } from 'fs'
+import { existsSync, readFileSync, statSync } from 'fs'
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from 'fs/promises'
 import { isAbsolute, join, relative, resolve } from 'path'
 import { homedir } from 'os'
@@ -54,7 +54,7 @@ import * as dbApi from '../db/database'
 import { validateManifest, validateWorkspaceExport } from '../../shared/validation'
 import { validatePluginManifest } from '../../shared/pluginValidation'
 import { PluginRuntime } from '../plugins/PluginRuntime'
-import { TeamRuntime } from '../teams/TeamRuntime'
+import { providerEnv, TeamRuntime } from '../teams/TeamRuntime'
 
 const MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
 const MAX_PREVIEW_BYTES = 512 * 1024
@@ -112,6 +112,24 @@ async function workspaceEnv(workspaceId: string, cleanProviderEnv = false): Prom
   return out
 }
 
+function workspaceEnvSync(workspaceId: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const entry of dbApi.listEnvVars(workspaceId)) {
+    if (entry.masked && safeStorage.isEncryptionAvailable()) {
+      try { out[entry.key] = safeStorage.decryptString(Buffer.from(entry.value, 'base64')) } catch { /* ignore invalid credential */ }
+    } else if (!entry.masked) out[entry.key] = entry.value
+  }
+  if (safeStorage.isEncryptionAvailable()) {
+    let items: StoredCredential[] = []
+    try { items = JSON.parse(readFileSync(vaultFile(), 'utf8')) as StoredCredential[] } catch { /* empty vault */ }
+    for (const credential of items) {
+      if (credential.workspaceId && credential.workspaceId !== workspaceId) continue
+      try { out[credential.envKey] = safeStorage.decryptString(Buffer.from(credential.encryptedValue, 'base64')) } catch { /* ignore invalid credential */ }
+    }
+  }
+  return out
+}
+
 export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   const pluginRuntime = new PluginRuntime()
   const pty = new PtyManager(() => {
@@ -123,15 +141,62 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const wc = win.webContents
     return wc && !wc.isDestroyed() ? wc : null
   })
+  // Push the latest team bundle to the renderer for live canvas animation
+  // (avoids relying on the 1s modal polling). Safe against a destroyed window.
+  const pushTeam = (teamId: string): void => {
+    const bundle = dbApi.getAgentTeam(teamId)
+    if (!bundle) return
+    const win = getWindow()
+    if (!win || win.isDestroyed()) return
+    const wc = win.webContents
+    if (wc && !wc.isDestroyed()) wc.send(IPC.TEAM_EVENT, { teamId, bundle })
+  }
   const teamRuntime = new TeamRuntime({
     getTeam: (id) => dbApi.getAgentTeam(id),
     workspacePath: (workspaceId) => dbApi.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.path,
     runtimeRoot: () => app.getPath('userData'),
-    updateTeam: (id, patch) => { dbApi.updateAgentTeam(id, patch) },
-    updateMember: (id, patch) => dbApi.updateTeamMember(id, patch),
-    updateTask: (id, patch) => dbApi.updateTeamTask(id, patch),
-    event: (input) => { dbApi.appendTeamEvent(input) }
+    updateTeam: (id, patch) => { dbApi.updateAgentTeam(id, patch); pushTeam(id) },
+    updateMember: (id, patch) => { dbApi.updateTeamMember(id, patch); const team = dbApi.getTeamMember(id)?.teamId; if (team) pushTeam(team) },
+    updateTask: (id, patch) => { dbApi.updateTeamTask(id, patch); const team = dbApi.getTeamTask(id)?.teamId; if (team) pushTeam(team) },
+    event: (input) => { dbApi.appendTeamEvent(input); pushTeam(input.teamId) },
+    executionCommand: (member, policy) => {
+      const selection = member.executionProfileId
+      if (!selection) return undefined
+      const settings = dbApi.getSettings()
+      if (selection.startsWith('provider:')) {
+        const profile = settings.providerProfiles.find((item) => item.id === selection.slice(9))
+        if (!profile?.command.trim()) return undefined
+        const base = profile.command.trim()
+        if (member.provider === 'claude') return `${base} -p --permission-mode ${policy === 'review' ? 'plan' : policy === 'balanced' ? 'acceptEdits' : policy === 'full' ? 'bypassPermissions' : 'default'}`
+        if (member.provider === 'codex') return `${base} exec ${policy === 'review' || policy === 'controlled' ? '--sandbox read-only ' : ''}${policy === 'full' ? '--dangerously-bypass-approvals-and-sandbox ' : ''}-`
+        if (member.provider === 'opencode') return `${base} run`
+        return base
+      }
+      if (selection.startsWith('custom:')) return settings.customAgents.find((item) => item.id === selection.slice(7))?.command.trim() || undefined
+      return undefined
+    },
+    createTerminal: (bundle, member, cwd) => {
+      const id = `teampty-${bundle.team.id}-${member.id}`
+      const kind = member.provider === 'generic' ? 'claude' : member.provider
+      const ts = new Date().toISOString()
+      const profile = member.executionProfileId?.startsWith('provider:')
+        ? dbApi.getSettings().providerProfiles.find((item) => item.id === member.executionProfileId?.slice(9))
+        : undefined
+      const env = Object.fromEntries(Object.entries(providerEnv(member.provider)).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+      const savedEnv = workspaceEnvSync(bundle.team.workspaceId)
+      if (profile?.apiKeyEnv && savedEnv[profile.apiKeyEnv]) env[profile.apiKeyEnv] = savedEnv[profile.apiKeyEnv]
+      if (profile?.baseUrlEnv && profile.baseUrl) env[profile.baseUrlEnv] = profile.baseUrl
+      if (profile?.modelEnv && profile.model) env[profile.modelEnv] = profile.model
+      const input: CreateTerminalInput = { workspaceId: bundle.team.workspaceId, name: `${member.name} - ${profile?.name ?? kind}`, kind, cwd, env, cleanProviderEnv: !profile }
+      const { pid } = pty.create(id, input)
+      dbApi.upsertTerminal({ id, workspaceId: bundle.team.workspaceId, name: member.name, kind, shell: kind, args: [], cwd, cleanProviderEnv: true, pid, status: 'running', createdAt: ts, updatedAt: ts })
+      return id
+    },
+    writeTerminal: (terminalId, data) => pty.write(terminalId, data),
+    killTerminal: (terminalId) => { pty.kill(terminalId); dbApi.deleteTerminal(terminalId) }
   })
+  pty.onTerminalData((id, data) => teamRuntime.handleTerminalData(id, data))
+  pty.onTerminalExit((id, exitCode) => teamRuntime.handleTerminalExit(id, exitCode))
   app.once('before-quit', () => teamRuntime.dispose())
 
   // Apply persisted performance settings.
@@ -280,9 +345,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     }
     return dbApi.updateAgentTeam(id, patch)
   })
-  ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>) => dbApi.updateTeamMember(id, patch))
+  ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider' | 'executionProfileId'>>) => dbApi.updateTeamMember(id, patch))
   ipcMain.handle(IPC.TEAM_TASK_UPDATE, (_e, id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId' | 'approved'>>) => dbApi.updateTeamTask(id, patch))
-  ipcMain.handle(IPC.TEAM_DELETE, (_e, id: string) => dbApi.deleteAgentTeam(id))
+  ipcMain.handle(IPC.TEAM_DELETE, (_e, id: string) => {
+    const bundle = dbApi.getAgentTeam(id)
+    const workspacePath = bundle ? dbApi.listWorkspaces().find((workspace) => workspace.id === bundle.team.workspaceId)?.path : undefined
+    teamRuntime.cleanup(id, workspacePath)
+    return dbApi.deleteAgentTeam(id)
+  })
   ipcMain.handle(IPC.TEAM_START, (_e, id: string) => teamRuntime.start(id))
   ipcMain.handle(IPC.TEAM_STOP, (_e, id: string) => teamRuntime.stop(id))
   ipcMain.handle(IPC.TEAM_APPLY, (_e, id: string) => teamRuntime.apply(id))

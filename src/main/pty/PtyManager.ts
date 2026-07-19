@@ -91,10 +91,22 @@ interface ManagedPty {
  */
 export class PtyManager {
   private terminals = new Map<string, ManagedPty>()
+  private dataListeners = new Set<(id: string, data: string) => void>()
+  private exitListeners = new Set<(id: string, exitCode: number) => void>()
   private maxLines = DEFAULT_SCROLLBACK_LINES
   private passiveIntervalMs = 250
 
   constructor(private getSender: () => WebContents | null) {}
+
+  onTerminalData(listener: (id: string, data: string) => void): () => void {
+    this.dataListeners.add(listener)
+    return () => this.dataListeners.delete(listener)
+  }
+
+  onTerminalExit(listener: (id: string, exitCode: number) => void): () => void {
+    this.exitListeners.add(listener)
+    return () => this.exitListeners.delete(listener)
+  }
 
   create(id: string, input: CreateTerminalInput): { pid: number } {
     if (this.terminals.has(id)) this.kill(id)
@@ -146,6 +158,7 @@ export class PtyManager {
       this.flush(managed, true)
       const durationMs = Date.now() - managed.createdAt
       this.getSender()?.send(IPC.PTY_EXIT, { id, exitCode, durationMs })
+      for (const listener of this.exitListeners) listener(id, exitCode)
       // Release the heavy per-terminal routing/echo state now that the process
       // is gone. `buffer` is intentionally kept so the renderer can rehydrate.
       managed.recentInbound = []
@@ -177,6 +190,7 @@ export class PtyManager {
   }
 
   private onData(managed: ManagedPty, data: string): void {
+    for (const listener of this.dataListeners) listener(managed.id, data)
     managed.totalEmitted += data.length
     // Ring buffer (single-pass newline count, also cap chunk count). PRD §11.8
     managed.buffer.push(data)
