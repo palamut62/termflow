@@ -26,8 +26,10 @@ interface NativeSession {
 
 const RING_MAX = 8000
 const NOTE_THROTTLE_MS = 1000
-const PROMPT_DELAY_MS = 1500
+const PROMPT_DELAY_MS = 3000
 const SHUTDOWN_GRACE_MS = 5000
+const PROMPT_RETRY_MS = 20000
+const PROMPT_MAX_ATTEMPTS = 6
 
 // Native runtime: launches a real Claude Code agent-team lead session over a
 // PTY and lets Claude plan/spawn/coordinate teammates itself. TermFlow only
@@ -63,7 +65,11 @@ export class NativeTeamRuntime {
     const env = { ...providerEnv('claude'), CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1', TERM: 'xterm-256color' } as { [key: string]: string }
     // node-pty can't spawn a .cmd/.bat/.ps1 shim directly on Windows either, so
     // reuse the same launch builder that verifyClaudeBinary used.
-    const launch = buildClaudeLaunch(verify.path, ['--teammate-mode', 'in-process'])
+    // Map the team policy to a CLI permission mode; the default (manual
+    // approvals) would stall every team tool call waiting for a user click.
+    const policy = bundle.team.permissionPolicy
+    const permissionMode = policy === 'review' ? 'plan' : policy === 'full' ? 'bypassPermissions' : 'acceptEdits'
+    const launch = buildClaudeLaunch(verify.path, ['--teammate-mode', 'in-process', '--permission-mode', permissionMode])
     const proc = pty.spawn(launch.command, launch.args, { cwd, env, cols: 200, rows: 50 })
     const session: NativeSession = { proc, ring: '', lastNoteAt: 0 }
     this.sessions.set(teamId, session)
@@ -82,13 +88,26 @@ export class NativeTeamRuntime {
       }
     })
 
-    // Give the CLI a moment to boot, then instruct the lead to create the team.
+    // Instruct the lead to create the team. The interactive TUI can be showing
+    // startup dialogs (folder trust, MCP selection) that swallow early input,
+    // and it drops a carriage return sent in the same chunk as the text — so:
+    // write the text, submit with a delayed Enter, and keep re-sending until
+    // the bridge sees the team dir appear (the Enter also accepts the safe
+    // defaults of any startup dialog that ate the previous attempt).
     const objective = bundle.team.objective
-    setTimeout(() => {
-      if (this.sessions.get(teamId) !== session) return
-      const prompt = `Create an agent team named exactly '${teamName}'. Objective: ${objective}. Plan the work yourself, spawn teammates as needed, coordinate via the shared task list, and shut the team down when the objective is complete.`
-      try { proc.write(`${prompt}\r`) } catch { /* session gone */ }
-    }, PROMPT_DELAY_MS)
+    const prompt = `Create an agent team named exactly '${teamName}'. Objective: ${objective}. Plan the work yourself, spawn teammates as needed, coordinate via the shared task list, and shut the team down when the objective is complete.`
+    let attempts = 0
+    const sendPrompt = (): void => {
+      if (this.sessions.get(teamId) !== session || session.seenTeamDir || session.stopping) return
+      if (attempts++ >= PROMPT_MAX_ATTEMPTS) {
+        this.callbacks.event({ teamId, type: 'note', message: 'The lead session did not create the team (startup dialogs may need attention). Use the message box to talk to it directly.' })
+        return
+      }
+      try { proc.write(prompt) } catch { return }
+      setTimeout(() => { if (this.sessions.get(teamId) === session) { try { proc.write('\r') } catch { /* gone */ } } }, 600)
+      setTimeout(sendPrompt, PROMPT_RETRY_MS)
+    }
+    setTimeout(sendPrompt, PROMPT_DELAY_MS)
 
     // Start the read-only state bridge.
     session.stopWatch = watchTeam(teamName, (state) => this.applyState(teamId, teamName, state))
