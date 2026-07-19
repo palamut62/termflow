@@ -111,6 +111,9 @@ export interface CanvasNode {
   bypass?: boolean
   /** When true, auto-layout (grid/columns/rows/auto_fit/focus) skips repositioning this node. */
   isPinned?: boolean
+  /** Ephemeral agent-team visualization node (no PTY). Set to the member/team it represents. */
+  teamMemberId?: string
+  teamId?: string
 }
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
@@ -418,6 +421,8 @@ export type AgentTeamStatus = 'draft' | 'running' | 'paused' | 'completed' | 'fa
 export type TeamMemberStatus = 'idle' | 'working' | 'waiting' | 'completed' | 'failed' | 'stopped'
 export type TeamTaskStatus = 'ready' | 'working' | 'approval' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled'
 
+export type TeamRuntimeType = 'workflow' | 'native'
+
 export interface AgentTeam {
   id: string
   workspaceId: string
@@ -425,6 +430,14 @@ export interface AgentTeam {
   objective: string
   status: AgentTeamStatus
   permissionPolicy: TeamPermissionPolicy
+  /** Runtime kind: static multi-provider workflow or a native Claude agent team. Legacy records default to 'workflow'. */
+  runtimeType: TeamRuntimeType
+  /** Name of the native Claude agent team (only for runtimeType 'native'). */
+  nativeTeamName?: string
+  worktreePath?: string
+  worktreeBranch?: string
+  baseCommit?: string
+  appliedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -434,9 +447,10 @@ export interface TeamMember {
   teamId: string
   name: string
   role: 'lead' | 'researcher' | 'developer' | 'tester' | 'reviewer'
-  provider: 'claude'
+  provider: 'claude' | 'codex' | 'opencode' | 'generic'
   status: TeamMemberStatus
   terminalId?: string
+  sessionId?: string
 }
 
 export interface TeamTask {
@@ -449,6 +463,7 @@ export interface TeamTask {
   dependencies: string[]
   acceptanceCriteria: string[]
   result?: string
+  approved?: boolean
   updatedAt: string
 }
 
@@ -457,7 +472,7 @@ export interface TeamEvent {
   teamId: string
   memberId?: string
   taskId?: string
-  type: 'team.created' | 'team.started' | 'team.stopped' | 'member.started' | 'task.updated' | 'note'
+  type: 'team.created' | 'team.started' | 'team.stopped' | 'member.started' | 'task.updated' | 'note' | 'runtime.lost'
   message: string
   createdAt: string
 }
@@ -474,6 +489,7 @@ export interface CreateAgentTeamInput {
   objective: string
   permissionPolicy: TeamPermissionPolicy
   teamSize: 3 | 4 | 5
+  runtimeType?: TeamRuntimeType
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -673,4 +689,9 @@ export const IPC = {
   TEAM_DELETE: 'team:delete',
   TEAM_MEMBER_UPDATE: 'team:member:update',
   TEAM_TASK_UPDATE: 'team:task:update'
+  ,TEAM_START: 'team:start'
+  ,TEAM_STOP: 'team:stop'
+  ,TEAM_APPLY: 'team:apply'
+  ,TEAM_MESSAGE: 'team:message' // renderer -> main: user message to a native team lead
+  ,TEAM_EVENT: 'team:event' // main -> renderer: live team bundle push
 } as const

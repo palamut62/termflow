@@ -54,6 +54,9 @@ import * as dbApi from '../db/database'
 import { validateManifest, validateWorkspaceExport } from '../../shared/validation'
 import { validatePluginManifest } from '../../shared/pluginValidation'
 import { PluginRuntime } from '../plugins/PluginRuntime'
+import { TeamRuntime, type RuntimeCallbacks } from '../teams/TeamRuntime'
+import { NativeTeamRuntime } from '../teams/NativeTeamRuntime'
+import type { NativeTeamState } from '../teams/NativeBridge'
 
 const MAX_JSON_FILE_BYTES = 2 * 1024 * 1024
 const MAX_PREVIEW_BYTES = 512 * 1024
@@ -122,6 +125,37 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     const wc = win.webContents
     return wc && !wc.isDestroyed() ? wc : null
   })
+  // Push the latest team bundle to the renderer for live canvas animation
+  // (avoids relying on the 1s modal polling). Safe against a destroyed window.
+  const pushTeam = (teamId: string): void => {
+    const bundle = dbApi.getAgentTeam(teamId)
+    if (!bundle) return
+    const win = getWindow()
+    if (!win || win.isDestroyed()) return
+    const wc = win.webContents
+    if (wc && !wc.isDestroyed()) wc.send(IPC.TEAM_EVENT, { teamId, bundle })
+  }
+  const teamCallbacks: RuntimeCallbacks = {
+    getTeam: (id) => dbApi.getAgentTeam(id),
+    workspacePath: (workspaceId) => dbApi.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.path,
+    runtimeRoot: () => app.getPath('userData'),
+    updateTeam: (id, patch) => { dbApi.updateAgentTeam(id, patch); pushTeam(id) },
+    updateMember: (id, patch) => { dbApi.updateTeamMember(id, patch); const team = dbApi.getTeamMember(id)?.teamId; if (team) pushTeam(team) },
+    updateTask: (id, patch) => { dbApi.updateTeamTask(id, patch); const team = dbApi.getTeamTask(id)?.teamId; if (team) pushTeam(team) },
+    event: (input) => { dbApi.appendTeamEvent(input); pushTeam(input.teamId) },
+    syncNativeState: (teamId, state) => { dbApi.syncNativeTeamState(teamId, state as NativeTeamState); pushTeam(teamId) }
+  }
+  const teamRuntime = new TeamRuntime(teamCallbacks)
+  const nativeRuntime = new NativeTeamRuntime(teamCallbacks)
+  // Native teams cannot survive an app restart (their CLI child died with the
+  // previous process): mark any lingering 'running' native team as lost.
+  for (const workspace of dbApi.listWorkspaces()) {
+    for (const bundle of dbApi.listAgentTeams(workspace.id)) {
+      if (bundle.team.runtimeType === 'native' && bundle.team.status === 'running') nativeRuntime.reattachCheck(bundle.team.id)
+    }
+  }
+  const runtimeFor = (id: string): TeamRuntime | NativeTeamRuntime => dbApi.getAgentTeam(id)?.team.runtimeType === 'native' ? nativeRuntime : teamRuntime
+  app.once('before-quit', () => { teamRuntime.dispose(); nativeRuntime.dispose() })
 
   // Apply persisted performance settings.
   const s = dbApi.getSettings()
@@ -262,10 +296,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   // ---- Agent Teams ----
   ipcMain.handle(IPC.TEAM_LIST, (_e, workspaceId: string) => dbApi.listAgentTeams(workspaceId))
   ipcMain.handle(IPC.TEAM_CREATE, (_e, input: CreateAgentTeamInput) => dbApi.createAgentTeam(input))
-  ipcMain.handle(IPC.TEAM_UPDATE, (_e, id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>) => dbApi.updateAgentTeam(id, patch))
-  ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>) => dbApi.updateTeamMember(id, patch))
-  ipcMain.handle(IPC.TEAM_TASK_UPDATE, (_e, id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>) => dbApi.updateTeamTask(id, patch))
+  ipcMain.handle(IPC.TEAM_UPDATE, (_e, id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>) => {
+    if (patch.status === 'paused') {
+      if (dbApi.getAgentTeam(id)?.team.runtimeType === 'native') throw new Error('Pause is not supported for native teams.')
+      teamRuntime.pause(id)
+      return dbApi.getAgentTeam(id)
+    }
+    return dbApi.updateAgentTeam(id, patch)
+  })
+  ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>) => dbApi.updateTeamMember(id, patch))
+  ipcMain.handle(IPC.TEAM_TASK_UPDATE, (_e, id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId' | 'approved'>>) => dbApi.updateTeamTask(id, patch))
   ipcMain.handle(IPC.TEAM_DELETE, (_e, id: string) => dbApi.deleteAgentTeam(id))
+  ipcMain.handle(IPC.TEAM_START, (_e, id: string) => runtimeFor(id).start(id))
+  ipcMain.handle(IPC.TEAM_STOP, (_e, id: string) => runtimeFor(id).stop(id))
+  ipcMain.handle(IPC.TEAM_APPLY, (_e, id: string) => {
+    if (dbApi.getAgentTeam(id)?.team.runtimeType === 'native') throw new Error('Apply is not supported for native teams.')
+    return teamRuntime.apply(id)
+  })
+  ipcMain.handle(IPC.TEAM_MESSAGE, (_e, id: string, text: string) => nativeRuntime.sendMessage(id, text))
 
   // ---- Snippets ----
   ipcMain.handle(IPC.SNIPPET_LIST, (_e, workspaceId?: string) => dbApi.listSnippets(workspaceId))

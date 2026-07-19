@@ -23,6 +23,7 @@ import type {
   CreateAgentTeamInput
 } from '../../shared/types'
 import { DEFAULT_SETTINGS } from '../../shared/types'
+import type { NativeTeamState } from '../teams/NativeBridge'
 
 /**
  * Lightweight JSON-file persistence for workspaces, terminals and canvas
@@ -125,6 +126,38 @@ function now(): string {
   return new Date().toISOString()
 }
 
+function migrateAgentTeamsToEnglish(): void {
+  const memberNames: Record<string, string> = { 'Takım Lideri': 'Team Lead', 'Araştırmacı': 'Researcher', 'Geliştirici': 'Developer', 'Test Uzmanı': 'Test Engineer', 'Kod İnceleyici': 'Code Reviewer' }
+  const taskTitles: Record<string, string> = { 'Hedefi incele ve planla': 'Investigate and plan', 'Çözümü uygula': 'Implement the solution', 'Doğrula ve test et': 'Validate and test', 'Son kod incelemesi': 'Final code review', 'Sonucu sentezle': 'Synthesize the outcome' }
+  const messages: Record<string, string> = {
+    'Takım ve görev planı oluşturuldu.': 'Team and task plan created.',
+    'Takım çalışmaya başladı.': 'Team started.',
+    'Takım ve çalışan görevler duraklatıldı.': 'The team and its active tasks were paused.',
+    'Takımın doğrulanmış değişiklikleri ana projeye uygulandı.': 'The team changes were applied to the main workspace.',
+    'Uygulama planı hazır. Kod değişikliği için kullanıcı onayı bekleniyor.': 'The implementation plan is ready. Waiting for approval to change code.'
+  }
+  for (const member of store.teamMembers) member.name = memberNames[member.name] ?? member.name
+  for (const task of store.teamTasks) {
+    task.title = taskTitles[task.title] ?? task.title
+    task.description = task.description
+      .replace('Onaylanan plana göre hedefi gerçekleştir:', 'Implement the approved plan for this objective:')
+      .replace('Uygulanan değişikliği test et ve kanıtları raporla.', 'Test the implementation independently and report concrete evidence.')
+      .replace('Değişiklikleri güvenlik, doğruluk ve kapsam açısından incele.', 'Review the changes for correctness, security, regressions, and scope.')
+      .replace('Tüm görev sonuçlarını birleştir; yapılanları, test kanıtlarını ve kalan riskleri kullanıcı dilinde özetle.', 'Combine all task results and summarize the changes, test evidence, and remaining risks in plain language.')
+    const criteria: Record<string, string> = { 'İlgili kod ve riskler belirlendi': 'Relevant code and risks identified', 'Uygulanabilir plan hazırlandı': 'Actionable plan prepared', 'Değişiklik hedefle sınırlı': 'Changes remain within scope', 'Kod derleniyor': 'Code builds successfully', 'İlgili testler geçti': 'Relevant tests pass', 'Kullanıcı sonucu doğrulandı': 'User-visible outcome verified', 'Engelleyici bulgu kalmadı': 'No blocking findings remain', 'Sonuç açık ve doğrulanabilir': 'Outcome is clear and verifiable', 'Kalan riskler belirtildi': 'Remaining risks are documented' }
+    task.acceptanceCriteria = task.acceptanceCriteria.map((item) => criteria[item] ?? item)
+    if (task.result === 'Kod değişikliğine başlamadan önce kullanıcı onayı gerekiyor.') task.result = 'User approval is required before changing code.'
+    if (task.result === 'Kullanıcı tarafından durduruldu.') task.result = 'Stopped by the user.'
+    if (task.result === 'Görev duraklatıldı; devam edildiğinde yeniden çalıştırılacak.') task.result = 'Task paused; it will restart when the team resumes.'
+  }
+  for (const event of store.teamEvents) {
+    event.message = messages[event.message] ?? event.message
+    for (const [oldTitle, newTitle] of Object.entries(taskTitles)) event.message = event.message.replace(oldTitle, newTitle)
+    for (const [oldName, newName] of Object.entries(memberNames)) event.message = event.message.replace(oldName, newName)
+    event.message = event.message.replace('Takım durumu:', 'Team status:').replace(' görevine başladı.', '.').replace(': tamamlandı', ': completed').replace(': başarısız', ': failed')
+  }
+}
+
 export function initDatabase(): void {
   const dir = app.getPath('userData')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -150,6 +183,12 @@ export function initDatabase(): void {
   } else {
     store = empty()
   }
+  migrateAgentTeamsToEnglish()
+  // Agent subprocesses cannot survive an app restart. Resume their durable
+  // task records in a safe paused state instead of showing phantom workers.
+  for (const team of store.agentTeams) if (team.status === 'running') team.status = 'paused'
+  for (const member of store.teamMembers) if (member.status === 'working') member.status = 'idle'
+  for (const task of store.teamTasks) if (task.status === 'working') task.status = 'ready'
   if (store.workspaces.length === 0) {
     createWorkspace({
       name: 'Default',
@@ -457,7 +496,8 @@ export function saveLayout(layout: WorkspaceLayout): void {
 
 function teamBundle(team: AgentTeam): AgentTeamBundle {
   return {
-    team: { ...team },
+    // Legacy records predate runtimeType: default them to the workflow runtime.
+    team: { ...team, runtimeType: team.runtimeType ?? 'workflow' },
     members: store.teamMembers.filter((member) => member.teamId === team.id),
     tasks: store.teamTasks.filter((task) => task.teamId === team.id),
     events: store.teamEvents.filter((event) => event.teamId === team.id).slice(-200)
@@ -471,12 +511,26 @@ export function listAgentTeams(workspaceId: string): AgentTeamBundle[] {
     .map(teamBundle)
 }
 
+export function getAgentTeam(id: string): AgentTeamBundle | undefined {
+  const team = store.agentTeams.find((item) => item.id === id)
+  return team ? teamBundle(team) : undefined
+}
+
+export function appendTeamEvent(input: Omit<TeamEvent, 'id' | 'createdAt'>): TeamEvent {
+  const event: TeamEvent = { id: nanoid(), ...input, createdAt: now() }
+  store.teamEvents.push(event)
+  if (store.teamEvents.length > 5000) store.teamEvents.splice(0, store.teamEvents.length - 5000)
+  persist()
+  return event
+}
+
 export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   const objective = input.objective.trim().slice(0, 2000)
-  if (!objective) throw new Error('Takım hedefi boş olamaz')
-  if (![3, 4, 5].includes(input.teamSize)) throw new Error('Takım boyutu geçersiz')
+  if (!objective) throw new Error('Team objective cannot be empty')
+  if (![3, 4, 5].includes(input.teamSize)) throw new Error('Invalid team size')
   const ts = now()
   const teamId = nanoid()
+  const runtimeType = input.runtimeType === 'native' ? 'native' : 'workflow'
   const team: AgentTeam = {
     id: teamId,
     workspaceId: input.workspaceId,
@@ -484,13 +538,24 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
     objective,
     status: 'draft',
     permissionPolicy: input.permissionPolicy,
+    runtimeType,
     createdAt: ts,
     updatedAt: ts
+  }
+  // Native teams let Claude plan and spawn its own teammates: seed only a lead
+  // placeholder; members and tasks are filled in by the native bridge sync.
+  if (runtimeType === 'native') {
+    const lead: TeamMember = { id: nanoid(), teamId, name: 'Team Lead', role: 'lead', provider: 'claude', status: 'idle' }
+    store.agentTeams.push(team)
+    store.teamMembers.push(lead)
+    store.teamEvents.push({ id: nanoid(), teamId, type: 'team.created', message: 'Native agent team created.', createdAt: ts })
+    persist()
+    return teamBundle(team)
   }
   const allRoles: TeamMember['role'][] = ['lead', 'researcher', 'developer', 'tester', 'reviewer']
   const roles = allRoles.slice(0, input.teamSize)
   const labels: Record<TeamMember['role'], string> = {
-    lead: 'Takım Lideri', researcher: 'Araştırmacı', developer: 'Geliştirici', tester: 'Test Uzmanı', reviewer: 'Kod İnceleyici'
+    lead: 'Team Lead', researcher: 'Researcher', developer: 'Developer', tester: 'Test Engineer', reviewer: 'Code Reviewer'
   }
   const members = roles.map<TeamMember>((role) => ({ id: nanoid(), teamId, name: labels[role], role, provider: 'claude', status: 'idle' }))
   const member = (role: TeamMember['role']): string | undefined => members.find((item) => item.role === role)?.id
@@ -498,44 +563,112 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   const buildId = nanoid()
   const testId = nanoid()
   const tasks: TeamTask[] = [
-    { id: planId, teamId, title: 'Hedefi incele ve planla', description: objective, assigneeId: member('researcher') ?? member('lead'), status: 'ready', dependencies: [], acceptanceCriteria: ['İlgili kod ve riskler belirlendi', 'Uygulanabilir plan hazırlandı'], updatedAt: ts },
-    { id: buildId, teamId, title: 'Çözümü uygula', description: `Onaylanan plana göre hedefi gerçekleştir: ${objective}`, assigneeId: member('developer') ?? member('lead'), status: 'ready', dependencies: [planId], acceptanceCriteria: ['Değişiklik hedefle sınırlı', 'Kod derleniyor'], updatedAt: ts },
-    { id: testId, teamId, title: 'Doğrula ve test et', description: 'Uygulanan değişikliği test et ve kanıtları raporla.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['İlgili testler geçti', 'Kullanıcı sonucu doğrulandı'], updatedAt: ts }
+    { id: planId, teamId, title: 'Investigate and plan', description: objective, assigneeId: member('researcher') ?? member('lead'), status: 'ready', dependencies: [], acceptanceCriteria: ['Relevant code and risks identified', 'Actionable plan prepared'], updatedAt: ts },
+    { id: buildId, teamId, title: 'Implement the solution', description: `Implement the approved plan for this objective: ${objective}`, assigneeId: member('developer') ?? member('lead'), status: 'ready', dependencies: [planId], acceptanceCriteria: ['Changes remain within scope', 'Code builds successfully'], updatedAt: ts },
+    { id: testId, teamId, title: 'Validate and test', description: 'Test the implementation independently and report concrete evidence.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['Relevant tests pass', 'User-visible outcome verified'], updatedAt: ts }
   ]
   const reviewerId = member('reviewer')
-  if (reviewerId) tasks.push({ id: nanoid(), teamId, title: 'Son kod incelemesi', description: 'Değişiklikleri güvenlik, doğruluk ve kapsam açısından incele.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['Engelleyici bulgu kalmadı'], updatedAt: ts })
+  let finalDependency = testId
+  if (reviewerId) {
+    const reviewId = nanoid()
+    tasks.push({ id: reviewId, teamId, title: 'Final code review', description: 'Review the changes for correctness, security, regressions, and scope.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['No blocking findings remain'], updatedAt: ts })
+    finalDependency = reviewId
+  }
+  tasks.push({ id: nanoid(), teamId, title: 'Synthesize the outcome', description: 'Combine all task results and summarize the changes, test evidence, and remaining risks in plain language.', assigneeId: member('lead'), status: 'ready', dependencies: [finalDependency], acceptanceCriteria: ['Outcome is clear and verifiable', 'Remaining risks are documented'], updatedAt: ts })
   store.agentTeams.push(team)
   store.teamMembers.push(...members)
   store.teamTasks.push(...tasks)
-  store.teamEvents.push({ id: nanoid(), teamId, type: 'team.created', message: 'Takım ve görev planı oluşturuldu.', createdAt: ts })
+  store.teamEvents.push({ id: nanoid(), teamId, type: 'team.created', message: 'Team and task plan created.', createdAt: ts })
   persist()
   return teamBundle(team)
 }
 
-export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>): AgentTeamBundle {
+export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name' | 'worktreePath' | 'worktreeBranch' | 'baseCommit' | 'appliedAt' | 'nativeTeamName'>>): AgentTeamBundle {
   const team = store.agentTeams.find((item) => item.id === id)
-  if (!team) throw new Error('Takım bulunamadı')
-  if (patch.name) team.name = patch.name.trim().slice(0, 80)
-  if (patch.status) team.status = patch.status
+  if (!team) throw new Error('Team not found')
+  const { name, ...rest } = patch
+  if (name) team.name = name.trim().slice(0, 80)
+  Object.assign(team, rest)
   team.updatedAt = now()
-  store.teamEvents.push({ id: nanoid(), teamId: id, type: patch.status === 'running' ? 'team.started' : 'team.stopped', message: patch.status === 'running' ? 'Takım çalışmaya başladı.' : `Takım durumu: ${patch.status ?? team.status}`, createdAt: team.updatedAt })
+  if (patch.status) store.teamEvents.push({ id: nanoid(), teamId: id, type: patch.status === 'running' ? 'team.started' : 'team.stopped', message: patch.status === 'running' ? 'Team started.' : `Team status: ${patch.status}`, createdAt: team.updatedAt })
   persist()
   return teamBundle(team)
 }
 
-export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>): void {
+export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId' | 'sessionId' | 'provider'>>): void {
   const member = store.teamMembers.find((item) => item.id === id)
-  if (!member) throw new Error('Takım üyesi bulunamadı')
+  if (!member) throw new Error('Team member not found')
   Object.assign(member, patch)
   persist()
 }
 
-export function updateTeamTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>): void {
+export function updateTeamTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId' | 'approved'>>): void {
   const task = store.teamTasks.find((item) => item.id === id)
-  if (!task) throw new Error('Görev bulunamadı')
+  if (!task) throw new Error('Task not found')
   Object.assign(task, patch, { updatedAt: now() })
   store.teamEvents.push({ id: nanoid(), teamId: task.teamId, taskId: task.id, type: 'task.updated', message: `${task.title}: ${task.status}`, createdAt: task.updatedAt })
   persist()
+}
+
+// Map an experimental native task/member status onto TermFlow's task states.
+function mapNativeTaskStatus(status?: string): TeamTask['status'] {
+  switch ((status || '').toLowerCase()) {
+    case 'in_progress': case 'in-progress': case 'working': return 'working'
+    case 'completed': case 'done': return 'completed'
+    case 'blocked': return 'blocked'
+    default: return 'ready'
+  }
+}
+function mapNativeMemberStatus(status?: string): TeamMember['status'] {
+  switch ((status || '').toLowerCase()) {
+    case 'working': case 'in_progress': case 'busy': return 'working'
+    case 'completed': case 'done': return 'completed'
+    case 'waiting': case 'blocked': return 'waiting'
+    case 'failed': return 'failed'
+    default: return 'idle'
+  }
+}
+
+// Reconcile the DB model of a native team with the read-only bridge snapshot.
+// Members are matched by name, tasks by title; unknown ones are inserted.
+export function syncNativeTeamState(teamId: string, state: NativeTeamState): void {
+  const team = store.agentTeams.find((item) => item.id === teamId)
+  if (!team) return
+  let changed = false
+  for (const m of state.members) {
+    const name = (m.name || '').trim()
+    if (!name) continue
+    const existing = store.teamMembers.find((x) => x.teamId === teamId && x.name.toLowerCase() === name.toLowerCase())
+    const status = mapNativeMemberStatus(m.status)
+    if (existing) {
+      if (existing.status !== status) { existing.status = status; changed = true }
+    } else {
+      store.teamMembers.push({ id: nanoid(), teamId, name, role: m.lead ? 'lead' : 'developer', provider: 'claude', status })
+      changed = true
+    }
+  }
+  for (const t of state.tasks) {
+    const title = (t.title || '').trim()
+    if (!title) continue
+    const existing = store.teamTasks.find((x) => x.teamId === teamId && x.title.toLowerCase() === title.toLowerCase())
+    const status = mapNativeTaskStatus(t.status)
+    if (existing) {
+      if (existing.status !== status || (t.description && existing.description !== t.description)) { existing.status = status; if (t.description) existing.description = t.description; existing.updatedAt = now(); changed = true }
+    } else {
+      const owner = t.owner ? store.teamMembers.find((x) => x.teamId === teamId && x.name.toLowerCase() === t.owner!.toLowerCase())?.id : undefined
+      store.teamTasks.push({ id: nanoid(), teamId, title, description: t.description || '', assigneeId: owner, status, dependencies: [], acceptanceCriteria: [], updatedAt: now() })
+      changed = true
+    }
+  }
+  if (changed) { team.updatedAt = now(); persist() }
+}
+
+export function getTeamMember(id: string): TeamMember | undefined {
+  return store.teamMembers.find((item) => item.id === id)
+}
+
+export function getTeamTask(id: string): TeamTask | undefined {
+  return store.teamTasks.find((item) => item.id === id)
 }
 
 export function deleteAgentTeam(id: string): void {

@@ -5,7 +5,11 @@ import type {
   AgentConnection,
   LayoutMode,
   ConnectionType,
-  CanvasViewport
+  CanvasViewport,
+  AgentTeamBundle,
+  NodeStatus,
+  TeamMemberStatus,
+  AgentType
 } from '../../../../shared/types'
 import { computeLayout } from '../../autolayout'
 import { syncAgentRouting } from '../storeShared'
@@ -14,6 +18,8 @@ import type { AppState } from '../appStore'
 export interface LayoutSlice {
   nodes: CanvasNode[]
   connections: AgentConnection[]
+  /** Live agent-team bundles keyed by team id, powering the ephemeral canvas visualization. */
+  teamBundles: Record<string, AgentTeamBundle>
   activeNodeId: string | null
   selectedConnectionId: string | null
   developerCenterOpen: boolean
@@ -36,6 +42,11 @@ export interface LayoutSlice {
   addConnection: (source: string, target: string, type: ConnectionType, label?: string, routeOpts?: { triggerPattern?: string; transform?: string; routeBehavior?: 'marker' | 'continuous' | 'disabled'; routeDirection?: 'source_to_target' | 'bidirectional' }) => void
   removeConnection: (id: string) => void
 
+  // Ephemeral agent-team visualization: mirror a running team's members/deps as
+  // PTY-less canvas nodes + dependency edges. Never persisted (see flushPersist).
+  syncTeamCanvas: (bundle: AgentTeamBundle) => void
+  clearTeamCanvas: (teamId: string) => void
+
   setLayoutMode: (mode: LayoutMode, vp?: { width: number; height: number }) => void
   applyAutoLayout: (vp: { width: number; height: number }) => void
   resizeFocusedNode: (nodeId: string, width: number) => void
@@ -52,6 +63,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (set, get) => ({
   nodes: [],
   connections: [],
+  teamBundles: {},
   activeNodeId: null,
   selectedConnectionId: null,
   developerCenterOpen: false,
@@ -222,6 +234,90 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     get().persist()
   },
 
+  syncTeamCanvas: (bundle) => {
+    const st = get()
+    const teamId = bundle.team.id
+    if (!st.activeWorkspaceId) return
+    // Only running/paused teams are visualized; anything terminal is torn down.
+    if (!['running', 'paused'].includes(bundle.team.status)) { get().clearTeamCanvas(teamId); return }
+    const memberStatus = (s: TeamMemberStatus): NodeStatus =>
+      s === 'working' ? 'running' : s === 'completed' ? 'completed' : s === 'failed' ? 'error' : 'idle'
+    const providerToAgent: Record<string, AgentType> = { claude: 'claude', codex: 'codex', opencode: 'opencode', generic: 'custom' }
+    const existing = new Map(st.nodes.filter((n) => n.teamId === teamId).map((n) => [n.teamMemberId!, n]))
+    const cols = Math.max(1, Math.ceil(Math.sqrt(bundle.members.length)))
+    const GW = 360
+    const GH = 300
+    const teamNodes: CanvasNode[] = bundle.members.map((m, i) => {
+      const prev = existing.get(m.id)
+      const position = prev?.position ?? { x: 60 + (i % cols) * GW, y: 60 + Math.floor(i / cols) * GH }
+      return {
+        id: prev?.id ?? `team-${teamId}-${m.id}`,
+        workspaceId: st.activeWorkspaceId!,
+        title: m.name,
+        nodeType: 'agent' as const,
+        agentType: providerToAgent[m.provider] ?? 'custom',
+        agentRole: m.role,
+        position,
+        size: prev?.size ?? { width: 320, height: 250 },
+        zIndex: prev?.zIndex ?? 1,
+        isMinimized: false,
+        isMaximized: false,
+        status: memberStatus(m.status),
+        showInfo: false,
+        teamMemberId: m.id,
+        teamId
+      }
+    })
+    const memberNodeId = new Map(bundle.members.map((m) => [m.id, teamNodes.find((n) => n.teamMemberId === m.id)!.id]))
+    const workingMembers = new Set(bundle.members.filter((m) => m.status === 'working').map((m) => m.id))
+    const taskById = new Map(bundle.tasks.map((t) => [t.id, t]))
+    const seen = new Set<string>()
+    const teamConns: AgentConnection[] = []
+    for (const task of bundle.tasks) {
+      if (!task.assigneeId) continue
+      const target = memberNodeId.get(task.assigneeId)
+      if (!target) continue
+      for (const depId of task.dependencies) {
+        const dep = taskById.get(depId)
+        if (!dep?.assigneeId) continue
+        const source = memberNodeId.get(dep.assigneeId)
+        if (!source || source === target) continue
+        const key = `${source}->${target}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const active = workingMembers.has(task.assigneeId) || workingMembers.has(dep.assigneeId)
+        teamConns.push({
+          id: `teamconn-${teamId}-${source}-${target}`,
+          workspaceId: st.activeWorkspaceId!,
+          sourceNodeId: source,
+          targetNodeId: target,
+          connectionType: 'dependency',
+          label: task.title,
+          isActive: true,
+          status: active ? 'active' : 'idle'
+        })
+      }
+    }
+    set((s) => ({
+      teamBundles: { ...s.teamBundles, [teamId]: bundle },
+      nodes: [...s.nodes.filter((n) => n.teamId !== teamId), ...teamNodes],
+      connections: [...s.connections.filter((c) => !c.id.startsWith(`teamconn-${teamId}-`)), ...teamConns]
+    }))
+  },
+
+  clearTeamCanvas: (teamId) => {
+    set((s) => {
+      const teamBundles = { ...s.teamBundles }
+      delete teamBundles[teamId]
+      return {
+        teamBundles,
+        nodes: s.nodes.filter((n) => n.teamId !== teamId),
+        connections: s.connections.filter((c) => !c.id.startsWith(`teamconn-${teamId}-`)),
+        activeNodeId: s.nodes.find((n) => n.id === s.activeNodeId)?.teamId === teamId ? null : s.activeNodeId
+      }
+    })
+  },
+
   setLayoutMode: (mode, vp) => {
     set({ layoutMode: mode })
     if (mode !== 'manual' && vp) get().applyAutoLayout(vp)
@@ -384,8 +480,9 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     if (!s.activeWorkspaceId) return
     window.termflow.layout.save({
       workspaceId: s.activeWorkspaceId,
-      nodes: s.nodes,
-      connections: s.connections,
+      // Ephemeral agent-team nodes/edges are runtime-only — never persist them.
+      nodes: s.nodes.filter((n) => !n.teamId),
+      connections: s.connections.filter((c) => !c.id.startsWith('teamconn-')),
       layoutMode: s.layoutMode,
       viewport: s.viewport,
       activeNodeId: s.activeNodeId || undefined
