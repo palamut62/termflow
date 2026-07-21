@@ -1285,6 +1285,33 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       return { ok: false, message: err instanceof Error ? err.message.split('\n')[0] : 'git commit failed' }
     }
   })
+  ipcMain.handle(IPC.GIT_INIT, async (_e, rawCwd: string): Promise<{ ok: boolean; message: string }> => {
+    const cwd = validateCwd(rawCwd)
+    if (!cwd) return { ok: false, message: 'cwd is outside known workspaces' }
+    // Already a repo? Nothing to do (worktree isolation just needs a HEAD commit).
+    try {
+      await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf-8', timeout: 5000 })
+      return { ok: true, message: 'Already a git repository' }
+    } catch { /* not a repo — initialize below */ }
+    try {
+      await execFileAsync('git', ['init'], { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true })
+      await execFileAsync('git', ['add', '-A'], { cwd, encoding: 'utf-8', timeout: 30000, windowsHide: true })
+      // Worktree isolation requires at least one commit (HEAD). Fall back to a
+      // local identity so commit succeeds even without a configured git user.
+      try {
+        await execFileAsync('git', [
+          '-c', 'user.email=termflow@local', '-c', 'user.name=TermFlow',
+          'commit', '-m', 'Initialize repository for TermFlow agent teams'
+        ], { cwd, encoding: 'utf-8', timeout: 30000, windowsHide: true })
+      } catch {
+        return { ok: true, message: 'Initialized (no initial commit)' }
+      }
+      gitStatusCache.delete(cwd)
+      return { ok: true, message: 'Initialized git repository' }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message.split('\n')[0] : 'git init failed' }
+    }
+  })
 
   // ---- Agent Routing ----
   ipcMain.on(IPC.AGENT_SET_ROUTING, (_e, terminalId: string, rules: RoutingRule[]) => {

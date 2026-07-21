@@ -641,6 +641,7 @@ export const IPC = {
   GIT_STAGE: 'git:stage',
   GIT_UNSTAGE: 'git:unstage',
   GIT_COMMIT: 'git:commit',
+  GIT_INIT: 'git:init', // renderer -> main: `git init` + initial commit for a non-repo workspace
   FS_LIST: 'fs:list',
   FS_READ_TEXT: 'fs:readText',
   VAULT_LIST: 'vault:list',

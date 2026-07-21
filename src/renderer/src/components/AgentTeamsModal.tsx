@@ -35,6 +35,7 @@ function blankTemplate(): AgentTeamTemplate {
 
 export default function AgentTeamsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const workspaceId = useAppStore((s) => s.activeWorkspaceId)
+  const workspaces = useAppStore((s) => s.workspaces)
   const syncTeamCanvas = useAppStore((s) => s.syncTeamCanvas)
   const clearTeamCanvas = useAppStore((s) => s.clearTeamCanvas)
   const providerProfiles = useAppStore((s) => s.settings.providerProfiles)
@@ -57,7 +58,13 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
   const [aiBusy, setAiBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // When Start fails because the workspace is not a git repo, guide the user to
+  // initialize one instead of dumping the raw error.
+  const [gitFixPrompt, setGitFixPrompt] = useState<{ bundle: AgentTeamBundle; path: string | null } | null>(null)
+  const [gitFixBusy, setGitFixBusy] = useState(false)
   useModalClose(onClose)
+
+  const workspacePath = useMemo(() => workspaces.find((w) => w.id === workspaceId)?.path ?? null, [workspaces, workspaceId])
 
   const selected = useMemo(() => teams.find((item) => item.team.id === selectedId) ?? teams[0], [teams, selectedId])
   const selectedTemplate = useMemo(() => AGENT_TEAM_TEMPLATES.find((item) => item.id === templateId), [templateId])
@@ -116,9 +123,22 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
     }
   }
 
+  // Route Start failures: a "not a Git repository" error becomes a guided panel
+  // offering one-click git init; everything else shows the normal error.
+  const handleStartError = (err: unknown, bundle: AgentTeamBundle): void => {
+    const message = err instanceof Error ? err.message : 'Could not start the team'
+    if (/not a git repository/i.test(message)) {
+      setError(null)
+      setGitFixPrompt({ bundle, path: workspacePath })
+    } else {
+      setError(message)
+    }
+  }
+
   const startTeam = async (bundle: AgentTeamBundle): Promise<void> => {
     setBusy(true)
     setError(null)
+    setGitFixPrompt(null)
     try {
       await window.termflow.teams.start(bundle.team.id)
       await reload(bundle.team.id)
@@ -128,9 +148,26 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
       const store = useAppStore.getState()
       store.setLayoutMode('agent_graph', store.canvasSize)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not start the team')
+      handleStartError(err, bundle)
     } finally {
       setBusy(false)
+    }
+  }
+
+  const initGitAndRetry = async (): Promise<void> => {
+    if (!gitFixPrompt?.path) return
+    setGitFixBusy(true)
+    try {
+      const result = await window.termflow.git.init(gitFixPrompt.path)
+      if (!result.ok) { setError(result.message); setGitFixPrompt(null); return }
+      const bundle = gitFixPrompt.bundle
+      setGitFixPrompt(null)
+      await startTeam(bundle)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not initialize the git repository')
+      setGitFixPrompt(null)
+    } finally {
+      setGitFixBusy(false)
     }
   }
 
@@ -148,9 +185,15 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
 
   const approveTask = async (taskId: string): Promise<void> => {
     if (!selected) return
-    await window.termflow.teams.updateTask(taskId, { approved: true, status: 'ready' })
-    await window.termflow.teams.start(selected.team.id)
-    await reload(selected.team.id)
+    setError(null)
+    setGitFixPrompt(null)
+    try {
+      await window.termflow.teams.updateTask(taskId, { approved: true, status: 'ready' })
+      await window.termflow.teams.start(selected.team.id)
+      await reload(selected.team.id)
+    } catch (err) {
+      handleStartError(err, selected)
+    }
   }
 
   const requestDelete = (bundle: AgentTeamBundle, event: React.MouseEvent): void => {
@@ -262,6 +305,20 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
           <button className="hbtn" title="Close" onClick={onClose}><X size={16} /></button>
         </header>
         {error && <div className="side-error" role="alert">{error}</div>}
+        {gitFixPrompt && (
+          <div className="team-git-guide" role="alert">
+            <strong>This workspace folder is not a Git repository.</strong>
+            <p>Agent teams run in an isolated git worktree so agents never touch your files directly.</p>
+            {gitFixPrompt.path
+              ? <code className="team-git-path">{gitFixPrompt.path}</code>
+              : <p className="team-git-fallback">Set the workspace to a folder and run <code>git init</code> manually.</p>}
+            <p className="team-git-hint">Alternatively, switch the team to &lsquo;Review only&rsquo; with Claude-only members to run without git.</p>
+            <div className="team-git-actions">
+              <button className="btn primary" disabled={!gitFixPrompt.path || gitFixBusy} onClick={() => void initGitAndRetry()}>{gitFixBusy ? 'Initializing...' : 'Initialize git repository'}</button>
+              <button className="btn" disabled={gitFixBusy} onClick={() => setGitFixPrompt(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
         {notice && <div className="side-success" role="status">{notice}</div>}
         <div className="team-layout">
           <aside className="team-list">
