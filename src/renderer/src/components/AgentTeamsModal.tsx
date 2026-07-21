@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bot, CheckCircle2, Circle, Pause, Play, Plus, Square, Users, X } from 'lucide-react'
-import type { AgentTeamBundle, TeamPermissionPolicy, TeamTaskStatus } from '../../../shared/types'
+import { Bot, CheckCircle2, Circle, Copy, LayoutTemplate, Pause, Pencil, Play, Plus, Sparkles, Square, Trash2, Users, X } from 'lucide-react'
+import type { AgentTeamBundle, AgentTeamTemplate, TeamPermissionPolicy, TeamTaskStatus } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
 import { getActiveTerminalId } from '../paneUtils'
 import { useModalClose } from '../hooks/useModalClose'
@@ -28,6 +28,11 @@ const STARTUP_BY_POLICY: Record<TeamPermissionPolicy, string> = {
   full: 'claude --dangerously-skip-permissions'
 }
 
+function blankTemplate(): AgentTeamTemplate {
+  const ts = new Date().toISOString()
+  return { id: '', name: '', description: '', permissionPolicy: 'controlled', members: [{ name: '', role: '', instructions: '' }], tasks: [], createdAt: ts, updatedAt: ts }
+}
+
 async function waitForAgentReady(terminalId: string): Promise<void> {
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline) {
@@ -40,13 +45,19 @@ async function waitForAgentReady(terminalId: string): Promise<void> {
 export default function AgentTeamsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const workspaceId = useAppStore((s) => s.activeWorkspaceId)
   const addTerminal = useAppStore((s) => s.addTerminal)
+  const settings = useAppStore((s) => s.settings)
   const [teams, setTeams] = useState<AgentTeamBundle[]>([])
+  const [templates, setTemplates] = useState<AgentTeamTemplate[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [view, setView] = useState<'teams' | 'templates'>('teams')
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<AgentTeamTemplate | null>(null)
+  const [pendingTemplate, setPendingTemplate] = useState<AgentTeamTemplate | null>(null)
   const [objective, setObjective] = useState('')
   const [permissionPolicy, setPermissionPolicy] = useState<TeamPermissionPolicy>('controlled')
   const [teamSize, setTeamSize] = useState<3 | 4 | 5>(4)
   const [busy, setBusy] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useModalClose(onClose)
 
@@ -58,17 +69,22 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
     if (preferId) setSelectedId(preferId)
     else if (!selectedId && items[0]) setSelectedId(items[0].team.id)
   }
+  const reloadTemplates = async (): Promise<void> => {
+    try { setTemplates(await window.termflow.teamTemplates.list()) } catch { /* ignore */ }
+  }
 
   useEffect(() => { void reload() }, [workspaceId])
+  useEffect(() => { void reloadTemplates() }, [])
 
   const createTeam = async (): Promise<void> => {
     if (!workspaceId || !objective.trim()) return
     setBusy(true)
     setError(null)
     try {
-      const bundle = await window.termflow.teams.create({ workspaceId, objective, permissionPolicy, teamSize })
+      const bundle = await window.termflow.teams.create({ workspaceId, objective, permissionPolicy, teamSize, template: pendingTemplate ?? undefined })
       setObjective('')
       setCreating(false)
+      setPendingTemplate(null)
       await reload(bundle.team.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Takım oluşturulamadı')
@@ -91,7 +107,8 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
         if (!terminalId) continue
         await window.termflow.teams.updateMember(member.id, { status: 'working', terminalId })
         const taskText = tasks.length ? tasks.map((task) => `- ${task.title}: ${task.description}`).join('\n') : '- Takımın ilerlemesini izle ve sonuçları sentezle.'
-        const prompt = `${ROLE_INSTRUCTIONS[member.role]}\n\nTakım hedefi: ${bundle.team.objective}\n\nSana atanan görevler:\n${taskText}\n\nÇalışma klasörünün dışına çıkma. Başlamadan önce ilgili kodu incele. İlerlemeni ve sonucunu sade Türkçe ile bildir.`
+        const roleInstruction = member.instructions?.trim() || ROLE_INSTRUCTIONS[member.role] || `${member.name} rolündesin.`
+        const prompt = `${roleInstruction}\n\nTakım hedefi: ${bundle.team.objective}\n\nSana atanan görevler:\n${taskText}\n\nÇalışma klasörünün dışına çıkma. Başlamadan önce ilgili kodu incele. İlerlemeni ve sonucunu sade Türkçe ile bildir.`
         await waitForAgentReady(terminalId)
         window.termflow.pty.write(terminalId, `${prompt}\r`)
       }
@@ -117,6 +134,68 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
     if (selected) await reload(selected.team.id)
   }
 
+  // ---- Templates ----
+  const openWizardWithTemplate = (tpl: AgentTeamTemplate): void => {
+    setPendingTemplate(tpl)
+    setPermissionPolicy(tpl.permissionPolicy)
+    setView('teams')
+    setCreating(true)
+    setEditing(null)
+  }
+
+  const saveTemplate = async (): Promise<void> => {
+    if (!editing || !editing.name.trim()) { setError('Şablon adı boş olamaz'); return }
+    setBusy(true)
+    setError(null)
+    try {
+      await window.termflow.teamTemplates.save(editing)
+      await reloadTemplates()
+      setEditing(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Şablon kaydedilemedi')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deleteTemplate = async (id: string): Promise<void> => {
+    await window.termflow.teamTemplates.delete(id)
+    await reloadTemplates()
+  }
+
+  const runAiGenerate = async (): Promise<void> => {
+    if (!objective.trim()) return
+    if (settings.aiProvider === 'none') {
+      setError('AI sağlayıcı ayarlı değil. Ayarlar → AI Sağlayıcı bölümünden bir sağlayıcı ve model seçin.')
+      return
+    }
+    setAiBusy(true)
+    setError(null)
+    try {
+      const tpl = await window.termflow.ai.generateTeam(objective.trim(), teamSize)
+      setPendingTemplate(null)
+      setCreating(false)
+      setView('templates')
+      setEditing(tpl)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'AI takımı üretilemedi')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  // ---- Template editor field helpers ----
+  const patchEditing = (patch: Partial<AgentTeamTemplate>): void => setEditing((prev) => (prev ? { ...prev, ...patch } : prev))
+  const patchMember = (idx: number, patch: Partial<AgentTeamTemplate['members'][number]>): void =>
+    setEditing((prev) => (prev ? { ...prev, members: prev.members.map((m, i) => (i === idx ? { ...m, ...patch } : m)) } : prev))
+  const patchTask = (idx: number, patch: Partial<AgentTeamTemplate['tasks'][number]>): void =>
+    setEditing((prev) => (prev ? { ...prev, tasks: prev.tasks.map((t, i) => (i === idx ? { ...t, ...patch } : t)) } : prev))
+
+  const buildTeamFromEditing = async (): Promise<void> => {
+    if (!editing) return
+    openWizardWithTemplate(editing)
+  }
+
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal agent-teams" onMouseDown={(event) => event.stopPropagation()}>
@@ -127,19 +206,62 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
         {error && <div className="side-error" role="alert">{error}</div>}
         <div className="team-layout">
           <aside className="team-list">
-            <button className="btn primary" disabled={!workspaceId} onClick={() => setCreating(true)}><Plus size={14} /> Yeni Agent Team</button>
-            {teams.map((item) => <button key={item.team.id} className={selected?.team.id === item.team.id ? 'active' : ''} onClick={() => { setSelectedId(item.team.id); setCreating(false) }}><strong>{item.team.name}</strong><span>{item.members.length} üye · {item.tasks.length} görev</span><em>{item.team.status}</em></button>)}
+            <div className="team-tabs">
+              <button className={view === 'teams' ? 'active' : ''} onClick={() => { setView('teams'); setEditing(null) }}><Users size={13} /> Takımlar</button>
+              <button className={view === 'templates' ? 'active' : ''} onClick={() => { setView('templates'); setCreating(false) }}><LayoutTemplate size={13} /> Şablonlar</button>
+            </div>
+            {view === 'teams' ? (
+              <>
+                <button className="btn primary" disabled={!workspaceId} onClick={() => { setCreating(true); setPendingTemplate(null) }}><Plus size={14} /> Yeni Agent Team</button>
+                {teams.map((item) => <button key={item.team.id} className={selected?.team.id === item.team.id ? 'active' : ''} onClick={() => { setSelectedId(item.team.id); setCreating(false) }}><strong>{item.team.name}</strong><span>{item.members.length} üye · {item.tasks.length} görev</span><em>{item.team.status}</em></button>)}
+              </>
+            ) : (
+              <>
+                <button className="btn primary" onClick={() => setEditing(blankTemplate())}><Plus size={14} /> Yeni Şablon</button>
+                {templates.map((tpl) => (
+                  <button key={tpl.id} className={editing?.id === tpl.id ? 'active' : ''} onClick={() => setEditing(tpl)}>
+                    <strong>{tpl.name}{tpl.builtin ? ' ·' : ''}</strong>
+                    <span>{tpl.members.length} üye · {tpl.tasks.length} görev{tpl.builtin ? ' · hazır' : ''}</span>
+                  </button>
+                ))}
+                {templates.length === 0 && <span style={{ padding: 8, color: 'var(--text-muted)', fontSize: 10 }}>Henüz şablon yok.</span>}
+              </>
+            )}
           </aside>
           <main className="team-main">
-            {creating ? (
+            {view === 'templates' && editing ? (
+              <TemplateEditor
+                template={editing}
+                busy={busy}
+                onChange={patchEditing}
+                onMemberChange={patchMember}
+                onAddMember={() => patchEditing({ members: [...editing.members, { name: '', role: '', instructions: '' }] })}
+                onRemoveMember={(i) => patchEditing({ members: editing.members.filter((_, idx) => idx !== i) })}
+                onTaskChange={patchTask}
+                onAddTask={() => patchEditing({ tasks: [...editing.tasks, { title: '', description: '', assigneeIndex: 0, acceptanceCriteria: [] }] })}
+                onRemoveTask={(i) => patchEditing({ tasks: editing.tasks.filter((_, idx) => idx !== i) })}
+                onSave={() => void saveTemplate()}
+                onCancel={() => setEditing(null)}
+                onBuild={() => void buildTeamFromEditing()}
+                onCopy={() => setEditing({ ...editing, id: '', builtin: false, name: `${editing.name} (Kopya)` })}
+                onDelete={editing.id ? () => { void deleteTemplate(editing.id); setEditing(null) } : undefined}
+              />
+            ) : view === 'templates' ? (
+              <div className="team-empty"><LayoutTemplate size={38} /><strong>Takım şablonları</strong><span>Bir şablon seç veya yeni oluştur. Şablondan tek tıkla takım kurabilirsin.</span></div>
+            ) : creating ? (
               <section className="team-wizard">
                 <span className="team-kicker">Yeni takım</span><h2>Takım ne yapacak?</h2>
+                {pendingTemplate && <div className="team-tpl-banner"><LayoutTemplate size={13} /> Şablon: <strong>{pendingTemplate.name}</strong><button className="hbtn" title="Şablonu kaldır" onClick={() => setPendingTemplate(null)}><X size={12} /></button></div>}
                 <textarea autoFocus value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="Örnek: Giriş sistemindeki hatayı araştır, düzelt ve test et." />
                 <div className="team-options">
                   <label>Yetki seviyesi<select value={permissionPolicy} onChange={(event) => setPermissionPolicy(event.target.value as TeamPermissionPolicy)}>{Object.entries(POLICY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                   <label>Takım boyutu<select value={teamSize} onChange={(event) => setTeamSize(Number(event.target.value) as 3 | 4 | 5)}><option value={3}>3 üye</option><option value={4}>4 üye (önerilen)</option><option value={5}>5 üye</option></select></label>
                 </div>
-                <div className="modal-actions"><button className="btn" onClick={() => setCreating(false)}>Vazgeç</button><button className="btn primary" disabled={busy || !objective.trim()} onClick={() => void createTeam()}>{busy ? 'Hazırlanıyor...' : 'Takımı hazırla'}</button></div>
+                <div className="modal-actions">
+                  <button className="btn" onClick={() => { setCreating(false); setPendingTemplate(null) }}>Vazgeç</button>
+                  {!pendingTemplate && <button className="btn" disabled={aiBusy || !objective.trim()} onClick={() => void runAiGenerate()}><Sparkles size={13} /> {aiBusy ? 'AI üretiyor...' : 'AI ile oluştur'}</button>}
+                  <button className="btn primary" disabled={busy || !objective.trim()} onClick={() => void createTeam()}>{busy ? 'Hazırlanıyor...' : 'Takımı hazırla'}</button>
+                </div>
               </section>
             ) : selected ? (
               <>
@@ -152,5 +274,76 @@ export default function AgentTeamsModal({ onClose }: { onClose: () => void }): R
         </div>
       </div>
     </div>
+  )
+}
+
+interface EditorProps {
+  template: AgentTeamTemplate
+  busy: boolean
+  onChange: (patch: Partial<AgentTeamTemplate>) => void
+  onMemberChange: (idx: number, patch: Partial<AgentTeamTemplate['members'][number]>) => void
+  onAddMember: () => void
+  onRemoveMember: (idx: number) => void
+  onTaskChange: (idx: number, patch: Partial<AgentTeamTemplate['tasks'][number]>) => void
+  onAddTask: () => void
+  onRemoveTask: (idx: number) => void
+  onSave: () => void
+  onCancel: () => void
+  onBuild: () => void
+  onCopy: () => void
+  onDelete?: () => void
+}
+
+function TemplateEditor(props: EditorProps): React.JSX.Element {
+  const { template: t } = props
+  return (
+    <section className="team-tpl-editor">
+      <header className="team-tpl-head">
+        <div><span className="team-kicker">{t.builtin ? 'Hazır şablon (kopya olarak kaydedilir)' : t.id ? 'Şablonu düzenle' : 'Yeni şablon'}</span><h2>{t.name || 'Adsız şablon'}</h2></div>
+        <div className="team-actions">
+          <button className="btn" onClick={props.onBuild}><Play size={13} /> Takımı kur</button>
+          <button className="btn" onClick={props.onCopy}><Copy size={13} /> Kopyala</button>
+          {props.onDelete && !t.builtin && <button className="btn danger" onClick={props.onDelete}><Trash2 size={13} /> Sil</button>}
+        </div>
+      </header>
+      <div className="team-tpl-body">
+        <label className="team-tpl-field">İsim<input value={t.name} onChange={(e) => props.onChange({ name: e.target.value })} placeholder="Örn: Full-Stack Geliştirme Takımı" /></label>
+        <label className="team-tpl-field">Açıklama<input value={t.description} onChange={(e) => props.onChange({ description: e.target.value })} placeholder="Takımın amacı" /></label>
+        <label className="team-tpl-field">Yetki seviyesi<select value={t.permissionPolicy} onChange={(e) => props.onChange({ permissionPolicy: e.target.value as TeamPermissionPolicy })}>{Object.entries(POLICY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+
+        <div className="team-tpl-section">
+          <div className="team-tpl-section-head"><h4>Üyeler ({t.members.length})</h4><button className="btn" onClick={props.onAddMember}><Plus size={12} /> Üye ekle</button></div>
+          {t.members.map((m, i) => (
+            <div key={i} className="team-tpl-member">
+              <div className="team-tpl-row2">
+                <input value={m.name} onChange={(e) => props.onMemberChange(i, { name: e.target.value })} placeholder="Üye adı" />
+                <input value={m.role} onChange={(e) => props.onMemberChange(i, { role: e.target.value })} placeholder="Rol (örn: developer)" />
+                <button className="hbtn danger" title="Üyeyi kaldır" disabled={t.members.length <= 1} onClick={() => props.onRemoveMember(i)}><X size={13} /></button>
+              </div>
+              <textarea value={m.instructions} onChange={(e) => props.onMemberChange(i, { instructions: e.target.value })} placeholder="Bu ajanın tam sistem talimatı (sorumluluk, yöntem, kalite kapıları)..." />
+            </div>
+          ))}
+        </div>
+
+        <div className="team-tpl-section">
+          <div className="team-tpl-section-head"><h4>Görevler ({t.tasks.length})</h4><button className="btn" onClick={props.onAddTask}><Plus size={12} /> Görev ekle</button></div>
+          {t.tasks.map((task, i) => (
+            <div key={i} className="team-tpl-member">
+              <div className="team-tpl-row2">
+                <input value={task.title} onChange={(e) => props.onTaskChange(i, { title: e.target.value })} placeholder="Görev başlığı" />
+                <select value={task.assigneeIndex} onChange={(e) => props.onTaskChange(i, { assigneeIndex: Number(e.target.value) })}>{t.members.map((m, mi) => <option key={mi} value={mi}>{m.name || `Üye ${mi + 1}`}</option>)}</select>
+                <button className="hbtn danger" title="Görevi kaldır" onClick={() => props.onRemoveTask(i)}><X size={13} /></button>
+              </div>
+              <textarea value={task.description} onChange={(e) => props.onTaskChange(i, { description: e.target.value })} placeholder="Görev açıklaması" />
+            </div>
+          ))}
+          {t.tasks.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>Görev yok — üyeler hedefe göre serbest çalışır.</span>}
+        </div>
+      </div>
+      <div className="modal-actions">
+        <button className="btn" onClick={props.onCancel}>Vazgeç</button>
+        <button className="btn primary" disabled={props.busy || !t.name.trim()} onClick={props.onSave}>{props.busy ? 'Kaydediliyor...' : t.builtin ? 'Kopya olarak kaydet' : 'Şablonu kaydet'}</button>
+      </div>
+    </section>
   )
 }

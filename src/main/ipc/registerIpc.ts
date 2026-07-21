@@ -47,7 +47,11 @@ import {
   ,type AgentTeam
   ,type TeamMember
   ,type TeamTask
+  ,type AgentTeamTemplate
+  ,type AiProvider
 } from '../../shared/types'
+import { generateTeamSpec } from '../ai/teamGenerator'
+import { BUILTIN_TEAM_TEMPLATES } from '../ai/builtinTeamTemplates'
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
 import * as dbApi from '../db/database'
@@ -808,6 +812,157 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.TASK_TRIGGER_DELETE, async (_e, workspaceId: string, id: string) => {
     const existing = (await readTaskTriggers(workspaceId)) as Array<{ id: string }>
     await writeFile(taskTriggersFile(workspaceId), JSON.stringify(existing.filter((t) => t.id !== id), null, 2), 'utf-8')
+  })
+
+  // ---- Agent Team Templates (global, userData/team-templates.json) ----
+  // Yapı: { templates: AgentTeamTemplate[]; hiddenBuiltins: string[] }. Builtin'ler
+  // diske yazılmaz; dosyada yoksa listeye eklenir, silinince hiddenBuiltins'e
+  // eklenir, düzenlenince kopyası kullanıcı şablonu olarak saklanır.
+  const teamTemplatesFile = (): string => join(app.getPath('userData'), 'team-templates.json')
+  interface TeamTemplateStore { templates: AgentTeamTemplate[]; hiddenBuiltins: string[] }
+  async function readTeamTemplateStore(): Promise<TeamTemplateStore> {
+    try {
+      const parsed = JSON.parse(await readFile(teamTemplatesFile(), 'utf-8')) as Partial<TeamTemplateStore>
+      return {
+        templates: Array.isArray(parsed.templates) ? parsed.templates : [],
+        hiddenBuiltins: Array.isArray(parsed.hiddenBuiltins) ? parsed.hiddenBuiltins.filter((id): id is string => typeof id === 'string') : []
+      }
+    } catch { return { templates: [], hiddenBuiltins: [] } }
+  }
+  async function writeTeamTemplateStore(data: TeamTemplateStore): Promise<void> {
+    await writeFile(teamTemplatesFile(), JSON.stringify(data, null, 2), 'utf-8')
+  }
+
+  ipcMain.handle(IPC.TEAM_TEMPLATE_LIST, async (): Promise<AgentTeamTemplate[]> => {
+    const store = await readTeamTemplateStore()
+    const userIds = new Set(store.templates.map((t) => t.id))
+    const builtins = BUILTIN_TEAM_TEMPLATES.filter((t) => !store.hiddenBuiltins.includes(t.id) && !userIds.has(t.id))
+    return [...builtins, ...store.templates]
+  })
+
+  ipcMain.handle(IPC.TEAM_TEMPLATE_SAVE, async (_e, template: AgentTeamTemplate): Promise<AgentTeamTemplate> => {
+    if (!template || typeof template !== 'object') throw new Error('Şablon geçersiz')
+    const name = (template.name || '').trim()
+    if (!name) throw new Error('Şablon adı boş olamaz')
+    if (!Array.isArray(template.members) || template.members.length < 1) throw new Error('Şablonda en az bir üye olmalı')
+    const store = await readTeamTemplateStore()
+    const ts = new Date().toISOString()
+    // Builtin düzenleniyorsa yeni id ile kullanıcı kopyası oluştur.
+    const isBuiltin = template.id?.startsWith('builtin:')
+    const id = !template.id || isBuiltin ? nanoid() : template.id
+    const record: AgentTeamTemplate = {
+      id,
+      name: name.slice(0, 120),
+      description: (template.description || '').slice(0, 500),
+      permissionPolicy: template.permissionPolicy ?? 'controlled',
+      members: template.members.map((m) => ({ name: (m.name || '').slice(0, 120), role: (m.role || '').slice(0, 80), instructions: (m.instructions || '').slice(0, 6000) })),
+      tasks: Array.isArray(template.tasks) ? template.tasks.map((t) => ({ title: (t.title || '').slice(0, 200), description: (t.description || '').slice(0, 2000), assigneeIndex: Number.isInteger(t.assigneeIndex) ? t.assigneeIndex : 0, acceptanceCriteria: Array.isArray(t.acceptanceCriteria) ? t.acceptanceCriteria.filter((c): c is string => typeof c === 'string').slice(0, 20) : [] })) : [],
+      createdAt: (!isBuiltin && template.createdAt) || ts,
+      updatedAt: ts
+    }
+    const existing = store.templates.some((t) => t.id === id)
+    store.templates = existing ? store.templates.map((t) => (t.id === id ? record : t)) : [...store.templates, record]
+    await writeTeamTemplateStore(store)
+    return record
+  })
+
+  ipcMain.handle(IPC.TEAM_TEMPLATE_DELETE, async (_e, id: string): Promise<void> => {
+    if (typeof id !== 'string' || !id) return
+    const store = await readTeamTemplateStore()
+    if (id.startsWith('builtin:')) {
+      if (!store.hiddenBuiltins.includes(id)) store.hiddenBuiltins.push(id)
+    } else {
+      store.templates = store.templates.filter((t) => t.id !== id)
+    }
+    await writeTeamTemplateStore(store)
+  })
+
+  // ---- AI provider keys (encrypted, userData/ai-keys.json) ----
+  // API anahtarları AppSettings'e düz metin yazılmaz; safeStorage ile şifrelenir.
+  // safeStorage yoksa düz base64 olarak saklanır (şifresiz — platform desteği yok).
+  const aiKeysFile = (): string => join(app.getPath('userData'), 'ai-keys.json')
+  async function readAiKeys(): Promise<Record<string, string>> {
+    try {
+      const parsed = JSON.parse(await readFile(aiKeysFile(), 'utf-8'))
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch { return {} }
+  }
+  async function getAiKey(provider: string): Promise<string> {
+    const stored = (await readAiKeys())[provider]
+    if (!stored) return ''
+    if (safeStorage.isEncryptionAvailable()) {
+      try { return safeStorage.decryptString(Buffer.from(stored, 'base64')) } catch { return '' }
+    }
+    // safeStorage yoksa düz base64 olarak saklanmıştı.
+    try { return Buffer.from(stored, 'base64').toString('utf-8') } catch { return '' }
+  }
+
+  ipcMain.handle(IPC.AI_KEY_SET, async (_e, provider: AiProvider, key: string): Promise<void> => {
+    if (provider !== 'openrouter' && provider !== 'deepseek') throw new Error('Geçersiz sağlayıcı')
+    const keys = await readAiKeys()
+    if (!key) {
+      delete keys[provider]
+    } else {
+      keys[provider] = safeStorage.isEncryptionAvailable()
+        ? safeStorage.encryptString(key).toString('base64')
+        : Buffer.from(key, 'utf-8').toString('base64')
+    }
+    await writeFile(aiKeysFile(), JSON.stringify(keys, null, 2), 'utf-8')
+  })
+
+  ipcMain.handle(IPC.AI_KEY_STATUS, async (): Promise<{ openrouter: boolean; deepseek: boolean }> => {
+    const keys = await readAiKeys()
+    return { openrouter: !!keys.openrouter, deepseek: !!keys.deepseek }
+  })
+
+  // ---- AI model listesi (cache 24 saat, userData/ai-model-cache.json) ----
+  const aiModelCacheFile = (): string => join(app.getPath('userData'), 'ai-model-cache.json')
+  const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+  interface ModelCacheEntry { fetchedAt: number; models: Array<{ id: string; name?: string }> }
+  async function readModelCache(): Promise<Record<string, ModelCacheEntry>> {
+    try {
+      const parsed = JSON.parse(await readFile(aiModelCacheFile(), 'utf-8'))
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch { return {} }
+  }
+
+  ipcMain.handle(IPC.AI_MODELS_FETCH, async (_e, provider: AiProvider, force?: boolean): Promise<Array<{ id: string; name?: string }>> => {
+    if (provider !== 'openrouter' && provider !== 'deepseek') throw new Error('Geçersiz sağlayıcı')
+    const cache = await readModelCache()
+    const entry = cache[provider]
+    if (!force && entry && Date.now() - entry.fetchedAt < MODEL_CACHE_TTL_MS) return entry.models
+    const key = await getAiKey(provider)
+    const url = provider === 'openrouter' ? 'https://openrouter.ai/api/v1/models' : 'https://api.deepseek.com/models'
+    const headers: Record<string, string> = {}
+    if (key) headers.Authorization = `Bearer ${key}`
+    if (provider === 'deepseek' && !key) throw new Error('DeepSeek model listesi için API anahtarı gerekli')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30_000)
+    let models: Array<{ id: string; name?: string }>
+    try {
+      const response = await fetch(url, { headers, signal: controller.signal })
+      if (!response.ok) throw new Error(`Model listesi alınamadı (${response.status})`)
+      const data = await response.json() as { data?: Array<{ id?: string; name?: string }> }
+      models = (Array.isArray(data.data) ? data.data : [])
+        .filter((m): m is { id: string; name?: string } => typeof m?.id === 'string')
+        .map((m) => (m.name ? { id: m.id, name: m.name } : { id: m.id }))
+    } finally {
+      clearTimeout(timer)
+    }
+    cache[provider] = { fetchedAt: Date.now(), models }
+    await writeFile(aiModelCacheFile(), JSON.stringify(cache, null, 2), 'utf-8')
+    return models
+  })
+
+  // ---- AI ile takım üretimi ----
+  ipcMain.handle(IPC.AI_TEAM_GENERATE, async (_e, objective: string, teamSizeHint?: number): Promise<AgentTeamTemplate> => {
+    const settings = dbApi.getSettings()
+    const provider = settings.aiProvider
+    if (provider !== 'openrouter' && provider !== 'deepseek') throw new Error('Ayarlardan bir AI sağlayıcı seçin')
+    const key = await getAiKey(provider)
+    if (!key) throw new Error('AI sağlayıcı anahtarı ayarlı değil')
+    if (!settings.aiModel) throw new Error('Ayarlardan bir model seçin')
+    return generateTeamSpec(provider, key, settings.aiModel, objective, teamSizeHint)
   })
 
   // ---- Project Manifest (.termflow.json) ----

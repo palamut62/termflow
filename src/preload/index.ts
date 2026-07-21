@@ -30,6 +30,8 @@ import {
   ,type AgentTeam
   ,type TeamMember
   ,type TeamTask
+  ,type AgentTeamTemplate
+  ,type AiProvider
 } from '../shared/types'
 
 // Windows OS build number (e.g. 26200 for current Win11). xterm's windowsPty
@@ -206,6 +208,19 @@ const api = {
     updateMember: (id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_MEMBER_UPDATE, id, patch),
     updateTask: (id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>): Promise<void> => ipcRenderer.invoke(IPC.TEAM_TASK_UPDATE, id, patch),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_DELETE, id)
+  },
+  // ---- Agent Team Templates ----
+  teamTemplates: {
+    list: (): Promise<AgentTeamTemplate[]> => ipcRenderer.invoke(IPC.TEAM_TEMPLATE_LIST),
+    save: (template: AgentTeamTemplate): Promise<AgentTeamTemplate> => ipcRenderer.invoke(IPC.TEAM_TEMPLATE_SAVE, template),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_TEMPLATE_DELETE, id)
+  },
+  // ---- AI provider (team generation + keys + models) ----
+  ai: {
+    generateTeam: (objective: string, teamSizeHint?: number): Promise<AgentTeamTemplate> => ipcRenderer.invoke(IPC.AI_TEAM_GENERATE, objective, teamSizeHint),
+    setKey: (provider: AiProvider, key: string): Promise<void> => ipcRenderer.invoke(IPC.AI_KEY_SET, provider, key),
+    keyStatus: (): Promise<{ openrouter: boolean; deepseek: boolean }> => ipcRenderer.invoke(IPC.AI_KEY_STATUS),
+    fetchModels: (provider: AiProvider, force?: boolean): Promise<Array<{ id: string; name?: string }>> => ipcRenderer.invoke(IPC.AI_MODELS_FETCH, provider, force)
   },
   // ---- Snippets ----
   snippets: {

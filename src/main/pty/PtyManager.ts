@@ -30,6 +30,13 @@ const ROUTE_ECHO_MAX_ENTRIES = 200 // cap remembered inbound signatures per term
 const ROUTE_LOOP_WINDOW_MS = 1500 // sliding window for the route-rate backstop
 const ROUTE_LOOP_MAX = 40 // max routes per connection in the window before we cut
 const ROUTE_QUEUE_MAX_BYTES = 64 * 1024 // cap the continuous accumulation buffer
+const ROUTE_SCAN_BUF_MAX = 16 * 1024 // cap the per-terminal marker scan buffer
+// Per-target write pacing (bracketed paste): one write for the whole payload,
+// then Enter after a short delay so the TUI treats it as a paste + submit.
+const ROUTE_PASTE_ENTER_MS = 150 // gap between the pasted payload and Enter
+const ROUTE_PASTE_GAP_MS = 100 // gap before the next queued payload starts
+const BRACKET_PASTE_START = '\x1b[200~'
+const BRACKET_PASTE_END = '\x1b[201~'
 
 export interface RoutingRule {
   connectionId: string
@@ -64,6 +71,9 @@ interface ManagedPty {
   // Regex compiled once per setRouting() call (per-chunk compilation is costly
   // and a ReDoS vector). null `re` means the rule's pattern was invalid/skipped.
   compiledRules?: { rule: RoutingRule; re: RegExp | null }[]
+  // Sliding, already-sanitized scan buffer for marker routing so a trigger that
+  // straddles two pty chunks still matches (regex ran on raw chunks before).
+  routeScanBuf: string
   startupTimer: NodeJS.Timeout | null
   startupPending: boolean
   lastRouteAt: Map<string, number>
@@ -93,6 +103,9 @@ export class PtyManager {
   private terminals = new Map<string, ManagedPty>()
   private maxLines = DEFAULT_SCROLLBACK_LINES
   private passiveIntervalMs = 250
+  // FIFO write queue per target terminal id so concurrent routes to the same
+  // target are delivered whole and in order (no interleaved characters).
+  private writeQueues = new Map<string, { queue: string[]; busy: boolean }>()
 
   constructor(private getSender: () => WebContents | null) {}
 
@@ -126,6 +139,7 @@ export class PtyManager {
       cwd: resolved.cwd,
       startupTimer: null,
       startupPending: !!input.startupCommand,
+      routeScanBuf: '',
       lastRouteAt: new Map(),
       recentInbound: [],
       routeHops: new Map(),
@@ -154,6 +168,7 @@ export class PtyManager {
       managed.loopWarned.clear()
       for (const q of managed.routeQueues.values()) if (q.timer) clearTimeout(q.timer)
       managed.routeQueues.clear()
+      managed.routeScanBuf = ''
     })
 
     // Wait for the renderer to report the real xterm dimensions before
@@ -239,26 +254,48 @@ export class PtyManager {
     // sanitized and rate-limited because it writes process output into another
     // process input stream.
     if (managed.compiledRules?.length) {
+      const hasMarker = managed.compiledRules.some((c) => c.rule.routeBehavior !== 'continuous' && c.re)
+      // Sanitize ONCE, up front, and append to the sliding scan buffer so a
+      // marker split across chunks still matches. Marker regexes now run over
+      // clean text; continuous rules keep operating on this same clean data.
+      const clean = hasMarker || managed.compiledRules.some((c) => c.rule.routeBehavior === 'continuous')
+        ? this.sanitizeRouteData(data)
+        : ''
       for (const { rule, re } of managed.compiledRules) {
         if (rule.routeBehavior === 'continuous') {
-          const clean = this.sanitizeRouteData(data)
           if (!clean.trim()) continue
           // Never drop: accumulate into a per-connection queue and flush on a
           // throttle. Loop/echo checks run at flush time (single point).
           this.enqueueContinuous(managed, rule, clean)
-        } else if (re) {
-          // 'gs' regex is stateful (lastIndex) — reset before each chunk scan.
+        }
+      }
+      if (hasMarker) {
+        // Append clean data to the sliding buffer and cap its size. On overflow,
+        // preserve a possible partial marker (from the last '@@HANDOFF@@' on).
+        managed.routeScanBuf += clean
+        if (managed.routeScanBuf.length > ROUTE_SCAN_BUF_MAX) {
+          const partial = managed.routeScanBuf.lastIndexOf('@@HANDOFF@@')
+          managed.routeScanBuf =
+            partial >= 0 && managed.routeScanBuf.length - partial <= ROUTE_SCAN_BUF_MAX
+              ? managed.routeScanBuf.slice(partial)
+              : managed.routeScanBuf.slice(managed.routeScanBuf.length - ROUTE_SCAN_BUF_MAX)
+        }
+        let maxConsumed = 0
+        for (const { rule, re } of managed.compiledRules) {
+          if (rule.routeBehavior === 'continuous' || !re) continue
+          // 'gs' regex is stateful (lastIndex) — reset before each buffer scan.
           re.lastIndex = 0
           let match: RegExpExecArray | null
-          while ((match = re.exec(data)) !== null) {
+          while ((match = re.exec(managed.routeScanBuf)) !== null) {
+            if (re.lastIndex > maxConsumed) maxConsumed = re.lastIndex
             let output = match[0]
             if (rule.transform) {
               output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
             }
             // TUI line-wrapping injects newlines+indentation into the matched
-            // block; collapse to single spaces so the payload lands as one
-            // clean input line.
-            output = this.sanitizeRouteData(output).replace(/\s+/g, ' ').trim().slice(0, 4000)
+            // block; the buffer is already sanitized, so just collapse runs of
+            // whitespace and cap length.
+            output = output.replace(/\s+/g, ' ').trim().slice(0, 4000)
             if (!output.trim()) continue
             // TUI full-screen repaints replay the same marker block in the
             // pty stream; skip identical payloads per connection for a short
@@ -277,6 +314,9 @@ export class PtyManager {
             this.emitRoute(rule.connectionId)
           }
         }
+        // Drop everything up to the furthest match; keep the unmatched tail so a
+        // marker beginning at the end of this chunk can complete on the next one.
+        if (maxConsumed > 0) managed.routeScanBuf = managed.routeScanBuf.slice(maxConsumed)
       }
     }
 
@@ -290,23 +330,42 @@ export class PtyManager {
   }
 
   /**
-   * Write a routed payload into a target terminal, sending Enter separately
-   * after a short delay: TUI agents (claude/codex CLIs) treat a rapid burst
-   * of characters as a paste, and an Enter inside that burst is inserted as
-   * a newline instead of submitting the prompt.
+   * Enqueue a routed payload for a target terminal. A per-target FIFO queue
+   * guarantees concurrent routes to the same target are delivered whole and in
+   * order — the previous payload's Enter must land before the next one starts.
    */
   private writeRouted(targetId: string, payload: string): void {
-    // TUI agents (claude/codex CLIs) mis-handle multi-char bursts as a
-    // paste (codex drops spaces); feed one character at a keystroke-like
-    // pace and press Enter separately so the prompt actually submits.
-    const CHUNK = 1
-    const STEP_MS = 25
-    for (let i = 0; i < payload.length; i += CHUNK) {
-      const part = payload.slice(i, i + CHUNK)
-      setTimeout(() => this.write(targetId, part), (i / CHUNK) * STEP_MS)
+    let q = this.writeQueues.get(targetId)
+    if (!q) {
+      q = { queue: [], busy: false }
+      this.writeQueues.set(targetId, q)
     }
-    const doneAt = Math.ceil(payload.length / CHUNK) * STEP_MS
-    setTimeout(() => this.write(targetId, '\r'), doneAt + 150)
+    q.queue.push(payload)
+    if (!q.busy) this.drainWriteQueue(targetId)
+  }
+
+  /**
+   * Send the next queued payload as a single bracketed-paste write, then Enter
+   * after a short delay so the TUI submits it. TUI agents (claude/codex CLIs)
+   * support bracketed paste, which delivers the whole payload atomically instead
+   * of one keystroke at a time. The following payload starts only after Enter.
+   */
+  private drainWriteQueue(targetId: string): void {
+    const q = this.writeQueues.get(targetId)
+    if (!q) return
+    const payload = q.queue.shift()
+    if (payload === undefined) {
+      q.busy = false
+      return
+    }
+    q.busy = true
+    this.write(targetId, BRACKET_PASTE_START + payload + BRACKET_PASTE_END)
+    setTimeout(() => {
+      this.write(targetId, '\r')
+      // Small gap before the next payload so the target has a beat to process
+      // the submit before the following paste arrives.
+      setTimeout(() => this.drainWriteQueue(targetId), ROUTE_PASTE_GAP_MS)
+    }, ROUTE_PASTE_ENTER_MS)
   }
 
   private sanitizeRouteData(data: string): string {
@@ -408,7 +467,11 @@ export class PtyManager {
     if (!q) return
     q.timer = null
     const payload = q.buf.slice(0, 4000)
-    q.buf = ''
+    // Never drop: keep anything past the 4000-char cap and re-arm the throttle
+    // so the remainder flushes on the next tick.
+    q.buf = q.buf.slice(4000)
+    if (q.buf.length && !q.timer)
+      q.timer = setTimeout(() => this.flushContinuous(managed, rule), CONTINUOUS_THROTTLE_MS)
     if (!payload.trim()) return
     if (this.shouldBlockRoute(managed, key, payload)) return
     for (const tid of rule.targetTerminalIds) {
@@ -496,6 +559,8 @@ export class PtyManager {
     if (t.flushTimer) clearTimeout(t.flushTimer)
     if (t.startupTimer) clearTimeout(t.startupTimer)
     for (const q of t.routeQueues.values()) if (q.timer) clearTimeout(q.timer)
+    // Drop any pending routed writes destined for this target terminal.
+    this.writeQueues.delete(id)
     try {
       if (!t.exited) t.proc.kill()
     } catch {
@@ -528,6 +593,9 @@ export class PtyManager {
   setRouting(id: string, rules: RoutingRule[]): void {
     const t = this.terminals.get(id)
     if (!t) return
+    // The scan buffer holds text matched against the OLD rule set; reset it so
+    // stale partial content can't match a freshly-installed pattern.
+    t.routeScanBuf = ''
     if (!rules.length) {
       t.routingRules = undefined
       t.compiledRules = undefined

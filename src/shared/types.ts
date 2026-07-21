@@ -387,6 +387,10 @@ export interface AppSettings {
   terminalBell: boolean
   // New terminal nodes open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
+  // AI sağlayıcı (agent takımı üretimi için). API anahtarları burada DUZ METIN tutulmaz;
+  // main tarafında safeStorage ile şifreli ai-keys.json içinde saklanır.
+  aiProvider: AiProvider
+  aiModel: string
 }
 
 export interface CustomAgentDef {
@@ -433,10 +437,13 @@ export interface TeamMember {
   id: string
   teamId: string
   name: string
-  role: 'lead' | 'researcher' | 'developer' | 'tester' | 'reviewer'
+  // Yerleşik plan sabit rolleri kullanır; şablon/AI kaynaklı üyeler serbest rol metni taşıyabilir.
+  role: string
   provider: 'claude'
   status: TeamMemberStatus
   terminalId?: string
+  /** Şablon/AI üyesine özel sistem talimatı; verildiğinde ROLE_INSTRUCTIONS yerine kullanılır. */
+  instructions?: string
 }
 
 export interface TeamTask {
@@ -474,7 +481,37 @@ export interface CreateAgentTeamInput {
   objective: string
   permissionPolicy: TeamPermissionPolicy
   teamSize: 3 | 4 | 5
+  /** Verildiğinde sabit rol/görev planı yerine bu şablondan üretilir. */
+  template?: AgentTeamTemplate
 }
+
+// ---- Agent Team Templates (manuel CRUD + AI üretimi) ----
+export interface AgentTeamTemplateMember {
+  name: string
+  role: string
+  instructions: string
+}
+
+export interface AgentTeamTemplateTask {
+  title: string
+  description: string
+  assigneeIndex: number
+  acceptanceCriteria: string[]
+}
+
+export interface AgentTeamTemplate {
+  id: string
+  name: string
+  description: string
+  builtin?: boolean
+  permissionPolicy: TeamPermissionPolicy
+  members: AgentTeamTemplateMember[]
+  tasks: AgentTeamTemplateTask[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type AiProvider = 'openrouter' | 'deepseek' | 'none'
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'vscode-dark',
@@ -515,7 +552,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdate: true,
   updateChannel: 'stable',
   terminalBell: true,
-  infoPanelDefaultOpen: false
+  infoPanelDefaultOpen: false,
+  aiProvider: 'none',
+  aiModel: ''
 }
 
 export interface CanvasViewport {
@@ -672,5 +711,14 @@ export const IPC = {
   TEAM_UPDATE: 'team:update',
   TEAM_DELETE: 'team:delete',
   TEAM_MEMBER_UPDATE: 'team:member:update',
-  TEAM_TASK_UPDATE: 'team:task:update'
+  TEAM_TASK_UPDATE: 'team:task:update',
+  // agent team templates
+  TEAM_TEMPLATE_LIST: 'teamTemplate:list',
+  TEAM_TEMPLATE_SAVE: 'teamTemplate:save',
+  TEAM_TEMPLATE_DELETE: 'teamTemplate:delete',
+  // AI provider (team generation + model/key management)
+  AI_TEAM_GENERATE: 'ai:teamGenerate',
+  AI_KEY_SET: 'ai:keySet',
+  AI_KEY_STATUS: 'ai:keyStatus',
+  AI_MODELS_FETCH: 'ai:modelsFetch'
 } as const

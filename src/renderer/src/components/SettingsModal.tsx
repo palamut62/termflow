@@ -8,11 +8,12 @@ import {
   RefreshCw,
   Highlighter,
   Wrench,
+  Sparkles,
   X
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { TERMINAL_THEMES } from '../themes'
-import type { EnvEntry, HighlightRule, SshProfile } from '../../../shared/types'
+import type { AiProvider, EnvEntry, HighlightRule, SshProfile } from '../../../shared/types'
 import PromptModal, { type PromptField } from './PromptModal'
 import { useModalClose } from '../hooks/useModalClose'
 
@@ -61,6 +62,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
     | 'system'
     | 'updates'
     | 'highlights'
+    | 'ai'
     | 'developer'
   >('appearance')
   const [rulePrompt, setRulePrompt] = useState<{ fields: PromptField[] } | null>(null)
@@ -75,7 +77,31 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const [sshKeyPath, setSshKeyPath] = useState('')
   const [sshJumpHost, setSshJumpHost] = useState('')
   const [updateStatus, setUpdateStatus] = useState<{ status: string; detail?: string }>({ status: 'idle' })
+  // AI provider state
+  const [keyStatus, setKeyStatus] = useState<{ openrouter: boolean; deepseek: boolean }>({ openrouter: false, deepseek: false })
+  const [aiKeyInput, setAiKeyInput] = useState('')
+  const [aiModels, setAiModels] = useState<Array<{ id: string; name?: string }>>([])
+  const [modelSearch, setModelSearch] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiMsg, setAiMsg] = useState<string | null>(null)
   useModalClose(onClose)
+
+  const aiProvider = settings.aiProvider
+  const refreshKeyStatus = async (): Promise<void> => {
+    try { setKeyStatus(await window.termflow.ai.keyStatus()) } catch { /* ignore */ }
+  }
+  const fetchModels = async (force: boolean): Promise<void> => {
+    if (aiProvider === 'none') return
+    setAiBusy(true)
+    setAiMsg(null)
+    try {
+      setAiModels(await window.termflow.ai.fetchModels(aiProvider, force))
+    } catch (err) {
+      setAiMsg(err instanceof Error ? err.message : 'Modeller alınamadı')
+    } finally {
+      setAiBusy(false)
+    }
+  }
 
   const reloadDeveloper = async (): Promise<void> => {
     if (!activeWorkspaceId) return
@@ -95,6 +121,15 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
 
   useEffect(() => window.termflow.updates.onStatus(setUpdateStatus), [])
 
+  useEffect(() => {
+    if (activeTab === 'ai') {
+      void refreshKeyStatus()
+      setAiKeyInput('')
+      if (aiProvider !== 'none') void fetchModels(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, aiProvider])
+
   const categories = [
     { key: 'appearance' as const, label: 'Appearance', Icon: Palette },
     { key: 'terminal' as const, label: 'Terminal', Icon: TerminalSquare },
@@ -103,6 +138,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
     { key: 'system' as const, label: 'System', Icon: Monitor },
     { key: 'updates' as const, label: 'Updates', Icon: RefreshCw },
     { key: 'highlights' as const, label: 'Highlights', Icon: Highlighter },
+    { key: 'ai' as const, label: 'AI Sağlayıcı', Icon: Sparkles },
     { key: 'developer' as const, label: 'Developer', Icon: Wrench }
   ]
 
@@ -399,6 +435,70 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
                 No highlight rules defined
               </div>
+            )}
+          </>
+        )}
+
+        {/* AI Sağlayıcı */}
+        {activeTab === 'ai' && (
+          <>
+            <div className="field">
+              <label>Sağlayıcı</label>
+              <select value={aiProvider} onChange={(e) => update({ aiProvider: e.target.value as AiProvider })}>
+                <option value="none">Kapalı</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="deepseek">DeepSeek</option>
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Agent takımlarını hedefe göre otomatik tasarlamak için kullanılır. API anahtarı şifreli olarak yerelde saklanır, hiçbir yere gönderilmez.
+              </p>
+            </div>
+
+            {aiProvider !== 'none' && (
+              <>
+                <div className="field">
+                  <label>API Anahtarı {keyStatus[aiProvider] && <span style={{ color: 'var(--success)', fontSize: 11 }}>· kayıtlı ●●●●</span>}</label>
+                  <div className="path-pick">
+                    <input type="password" value={aiKeyInput} onChange={(e) => setAiKeyInput(e.target.value)} placeholder={keyStatus[aiProvider] ? 'Yeni anahtar girerek değiştir' : 'sk-...'} />
+                    <button className="btn" disabled={!aiKeyInput.trim() || aiBusy} onClick={async () => {
+                      setAiMsg(null)
+                      try {
+                        await window.termflow.ai.setKey(aiProvider, aiKeyInput.trim())
+                        setAiKeyInput('')
+                        await refreshKeyStatus()
+                        setAiMsg('Anahtar kaydedildi')
+                      } catch (err) { setAiMsg(err instanceof Error ? err.message : 'Kaydedilemedi') }
+                    }}>Kaydet</button>
+                    {keyStatus[aiProvider] && (
+                      <button className="btn" disabled={aiBusy} onClick={async () => {
+                        await window.termflow.ai.setKey(aiProvider, '')
+                        await refreshKeyStatus()
+                        setAiMsg('Anahtar silindi')
+                      }}>Sil</button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Model</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input list="ai-model-list" value={settings.aiModel} onChange={(e) => update({ aiModel: e.target.value })}
+                      onInput={(e) => setModelSearch((e.target as HTMLInputElement).value)} placeholder="Model ara veya seç (örn: anthropic/claude-3.5-sonnet)" style={{ flex: 1 }} />
+                    <datalist id="ai-model-list">
+                      {aiModels
+                        .filter((m) => !modelSearch || m.id.toLowerCase().includes(modelSearch.toLowerCase()) || (m.name || '').toLowerCase().includes(modelSearch.toLowerCase()))
+                        .slice(0, 200)
+                        .map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                    </datalist>
+                    <button className="btn" disabled={aiBusy} onClick={() => void fetchModels(false)}>Modelleri çek</button>
+                    <button className="btn" title="Yenile" disabled={aiBusy} onClick={() => void fetchModels(true)}><RefreshCw size={14} /></button>
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    {aiBusy ? 'Modeller yükleniyor...' : aiModels.length ? `${aiModels.length} model önbellekte (24 saat).` : 'Model listesini çekmek için “Modelleri çek”e bas.'}
+                  </p>
+                </div>
+                {aiMsg && <p style={{ fontSize: 11, color: aiMsg.includes('alınamadı') || aiMsg.includes('Kaydedilemedi') ? 'var(--danger)' : 'var(--text-muted)' }}>{aiMsg}</p>}
+              </>
             )}
           </>
         )}

@@ -50,6 +50,23 @@ const markerRule = (connectionId: string, targets: string[]): {
   routeBehavior: 'marker'
 })
 
+const continuousRule = (connectionId: string, targets: string[]): {
+  connectionId: string
+  targetTerminalIds: string[]
+  triggerPattern: string
+  routeBehavior: 'continuous'
+} => ({
+  connectionId,
+  targetTerminalIds: targets,
+  triggerPattern: '',
+  routeBehavior: 'continuous'
+})
+
+// Routed payloads are delivered as a single bracketed-paste write followed by
+// Enter, so the expected wire form for `payload` is these three pieces.
+const paste = (payload: string): string => `\x1b[200~${payload}\x1b[201~`
+const pasted = (payload: string): string => paste(payload) + '\r'
+
 const baseInput = { workspaceId: 'w', name: 'T', kind: 'cmd' as const }
 
 let sent: { ch: string; payload: unknown }[]
@@ -77,7 +94,37 @@ describe('PtyManager routing', () => {
     registry[0].emit('@@HANDOFF@@hello@@END@@')
     vi.runAllTimers()
 
-    expect(registry[1].writes.join('')).toBe('@@HANDOFF@@hello@@END@@\r')
+    expect(registry[1].writes.join('')).toBe(pasted('@@HANDOFF@@hello@@END@@'))
+  })
+
+  it('routes a marker split across two pty chunks', () => {
+    mgr.create('A', baseInput)
+    mgr.create('B', baseInput)
+    mgr.setRouting('A', [markerRule('c1', ['B'])])
+
+    // The trigger arrives split across chunk boundaries; the sliding scan
+    // buffer must reassemble it and still fire the route.
+    registry[0].emit('@@HAND')
+    registry[0].emit('OFF@@hello@@END@@')
+    vi.runAllTimers()
+
+    expect(registry[1].writes.join('')).toBe(pasted('@@HANDOFF@@hello@@END@@'))
+  })
+
+  it('delivers back-to-back routes to the same target in order without interleaving', () => {
+    mgr.create('A', baseInput)
+    mgr.create('B', baseInput)
+    mgr.setRouting('A', [markerRule('c1', ['B'])])
+
+    registry[0].emit('@@HANDOFF@@first@@END@@')
+    registry[0].emit('@@HANDOFF@@second@@END@@')
+    vi.runAllTimers()
+
+    // Each payload is a whole bracketed paste + Enter, and the second only
+    // starts after the first's Enter — so the writes are strictly sequential.
+    expect(registry[1].writes.join('')).toBe(
+      pasted('@@HANDOFF@@first@@END@@') + pasted('@@HANDOFF@@second@@END@@')
+    )
   })
 
   it('blocks an echoed payload looping back A->B->A', () => {
@@ -89,7 +136,7 @@ describe('PtyManager routing', () => {
     // A emits -> routed into B (and recorded as inbound on B).
     registry[0].emit('@@HANDOFF@@hello@@END@@')
     vi.runAllTimers()
-    expect(registry[1].writes.join('')).toBe('@@HANDOFF@@hello@@END@@\r')
+    expect(registry[1].writes.join('')).toBe(pasted('@@HANDOFF@@hello@@END@@'))
 
     // B echoes the same payload -> must NOT be routed back to A.
     registry[1].emit('@@HANDOFF@@hello@@END@@')
@@ -112,6 +159,21 @@ describe('PtyManager routing', () => {
 
     const enters = registry[1].writes.filter((w) => w === '\r').length
     expect(enters).toBe(40)
+  })
+
+  it('delivers continuous output beyond the 4000-char cap on a later flush', () => {
+    mgr.create('A', baseInput)
+    mgr.create('B', baseInput)
+    mgr.setRouting('A', [continuousRule('c1', ['B'])])
+
+    // 5000 chars: the first throttled flush emits 4000, the remaining 1000 must
+    // not be dropped — it flushes on the re-armed timer.
+    registry[0].emit('a'.repeat(5000))
+    vi.runAllTimers()
+
+    const combined = registry[1].writes.join('')
+    expect(combined.length).toBe(5000)
+    expect(combined).toBe('a'.repeat(5000))
   })
 })
 

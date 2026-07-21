@@ -477,6 +477,35 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
   if (![3, 4, 5].includes(input.teamSize)) throw new Error('Takım boyutu geçersiz')
   const ts = now()
   const teamId = nanoid()
+  // Şablon verildiyse rol/görev planını şablondan üret (sabit plan yerine).
+  if (input.template) {
+    const tpl = input.template
+    if (!tpl.members?.length) throw new Error('Şablonda üye tanımlı değil')
+    const team: AgentTeam = {
+      id: teamId,
+      workspaceId: input.workspaceId,
+      name: (tpl.name || objective).slice(0, 80),
+      objective,
+      status: 'draft',
+      permissionPolicy: tpl.permissionPolicy ?? input.permissionPolicy,
+      createdAt: ts,
+      updatedAt: ts
+    }
+    const members = tpl.members.map<TeamMember>((m) => ({
+      id: nanoid(), teamId, name: m.name, role: m.role, provider: 'claude', status: 'idle', instructions: m.instructions
+    }))
+    const tasks: TeamTask[] = (tpl.tasks ?? []).map<TeamTask>((task) => ({
+      id: nanoid(), teamId, title: task.title, description: task.description,
+      assigneeId: members[task.assigneeIndex]?.id ?? members[0]?.id,
+      status: 'ready', dependencies: [], acceptanceCriteria: task.acceptanceCriteria ?? [], updatedAt: ts
+    }))
+    store.agentTeams.push(team)
+    store.teamMembers.push(...members)
+    store.teamTasks.push(...tasks)
+    store.teamEvents.push({ id: nanoid(), teamId, type: 'team.created', message: `Şablondan takım oluşturuldu: ${tpl.name}`, createdAt: ts })
+    persist()
+    return teamBundle(team)
+  }
   const team: AgentTeam = {
     id: teamId,
     workspaceId: input.workspaceId,
@@ -487,7 +516,7 @@ export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
     createdAt: ts,
     updatedAt: ts
   }
-  const allRoles: TeamMember['role'][] = ['lead', 'researcher', 'developer', 'tester', 'reviewer']
+  const allRoles: string[] = ['lead', 'researcher', 'developer', 'tester', 'reviewer']
   const roles = allRoles.slice(0, input.teamSize)
   const labels: Record<TeamMember['role'], string> = {
     lead: 'Takım Lideri', researcher: 'Araştırmacı', developer: 'Geliştirici', tester: 'Test Uzmanı', reviewer: 'Kod İnceleyici'
