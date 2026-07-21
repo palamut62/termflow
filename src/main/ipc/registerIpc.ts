@@ -1296,15 +1296,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     try {
       await execFileAsync('git', ['init'], { cwd, encoding: 'utf-8', timeout: 10000, windowsHide: true })
       await execFileAsync('git', ['add', '-A'], { cwd, encoding: 'utf-8', timeout: 30000, windowsHide: true })
-      // Worktree isolation requires at least one commit (HEAD). Fall back to a
-      // local identity so commit succeeds even without a configured git user.
+      // Worktree isolation requires at least one commit (HEAD). Use --allow-empty
+      // so a brand-new/empty project folder still gets a HEAD (git worktree add
+      // fails against an unborn branch). Fall back to a local identity so commit
+      // succeeds even without a configured git user.
       try {
         await execFileAsync('git', [
           '-c', 'user.email=termflow@local', '-c', 'user.name=TermFlow',
-          'commit', '-m', 'Initialize repository for TermFlow agent teams'
+          'commit', '--allow-empty', '-m', 'Initialize repository for TermFlow agent teams'
         ], { cwd, encoding: 'utf-8', timeout: 30000, windowsHide: true })
-      } catch {
-        return { ok: true, message: 'Initialized (no initial commit)' }
+      } catch (err) {
+        // No HEAD means worktree isolation can't run — surface it as a failure
+        // instead of a misleading "ok" that fails later at `git worktree add`.
+        return { ok: false, message: err instanceof Error ? err.message.split('\n')[0] : 'initial commit failed' }
       }
       gitStatusCache.delete(cwd)
       return { ok: true, message: 'Initialized git repository' }
