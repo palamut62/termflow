@@ -111,6 +111,9 @@ export interface CanvasNode {
   bypass?: boolean
   /** When true, auto-layout (grid/columns/rows/auto_fit/focus) skips repositioning this node. */
   isPinned?: boolean
+  /** Ephemeral agent-team visualization node (no PTY). Set to the member/team it represents. */
+  teamMemberId?: string
+  teamId?: string
 }
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
@@ -429,6 +432,11 @@ export interface AgentTeam {
   objective: string
   status: AgentTeamStatus
   permissionPolicy: TeamPermissionPolicy
+  templateId?: string
+  worktreePath?: string
+  worktreeBranch?: string
+  baseCommit?: string
+  appliedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -437,13 +445,16 @@ export interface TeamMember {
   id: string
   teamId: string
   name: string
-  // Yerleşik plan sabit rolleri kullanır; şablon/AI kaynaklı üyeler serbest rol metni taşıyabilir.
+  // Built-in plans use fixed roles; template/AI-sourced members may carry free-form role text.
   role: string
-  provider: 'claude'
+  provider: 'claude' | 'codex' | 'opencode' | 'generic'
+  /** Optional configured provider/custom-agent selection, e.g. provider:deepseek. */
+  executionProfileId?: string
   status: TeamMemberStatus
-  terminalId?: string
-  /** Şablon/AI üyesine özel sistem talimatı; verildiğinde ROLE_INSTRUCTIONS yerine kullanılır. */
+  /** Custom system instruction for the member; when set, overrides ROLE_INSTRUCTIONS. */
   instructions?: string
+  terminalId?: string
+  sessionId?: string
 }
 
 export interface TeamTask {
@@ -456,6 +467,7 @@ export interface TeamTask {
   dependencies: string[]
   acceptanceCriteria: string[]
   result?: string
+  approved?: boolean
   updatedAt: string
 }
 
@@ -481,8 +493,28 @@ export interface CreateAgentTeamInput {
   objective: string
   permissionPolicy: TeamPermissionPolicy
   teamSize: 3 | 4 | 5
-  /** Verildiğinde sabit rol/görev planı yerine bu şablondan üretilir. */
+  /** Built-in quick-start template id (StartTeamTemplate). */
+  templateId?: string
+  /** When set, the role/task plan is built from this custom/AI template instead of the fixed plan. */
   template?: AgentTeamTemplate
+}
+
+/** Built-in quick-start team template used by the create-team wizard. */
+export interface StartTeamTemplate {
+  id: string
+  name: string
+  summary: string
+  category: 'delivery' | 'quality' | 'security' | 'performance' | 'architecture' | 'release'
+  recommendedPolicy: TeamPermissionPolicy
+  members: Array<Pick<TeamMember, 'name' | 'role' | 'provider'> & { instructions: string }>
+  tasks: Array<{
+    key: string
+    title: string
+    description: string
+    assigneeRole: TeamMember['role']
+    dependencies: string[]
+    acceptanceCriteria: string[]
+  }>
 }
 
 // ---- Agent Team Templates (manuel CRUD + AI üretimi) ----
@@ -712,6 +744,10 @@ export const IPC = {
   TEAM_DELETE: 'team:delete',
   TEAM_MEMBER_UPDATE: 'team:member:update',
   TEAM_TASK_UPDATE: 'team:task:update',
+  TEAM_START: 'team:start',
+  TEAM_STOP: 'team:stop',
+  TEAM_APPLY: 'team:apply',
+  TEAM_EVENT: 'team:event', // main -> renderer: live team bundle push
   // agent team templates
   TEAM_TEMPLATE_LIST: 'teamTemplate:list',
   TEAM_TEMPLATE_SAVE: 'teamTemplate:save',

@@ -5,7 +5,11 @@ import type {
   AgentConnection,
   LayoutMode,
   ConnectionType,
-  CanvasViewport
+  CanvasViewport,
+  AgentTeamBundle,
+  NodeStatus,
+  TeamMemberStatus,
+  AgentType
 } from '../../../../shared/types'
 import { computeLayout } from '../../autolayout'
 import { syncAgentRouting } from '../storeShared'
@@ -14,6 +18,8 @@ import type { AppState } from '../appStore'
 export interface LayoutSlice {
   nodes: CanvasNode[]
   connections: AgentConnection[]
+  /** Live agent-team bundles keyed by team id, powering the ephemeral canvas visualization. */
+  teamBundles: Record<string, AgentTeamBundle>
   activeNodeId: string | null
   selectedConnectionId: string | null
   developerCenterOpen: boolean
@@ -36,6 +42,11 @@ export interface LayoutSlice {
   addConnection: (source: string, target: string, type: ConnectionType, label?: string, routeOpts?: { triggerPattern?: string; transform?: string; routeBehavior?: 'marker' | 'continuous' | 'disabled'; routeDirection?: 'source_to_target' | 'bidirectional' }) => void
   removeConnection: (id: string) => void
 
+  // Ephemeral agent-team visualization: mirror a running team's members/deps as
+  // PTY-less canvas nodes + dependency edges. Never persisted (see flushPersist).
+  syncTeamCanvas: (bundle: AgentTeamBundle) => void
+  clearTeamCanvas: (teamId: string) => void
+
   setLayoutMode: (mode: LayoutMode, vp?: { width: number; height: number }) => void
   applyAutoLayout: (vp: { width: number; height: number }) => void
   resizeFocusedNode: (nodeId: string, width: number) => void
@@ -52,6 +63,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (set, get) => ({
   nodes: [],
   connections: [],
+  teamBundles: {},
   activeNodeId: null,
   selectedConnectionId: null,
   developerCenterOpen: false,
@@ -222,6 +234,89 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     get().persist()
   },
 
+  syncTeamCanvas: (bundle) => {
+    const st = get()
+    const teamId = bundle.team.id
+    if (!st.activeWorkspaceId) return
+    // Keep completed/failed teams visible so users can inspect the real terminal
+    // output. Draft and cancelled teams do not own active canvas terminals.
+    if (['draft', 'cancelled'].includes(bundle.team.status)) { get().clearTeamCanvas(teamId); return }
+    const memberStatus = (s: TeamMemberStatus): NodeStatus =>
+      s === 'working' ? 'running' : s === 'completed' ? 'completed' : s === 'failed' ? 'error' : 'idle'
+    const providerToAgent: Record<string, AgentType> = { claude: 'claude', codex: 'codex', opencode: 'opencode', generic: 'custom' }
+    const existing = new Map(st.nodes.filter((n) => n.teamId === teamId).map((n) => [n.teamMemberId!, n]))
+    // Present the team in execution order, not role-definition order. Compact
+    // stage cards and no canvas wires make the workflow readable at a glance.
+    const orderedIds = bundle.tasks.map((task) => task.assigneeId).filter((id): id is string => Boolean(id))
+    const uniqueIds = [...new Set([...orderedIds, ...bundle.members.map((member) => member.id)])]
+    const orderedMembers = uniqueIds.map((id) => bundle.members.find((member) => member.id === id)).filter((member): member is typeof bundle.members[number] => Boolean(member))
+    const cardWidth = 520
+    const cardHeight = 440
+    const gapX = 56
+    const startX = 60
+    const teamNodes: CanvasNode[] = orderedMembers.map((m, i) => {
+      const prev = existing.get(m.id)
+      const position = { x: startX + i * (cardWidth + gapX), y: 70 }
+      return {
+        id: prev?.id ?? `team-${teamId}-${m.id}`,
+        workspaceId: st.activeWorkspaceId!,
+        title: m.name,
+        nodeType: 'agent' as const,
+        agentType: providerToAgent[m.provider] ?? 'custom',
+        agentRole: m.role,
+        position,
+        size: { width: cardWidth, height: cardHeight },
+        zIndex: prev?.zIndex ?? 1,
+        isMinimized: false,
+        isMaximized: false,
+        status: memberStatus(m.status),
+        showInfo: false,
+        terminalId: m.terminalId,
+        panes: m.terminalId ? { type: 'leaf' as const, terminalId: m.terminalId, title: m.name } : undefined,
+        activePaneId: m.terminalId,
+        teamMemberId: m.id,
+        teamId
+      }
+    })
+    const teamConns: AgentConnection[] = []
+    for (let i = 1; i < teamNodes.length; i++) teamConns.push({
+      id: `teamconn-${teamId}-${i}`,
+      workspaceId: st.activeWorkspaceId!,
+      sourceNodeId: teamNodes[i - 1].id,
+      targetNodeId: teamNodes[i].id,
+      connectionType: 'dependency',
+      isActive: true,
+      status: orderedMembers[i].status === 'working' ? 'active' : 'idle'
+    })
+    set((s) => ({
+      teamBundles: { ...s.teamBundles, [teamId]: bundle },
+      nodes: [...s.nodes.filter((n) => n.teamId !== teamId), ...teamNodes],
+      connections: [...s.connections.filter((c) => !c.id.startsWith(`teamconn-${teamId}-`)), ...teamConns],
+      terminals: bundle.members.reduce((all, member) => {
+        if (!member.terminalId) return all
+        const kind = member.provider === 'generic' ? 'claude' : member.provider
+        all[member.terminalId] = all[member.terminalId] ?? {
+          id: member.terminalId, workspaceId: bundle.team.workspaceId, name: member.name, kind, shell: kind, args: [],
+          cwd: bundle.team.worktreePath ?? '', cleanProviderEnv: true, status: 'running', createdAt: bundle.team.createdAt, updatedAt: bundle.team.updatedAt
+        }
+        return all
+      }, { ...s.terminals })
+    }))
+  },
+
+  clearTeamCanvas: (teamId) => {
+    set((s) => {
+      const teamBundles = { ...s.teamBundles }
+      delete teamBundles[teamId]
+      return {
+        teamBundles,
+        nodes: s.nodes.filter((n) => n.teamId !== teamId),
+        connections: s.connections.filter((c) => !c.id.startsWith(`teamconn-${teamId}-`)),
+        activeNodeId: s.nodes.find((n) => n.id === s.activeNodeId)?.teamId === teamId ? null : s.activeNodeId
+      }
+    })
+  },
+
   setLayoutMode: (mode, vp) => {
     set({ layoutMode: mode })
     if (mode !== 'manual' && vp) get().applyAutoLayout(vp)
@@ -384,8 +479,9 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     if (!s.activeWorkspaceId) return
     window.termflow.layout.save({
       workspaceId: s.activeWorkspaceId,
-      nodes: s.nodes,
-      connections: s.connections,
+      // Ephemeral agent-team nodes/edges are runtime-only — never persist them.
+      nodes: s.nodes.filter((n) => !n.teamId),
+      connections: s.connections.filter((c) => !c.id.startsWith('teamconn-')),
       layoutMode: s.layoutMode,
       viewport: s.viewport,
       activeNodeId: s.activeNodeId || undefined

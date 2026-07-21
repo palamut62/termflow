@@ -161,6 +161,29 @@ export default function App(): React.JSX.Element {
   const loadSnippets = useAppStore((s) => s.loadSnippets)
   const loadHighlightRules = useAppStore((s) => s.loadHighlightRules)
   const startGitPolling = useAppStore((s) => s.startGitPolling)
+  const syncTeamCanvas = useAppStore((s) => s.syncTeamCanvas)
+  const clearTeamCanvas = useAppStore((s) => s.clearTeamCanvas)
+
+  // App-level agent-team canvas visualization: stays subscribed while the app is
+  // open (independent of the modal), so team nodes persist and are torn down by
+  // syncTeamCanvas itself once a team reaches a terminal state.
+  useEffect(() => {
+    const off = window.termflow.teams.onEvent(({ bundle }) => syncTeamCanvas(bundle))
+    return () => off()
+  }, [syncTeamCanvas])
+
+  // On workspace switch (and initial load): drop the previous workspace's team
+  // nodes, then recover running/paused teams so they reappear on the canvas.
+  useEffect(() => {
+    for (const teamId of Object.keys(useAppStore.getState().teamBundles)) clearTeamCanvas(teamId)
+    if (!activeWorkspaceId) return
+    let active = true
+    void window.termflow.teams.list(activeWorkspaceId).then((bundles) => {
+      if (!active) return
+      for (const bundle of bundles) if (!['draft', 'cancelled'].includes(bundle.team.status)) syncTeamCanvas(bundle)
+    })
+    return () => { active = false }
+  }, [activeWorkspaceId, syncTeamCanvas, clearTeamCanvas])
 
   // Save layout immediately when window closes (before PTYs are killed).
   useEffect(() => {
