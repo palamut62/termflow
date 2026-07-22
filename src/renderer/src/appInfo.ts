@@ -12,6 +12,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.3.3',
+    date: '2026-07-22',
+    changes: [
+      'Agent roles now come with real per-role system prompts, sent automatically once an agent node\'s CLI is ready; user-editable in Settings.',
+      'Applying a flow template asks for the team\'s task/goal and kicks off the first agent automatically instead of leaving the pipeline idle.',
+      'Agent Teams: shared task store with a simple coordinator (round-robin assignment, retry-on-failure, per-team concurrency limit) and team-level start/pause/stop controls.',
+      'Per-agent permission policy with a session-only bypass toggle — bypass grants never persist across restarts.',
+      'Desktop notifications for long-running commands, errors and agents waiting on input.',
+      'Workspace templates: save a workspace as a reusable template and spin up new workspaces (or clones) from it.',
+      'package.json script runner integrated into the terminal launcher.',
+      'Global search across terminals, snippets and workspaces.',
+      'Deeper Git integration: ahead/behind status, workbench improvements.',
+      'Security and typecheck fixes across the agent-team and routing code.'
+    ]
+  },
+  {
     version: '0.1.0',
     date: '2026-07-15',
     changes: [

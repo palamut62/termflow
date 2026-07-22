@@ -535,7 +535,6 @@ export function createTeam(input: {
     retryCount: 0
   }))
   store.teamMembers.push(...members)
-  const memberByRole = (role: string): string | undefined => members.find((m) => m.role === role)?.id
 
   // Auto-split the objective into one starter task per non-lead member; the
   // lead's implicit job is coordination/synthesis, not a queued task. The

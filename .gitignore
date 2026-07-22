@@ -72,3 +72,11 @@ dist-*/
 
 # Keep promo website assets
 !website/assets/**
+
+# Playwright debug/scratch output
+.playwright-mcp/
+.playwright-cli/
+
+# Local scratch files (not repo assets)
+*.mp4
+ORCHESTRA.md
