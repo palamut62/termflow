@@ -31,6 +31,11 @@ const ROUTE_LOOP_WINDOW_MS = 1500 // sliding window for the route-rate backstop
 const ROUTE_LOOP_MAX = 40 // max routes per connection in the window before we cut
 const ROUTE_QUEUE_MAX_BYTES = 64 * 1024 // cap the continuous accumulation buffer
 
+// Deliberately has no `routeDirection` field: AgentConnection.routeDirection
+// is already resolved by the renderer (storeShared.syncAgentRouting) into one
+// or two of these one-directional rules (bidirectional = one rule per
+// terminal, each pointing the other way) before they ever reach setRouting().
+// Re-adding direction here would be redundant, not a missing feature.
 export interface RoutingRule {
   connectionId: string
   targetTerminalIds: string[]
