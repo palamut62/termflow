@@ -23,11 +23,13 @@ import {
   ,Puzzle
   ,SlidersHorizontal
   ,Pencil
+  ,Users
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES, AGENT_ROLES } from '../profiles'
 import CustomCommandModal from './CustomCommandModal'
 import FlowTemplatesModal from './FlowTemplatesModal'
+import AgentTeamsModal from './AgentTeamsModal'
 import GlobalSearchModal from './GlobalSearchModal'
 import DeveloperWorkbench from './DeveloperWorkbench'
 import AgentOpsModal from './AgentOpsModal'
@@ -91,6 +93,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [layoutMenu, setLayoutMenu] = useState(false)
   const [customModal, setCustomModal] = useState(false)
   const [flowModal, setFlowModal] = useState(false)
+  const [teamsModal, setTeamsModal] = useState(false)
   const [globalSearchModal, setGlobalSearchModal] = useState(false)
   const [workbench, setWorkbench] = useState(false)
   const [agentOps, setAgentOps] = useState(false)
@@ -335,6 +338,9 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
       <button className="tb-btn" disabled={disabled} title="Agent flow templates" onClick={() => setFlowModal(true)}>
         <Workflow size={15} /> <span className="tb-label">Flows</span>
       </button>
+      <button className="tb-btn" disabled={disabled} title="Agent Teams" onClick={() => setTeamsModal(true)}>
+        <Users size={15} /> <span className="tb-label">Teams</span>
+      </button>
 
       <div className="spacer" />
 
@@ -376,6 +382,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
         />
       )}
       {flowModal && <FlowTemplatesModal onClose={() => setFlowModal(false)} />}
+      {teamsModal && <AgentTeamsModal onClose={() => setTeamsModal(false)} />}
       {globalSearchModal && <GlobalSearchModal onClose={() => setGlobalSearchModal(false)} />}
       {workbench && <DeveloperWorkbench onClose={() => setWorkbench(false)} />}
       {agentOps && <AgentOpsModal onClose={() => setAgentOps(false)} />}

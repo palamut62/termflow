@@ -23,6 +23,11 @@ import {
   ,type GitWorkbenchState
   ,type CredentialMeta
   ,type TermFlowPluginManifest
+  ,type AgentTeamBundle
+  ,type AgentTeam
+  ,type TeamMember
+  ,type TeamTask
+  ,type TeamPermissionPolicy
 } from '../shared/types'
 
 // Windows OS build number (e.g. 26200 for current Win11). xterm's windowsPty
@@ -195,6 +200,21 @@ const api = {
     update: (id: string, patch: Partial<Snippet>): Promise<void> =>
       ipcRenderer.invoke(IPC.SNIPPET_UPDATE, id, patch),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.SNIPPET_DELETE, id)
+  },
+  // ---- Agent Teams (shared task store + coordinator) ----
+  teams: {
+    list: (workspaceId: string): Promise<AgentTeamBundle[]> => ipcRenderer.invoke(IPC.TEAM_LIST, workspaceId),
+    create: (input: { workspaceId: string; objective: string; permissionPolicy: TeamPermissionPolicy; teamSize: 3 | 4 | 5; concurrencyLimit?: number }): Promise<AgentTeamBundle> =>
+      ipcRenderer.invoke(IPC.TEAM_CREATE, input),
+    update: (id: string, patch: Partial<AgentTeam>): Promise<AgentTeamBundle | undefined> =>
+      ipcRenderer.invoke(IPC.TEAM_UPDATE, id, patch),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_DELETE, id),
+    updateMember: (id: string, patch: Partial<TeamMember>): Promise<TeamMember | undefined> =>
+      ipcRenderer.invoke(IPC.TEAM_MEMBER_UPDATE, id, patch),
+    createTask: (input: Omit<TeamTask, 'id' | 'retryCount'>): Promise<TeamTask> =>
+      ipcRenderer.invoke(IPC.TEAM_TASK_CREATE, input),
+    updateTask: (id: string, patch: Partial<TeamTask>): Promise<TeamTask | undefined> =>
+      ipcRenderer.invoke(IPC.TEAM_TASK_UPDATE, id, patch)
   },
   // ---- Highlight Rules ----
   highlightRules: {

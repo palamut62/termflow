@@ -42,6 +42,10 @@ import {
   ,type GitWorkbenchState
   ,type CredentialMeta
   ,type TermFlowPluginManifest
+  ,type AgentTeam
+  ,type TeamMember
+  ,type TeamTask
+  ,type TeamPermissionPolicy
 } from '../../shared/types'
 import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
@@ -256,6 +260,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.SNIPPET_CREATE, (_e, input: Omit<Snippet, 'id' | 'createdAt' | 'updatedAt'>) => dbApi.createSnippet(input))
   ipcMain.handle(IPC.SNIPPET_UPDATE, (_e, id: string, patch: Partial<Snippet>) => dbApi.updateSnippet(id, patch))
   ipcMain.handle(IPC.SNIPPET_DELETE, (_e, id: string) => dbApi.deleteSnippet(id))
+
+  // Agent teams (shared task store + coordinator)
+  ipcMain.handle(IPC.TEAM_LIST, (_e, workspaceId: string) => dbApi.listTeams(workspaceId))
+  ipcMain.handle(IPC.TEAM_CREATE, (_e, input: { workspaceId: string; objective: string; permissionPolicy: TeamPermissionPolicy; teamSize: 3 | 4 | 5; concurrencyLimit?: number }) => dbApi.createTeam(input))
+  ipcMain.handle(IPC.TEAM_UPDATE, (_e, id: string, patch: Partial<AgentTeam>) => dbApi.updateTeam(id, patch))
+  ipcMain.handle(IPC.TEAM_DELETE, (_e, id: string) => dbApi.deleteTeam(id))
+  ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<TeamMember>) => dbApi.updateTeamMember(id, patch))
+  ipcMain.handle(IPC.TEAM_TASK_CREATE, (_e, input: Omit<TeamTask, 'id' | 'retryCount'>) => dbApi.createTeamTask(input))
+  ipcMain.handle(IPC.TEAM_TASK_UPDATE, (_e, id: string, patch: Partial<TeamTask>) => dbApi.updateTeamTask(id, patch))
 
   // ---- Highlight Rules ----
   ipcMain.handle(IPC.HL_RULE_LIST, (_e, workspaceId?: string) => dbApi.listHighlightRules(workspaceId))

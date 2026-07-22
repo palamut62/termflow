@@ -14,7 +14,12 @@ import type {
   HighlightRule,
   SshProfile,
   EnvEntry,
-  PaneNode
+  PaneNode,
+  AgentTeam,
+  TeamMember,
+  TeamTask,
+  AgentTeamBundle,
+  TeamPermissionPolicy
 } from '../../shared/types'
 import { DEFAULT_SETTINGS } from '../../shared/types'
 
@@ -39,6 +44,9 @@ interface StoreShape {
   highlightRules: HighlightRule[]
   sshProfiles: SshProfile[]
   envVars: EnvEntry[]
+  teams: AgentTeam[]
+  teamMembers: TeamMember[]
+  teamTasks: TeamTask[]
 }
 
 let store: StoreShape
@@ -48,7 +56,8 @@ function empty(): StoreShape {
   return {
     workspaces: [], terminals: [], nodes: [], connections: [],
     viewports: {}, settings: { ...DEFAULT_SETTINGS },
-    snippets: [], highlightRules: [], sshProfiles: [], envVars: []
+    snippets: [], highlightRules: [], sshProfiles: [], envVars: [],
+    teams: [], teamMembers: [], teamTasks: []
   }
 }
 
@@ -139,6 +148,9 @@ export function initDatabase(): void {
   } else {
     store = empty()
   }
+  // Security: bypass grants are runtime-only and must never re-arm themselves
+  // from a saved file across restarts (mirrors settings.agentAutoApprove).
+  store.teamMembers = (store.teamMembers ?? []).map((m) => ({ ...m, canBypass: false }))
   if (store.workspaces.length === 0) {
     createWorkspace({
       name: 'Default',
@@ -198,6 +210,10 @@ export function deleteWorkspace(id: string): void {
   store.highlightRules = store.highlightRules.filter((r) => r.workspaceId !== id)
   store.sshProfiles = store.sshProfiles.filter((p) => p.workspaceId !== id)
   store.envVars = store.envVars.filter((e) => e.workspaceId !== id)
+  const removedTeamIds = new Set(store.teams.filter((t) => t.workspaceId === id).map((t) => t.id))
+  store.teams = store.teams.filter((t) => t.workspaceId !== id)
+  store.teamMembers = store.teamMembers.filter((m) => !removedTeamIds.has(m.teamId))
+  store.teamTasks = store.teamTasks.filter((t) => !removedTeamIds.has(t.teamId))
   delete store.viewports[id]
   persist()
 }
@@ -435,4 +451,129 @@ export function saveLayout(layout: WorkspaceLayout): void {
     activeNodeId: layout.activeNodeId
   }
   persist()
+}
+
+// ---- Agent Teams (shared task store + coordinator) ----
+
+// Role lineup by team size, matching the roles the coordinator/UI know how to
+// brief (see ROLE_INSTRUCTIONS in AgentTeamsModal.tsx).
+const TEAM_ROLE_LINEUPS: Record<number, string[]> = {
+  3: ['lead', 'developer', 'tester'],
+  4: ['lead', 'researcher', 'developer', 'tester'],
+  5: ['lead', 'researcher', 'developer', 'tester', 'reviewer']
+}
+
+function teamBundle(team: AgentTeam): AgentTeamBundle {
+  return {
+    team,
+    members: store.teamMembers.filter((m) => m.teamId === team.id),
+    tasks: store.teamTasks.filter((t) => t.teamId === team.id).sort((a, b) => a.order - b.order)
+  }
+}
+
+export function listTeams(workspaceId: string): AgentTeamBundle[] {
+  return store.teams
+    .filter((t) => t.workspaceId === workspaceId)
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+    .map(teamBundle)
+}
+
+export function createTeam(input: {
+  workspaceId: string
+  objective: string
+  permissionPolicy: TeamPermissionPolicy
+  teamSize: 3 | 4 | 5
+  concurrencyLimit?: number
+}): AgentTeamBundle {
+  const ts = now()
+  const team: AgentTeam = {
+    id: nanoid(),
+    workspaceId: input.workspaceId,
+    name: input.objective.length > 48 ? `${input.objective.slice(0, 45)}...` : input.objective,
+    objective: input.objective,
+    permissionPolicy: input.permissionPolicy,
+    status: 'draft',
+    concurrencyLimit: input.concurrencyLimit ?? Math.min(2, input.teamSize),
+    createdAt: ts,
+    updatedAt: ts
+  }
+  store.teams.push(team)
+
+  const lineup = TEAM_ROLE_LINEUPS[input.teamSize] ?? TEAM_ROLE_LINEUPS[4]
+  const members: TeamMember[] = lineup.map((role, i) => ({
+    id: nanoid(),
+    teamId: team.id,
+    name: `${role[0].toUpperCase()}${role.slice(1)} ${i + 1}`,
+    role,
+    status: 'idle',
+    canBypass: false,
+    retryCount: 0
+  }))
+  store.teamMembers.push(...members)
+
+  // Auto-split the objective into one starter task per non-lead member; the
+  // lead's implicit job is coordination/synthesis, not a queued task. The
+  // coordinator (main/teamCoordinator.ts) hands these out as members free up.
+  const workers = members.filter((m) => m.role !== 'lead')
+  const tasks: TeamTask[] = (workers.length ? workers : members).map((m, i) => ({
+    id: nanoid(),
+    teamId: team.id,
+    title: `${m.role[0].toUpperCase()}${m.role.slice(1)} görevi`,
+    description: input.objective,
+    assigneeId: m.id,
+    status: 'ready',
+    order: i,
+    retryCount: 0,
+    maxRetries: 2
+  }))
+  store.teamTasks.push(...tasks)
+
+  persist()
+  return teamBundle(team)
+}
+
+export function updateTeam(id: string, patch: Partial<AgentTeam>): AgentTeamBundle | undefined {
+  const team = store.teams.find((t) => t.id === id)
+  if (!team) return undefined
+  Object.assign(team, patch, { updatedAt: now() })
+  persist()
+  return teamBundle(team)
+}
+
+export function deleteTeam(id: string): void {
+  store.teams = store.teams.filter((t) => t.id !== id)
+  store.teamMembers = store.teamMembers.filter((m) => m.teamId !== id)
+  store.teamTasks = store.teamTasks.filter((t) => t.teamId !== id)
+  persist()
+}
+
+export function updateTeamMember(id: string, patch: Partial<TeamMember>): TeamMember | undefined {
+  const idx = store.teamMembers.findIndex((m) => m.id === id)
+  if (idx < 0) return undefined
+  // Security: a bypass grant never survives past this call — it only reflects
+  // the running session's live choice and is re-derived, never persisted as
+  // "always on" (mirrors the global agentAutoApprove runtime-only handling).
+  store.teamMembers[idx] = { ...store.teamMembers[idx], ...patch }
+  persist()
+  return store.teamMembers[idx]
+}
+
+export function createTeamTask(input: Omit<TeamTask, 'id' | 'retryCount'>): TeamTask {
+  const task: TeamTask = { id: nanoid(), retryCount: 0, ...input }
+  store.teamTasks.push(task)
+  persist()
+  return task
+}
+
+export function updateTeamTask(id: string, patch: Partial<TeamTask>): TeamTask | undefined {
+  const idx = store.teamTasks.findIndex((t) => t.id === id)
+  if (idx < 0) return undefined
+  store.teamTasks[idx] = { ...store.teamTasks[idx], ...patch }
+  persist()
+  return store.teamTasks[idx]
+}
+
+export function getTeamBundle(id: string): AgentTeamBundle | undefined {
+  const team = store.teams.find((t) => t.id === id)
+  return team ? teamBundle(team) : undefined
 }

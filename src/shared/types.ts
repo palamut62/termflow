@@ -222,6 +222,63 @@ export interface TermflowManifest {
   snippets?: TermflowManifestSnippet[]
 }
 
+// ---- Agent Teams (feature: shared task store + coordinator) ----
+// A team is a named group of Claude Code sessions working one objective
+// together, backed by a shared task queue and a simple round-robin
+// coordinator (see main/teamCoordinator.ts).
+export type TeamPermissionPolicy = 'review' | 'controlled' | 'balanced' | 'full'
+export type TeamStatus = 'draft' | 'running' | 'paused' | 'completed' | 'cancelled'
+export type TeamMemberStatus = 'idle' | 'working' | 'blocked' | 'done' | 'error'
+export type TeamTaskStatus = 'ready' | 'working' | 'approval' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled'
+
+export interface AgentTeam {
+  id: string
+  workspaceId: string
+  name: string
+  objective: string
+  permissionPolicy: TeamPermissionPolicy
+  status: TeamStatus
+  /** Max members allowed to be 'working' at once (feature: concurrency limit). */
+  concurrencyLimit: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TeamMember {
+  id: string
+  teamId: string
+  name: string
+  role: string
+  status: TeamMemberStatus
+  terminalId?: string
+  /**
+   * Per-member permission override for this run only — NEVER persisted as an
+   * always-on flag across restarts (security). Rehydrated to false on load;
+   * only meaningful while the team is actively running this session.
+   */
+  canBypass: boolean
+  retryCount: number
+}
+
+export interface TeamTask {
+  id: string
+  teamId: string
+  title: string
+  description: string
+  assigneeId?: string
+  status: TeamTaskStatus
+  order: number
+  result?: string
+  retryCount: number
+  maxRetries: number
+}
+
+export interface AgentTeamBundle {
+  team: AgentTeam
+  members: TeamMember[]
+  tasks: TeamTask[]
+}
+
 // ---- Agent Flow Templates (feature: agent flow templates) ----
 export interface FlowTemplateNode {
   title: string
@@ -591,5 +648,13 @@ export const IPC = {
   AGENT_SET_ROUTING: 'agent:setRouting',
   // Claude Code agent config files
   AGENT_CFG_READ: 'agentCfg:read',
-  AGENT_CFG_WRITE: 'agentCfg:write'
+  AGENT_CFG_WRITE: 'agentCfg:write',
+  // agent teams (shared task store + coordinator)
+  TEAM_LIST: 'team:list',
+  TEAM_CREATE: 'team:create',
+  TEAM_UPDATE: 'team:update',
+  TEAM_DELETE: 'team:delete',
+  TEAM_MEMBER_UPDATE: 'team:memberUpdate',
+  TEAM_TASK_CREATE: 'team:taskCreate',
+  TEAM_TASK_UPDATE: 'team:taskUpdate'
 } as const
