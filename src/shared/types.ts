@@ -222,6 +222,89 @@ export interface TermflowManifest {
   snippets?: TermflowManifestSnippet[]
 }
 
+// ---- Agent Teams (feature: shared task store + coordinator) ----
+// A team is a named group of Claude Code sessions working one objective
+// together, backed by a shared task queue and a simple round-robin
+// coordinator (see AgentTeamsModal.tsx's coordinatorTick).
+// NOTE: an earlier, simpler version of this feature shipped in v0.2.1 with a
+// different on-disk shape (`agentTeams`/`teamEvents` fields, dependencies +
+// acceptanceCriteria on tasks). database.ts migrates that shape into this one
+// on load so existing users don't lose in-flight teams/tasks.
+export type TeamPermissionPolicy = 'review' | 'controlled' | 'balanced' | 'full'
+export type TeamStatus = 'draft' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
+export type TeamMemberStatus = 'idle' | 'working' | 'waiting' | 'blocked' | 'done' | 'completed' | 'error' | 'stopped'
+export type TeamTaskStatus = 'ready' | 'working' | 'approval' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled'
+
+export interface AgentTeam {
+  id: string
+  workspaceId: string
+  name: string
+  objective: string
+  permissionPolicy: TeamPermissionPolicy
+  status: TeamStatus
+  /** Max members allowed to be 'working' at once (feature: concurrency limit). */
+  concurrencyLimit: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TeamMember {
+  id: string
+  teamId: string
+  name: string
+  role: string
+  status: TeamMemberStatus
+  terminalId?: string
+  /**
+   * Per-member permission override for this run only — NEVER persisted as an
+   * always-on flag across restarts (security). Rehydrated to false on load;
+   * only meaningful while the team is actively running this session.
+   */
+  canBypass: boolean
+  retryCount: number
+}
+
+export interface TeamTask {
+  id: string
+  teamId: string
+  title: string
+  description: string
+  assigneeId?: string
+  status: TeamTaskStatus
+  order: number
+  result?: string
+  retryCount: number
+  maxRetries: number
+  /** Carried over from the v0.2.1 shape; optional so new tasks don't need them. */
+  dependencies?: string[]
+  acceptanceCriteria?: string[]
+}
+
+export interface TeamEvent {
+  id: string
+  teamId: string
+  memberId?: string
+  taskId?: string
+  type: 'team.created' | 'team.started' | 'team.stopped' | 'member.started' | 'task.updated' | 'note'
+  message: string
+  createdAt: string
+}
+
+export interface AgentTeamBundle {
+  team: AgentTeam
+  members: TeamMember[]
+  tasks: TeamTask[]
+  events?: TeamEvent[]
+}
+
+export interface CreateAgentTeamInput {
+  workspaceId: string
+  objective: string
+  permissionPolicy: TeamPermissionPolicy
+  teamSize: 3 | 4 | 5
+  concurrencyLimit?: number
+}
+
 // ---- Agent Flow Templates (feature: agent flow templates) ----
 export interface FlowTemplateNode {
   title: string
@@ -387,6 +470,25 @@ export interface AppSettings {
   terminalBell: boolean
   // New terminal nodes open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
+  // Per-role system prompt sent automatically to an agent node's CLI once it's
+  // ready (feature: agent role -> real behavior). Keyed by AgentRoleDef.role.
+  // User-editable overrides layered over DEFAULT_ROLE_PROMPTS.
+  rolePrompts: Record<string, string>
+}
+
+// Default per-role instructions sent to an agent's CLI on first ready state.
+// Keys match AGENT_ROLES[].role in profiles.ts.
+export const DEFAULT_ROLE_PROMPTS: Record<string, string> = {
+  Planner: 'Bu takımın planlayıcısısın. Hedefi net alt görevlere böl, önceliklendir ve ekip üyelerine ne yapacaklarını kısaca özetle. Kod değiştirmeden önce bir plan sun.',
+  Coder: 'Bu takımın geliştiricisisin. Sana atanan görevi uygula: önce ilgili kodu oku, değişikliği hedefle sınırlı tut, derleme/test sonucunu bildir.',
+  Reviewer: 'Bu takımın kod inceleyicisisin. Yapılan değişiklikleri doğruluk, güvenlik, regresyon ve test kapsamı açısından incele. Engelleyici bulguları açıkça listele.',
+  Tester: 'Bu takımın test uzmanısın. Değişikliği bağımsız doğrula: ilgili testleri çalıştır, kullanıcı davranışını kontrol et, somut kanıt (komut çıktısı) ile raporla.',
+  Debugger: 'Bu takımın hata ayıklayıcısısın. Bildirilen hatanın kök nedenini sistematik biçimde bul (repro -> hipotez -> doğrulama), sonra minimum kapsamlı bir düzeltme öner.',
+  Git: 'Bu takımın git/versiyon kontrol ajanısın. Durumu (git status/diff) incele, açıklayıcı commit mesajları hazırla, branch/merge işlemlerinde dikkatli ol.',
+  Documentation: 'Bu takımın dokümantasyon ajanısın. Yapılan değişiklikleri ve kullanımı açık, kısa Türkçe/İngilizce dokümana dönüştür. Var olan doküman stiline uy.',
+  Research: 'Bu takımın araştırmacısısın. Kod değiştirmeden önce ilgili kodu, bağımlılıkları ve riskleri incele; bulgularını ve önerilen yaklaşımı kısaca raporla.',
+  Shell: 'Bu takımın shell/komut ajanısın. Sana verilen komutları çalıştır, çıktıyı özetle, hata durumunda ham çıktıyı paylaş.',
+  'Ollama Local': 'Yerel model ajanısın. Görevi kısa ve öz şekilde ele al, gerekirse ek bağlam iste.'
 }
 
 export interface CustomAgentDef {
@@ -410,70 +512,6 @@ export interface AiProviderProfile {
   baseUrlEnv: string
   color: string
   fullPermissionArgs: string
-}
-
-// ---- Agent Teams ----
-export type TeamPermissionPolicy = 'review' | 'controlled' | 'balanced' | 'full'
-export type AgentTeamStatus = 'draft' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
-export type TeamMemberStatus = 'idle' | 'working' | 'waiting' | 'completed' | 'failed' | 'stopped'
-export type TeamTaskStatus = 'ready' | 'working' | 'approval' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled'
-
-export interface AgentTeam {
-  id: string
-  workspaceId: string
-  name: string
-  objective: string
-  status: AgentTeamStatus
-  permissionPolicy: TeamPermissionPolicy
-  createdAt: string
-  updatedAt: string
-}
-
-export interface TeamMember {
-  id: string
-  teamId: string
-  name: string
-  role: 'lead' | 'researcher' | 'developer' | 'tester' | 'reviewer'
-  provider: 'claude'
-  status: TeamMemberStatus
-  terminalId?: string
-}
-
-export interface TeamTask {
-  id: string
-  teamId: string
-  title: string
-  description: string
-  assigneeId?: string
-  status: TeamTaskStatus
-  dependencies: string[]
-  acceptanceCriteria: string[]
-  result?: string
-  updatedAt: string
-}
-
-export interface TeamEvent {
-  id: string
-  teamId: string
-  memberId?: string
-  taskId?: string
-  type: 'team.created' | 'team.started' | 'team.stopped' | 'member.started' | 'task.updated' | 'note'
-  message: string
-  createdAt: string
-}
-
-export interface AgentTeamBundle {
-  team: AgentTeam
-  members: TeamMember[]
-  tasks: TeamTask[]
-  events: TeamEvent[]
-}
-
-export interface CreateAgentTeamInput {
-  workspaceId: string
-  objective: string
-  permissionPolicy: TeamPermissionPolicy
-  teamSize: 3 | 4 | 5
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -515,7 +553,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdate: true,
   updateChannel: 'stable',
   terminalBell: true,
-  infoPanelDefaultOpen: false
+  infoPanelDefaultOpen: false,
+  rolePrompts: {}
 }
 
 export interface CanvasViewport {
@@ -667,10 +706,12 @@ export const IPC = {
   // Claude Code agent config files
   AGENT_CFG_READ: 'agentCfg:read',
   AGENT_CFG_WRITE: 'agentCfg:write',
+  // agent teams (shared task store + coordinator)
   TEAM_LIST: 'team:list',
   TEAM_CREATE: 'team:create',
   TEAM_UPDATE: 'team:update',
   TEAM_DELETE: 'team:delete',
-  TEAM_MEMBER_UPDATE: 'team:member:update',
-  TEAM_TASK_UPDATE: 'team:task:update'
+  TEAM_MEMBER_UPDATE: 'team:memberUpdate',
+  TEAM_TASK_CREATE: 'team:taskCreate',
+  TEAM_TASK_UPDATE: 'team:taskUpdate'
 } as const

@@ -15,12 +15,12 @@ import type {
   SshProfile,
   EnvEntry,
   PaneNode,
-  AgentTeamBundle,
   AgentTeam,
   TeamMember,
   TeamTask,
   TeamEvent,
-  CreateAgentTeamInput
+  AgentTeamBundle,
+  TeamPermissionPolicy
 } from '../../shared/types'
 import { DEFAULT_SETTINGS } from '../../shared/types'
 
@@ -45,10 +45,14 @@ interface StoreShape {
   highlightRules: HighlightRule[]
   sshProfiles: SshProfile[]
   envVars: EnvEntry[]
-  agentTeams: AgentTeam[]
+  teams: AgentTeam[]
   teamMembers: TeamMember[]
   teamTasks: TeamTask[]
   teamEvents: TeamEvent[]
+  /** v0.2.1's on-disk shape for this feature, kept only so initDatabase() can
+   *  migrate it into `teams`/etc. on first load after upgrading; never
+   *  written back to once migrated. */
+  agentTeams?: AgentTeam[]
 }
 
 let store: StoreShape
@@ -59,7 +63,7 @@ function empty(): StoreShape {
     workspaces: [], terminals: [], nodes: [], connections: [],
     viewports: {}, settings: { ...DEFAULT_SETTINGS },
     snippets: [], highlightRules: [], sshProfiles: [], envVars: [],
-    agentTeams: [], teamMembers: [], teamTasks: [], teamEvents: []
+    teams: [], teamMembers: [], teamTasks: [], teamEvents: []
   }
 }
 
@@ -150,6 +154,21 @@ export function initDatabase(): void {
   } else {
     store = empty()
   }
+  // One-time migration from v0.2.1's simpler Agent Teams shape (`agentTeams`
+  // field, no concurrencyLimit/canBypass/retryCount) into the current one, so
+  // existing users don't lose in-flight teams/tasks when upgrading.
+  if (store.agentTeams?.length && !store.teams?.length) {
+    store.teams = store.agentTeams.map((t) => ({
+      ...t,
+      concurrencyLimit: (t as AgentTeam).concurrencyLimit ?? 2
+    }))
+  }
+  delete store.agentTeams
+  // Security: bypass grants are runtime-only and must never re-arm themselves
+  // from a saved file across restarts (mirrors settings.agentAutoApprove).
+  store.teamMembers = (store.teamMembers ?? []).map((m) => ({ ...m, canBypass: false, retryCount: m.retryCount ?? 0 }))
+  store.teamTasks = (store.teamTasks ?? []).map((t, i) => ({ ...t, order: t.order ?? i, retryCount: t.retryCount ?? 0, maxRetries: t.maxRetries ?? 2 }))
+  store.teamEvents = store.teamEvents ?? []
   if (store.workspaces.length === 0) {
     createWorkspace({
       name: 'Default',
@@ -209,11 +228,11 @@ export function deleteWorkspace(id: string): void {
   store.highlightRules = store.highlightRules.filter((r) => r.workspaceId !== id)
   store.sshProfiles = store.sshProfiles.filter((p) => p.workspaceId !== id)
   store.envVars = store.envVars.filter((e) => e.workspaceId !== id)
-  const teamIds = new Set(store.agentTeams.filter((team) => team.workspaceId === id).map((team) => team.id))
-  store.agentTeams = store.agentTeams.filter((team) => !teamIds.has(team.id))
-  store.teamMembers = store.teamMembers.filter((member) => !teamIds.has(member.teamId))
-  store.teamTasks = store.teamTasks.filter((task) => !teamIds.has(task.teamId))
-  store.teamEvents = store.teamEvents.filter((event) => !teamIds.has(event.teamId))
+  const removedTeamIds = new Set(store.teams.filter((t) => t.workspaceId === id).map((t) => t.id))
+  store.teams = store.teams.filter((t) => t.workspaceId !== id)
+  store.teamMembers = store.teamMembers.filter((m) => !removedTeamIds.has(m.teamId))
+  store.teamTasks = store.teamTasks.filter((t) => !removedTeamIds.has(t.teamId))
+  store.teamEvents = store.teamEvents.filter((e) => !removedTeamIds.has(e.teamId))
   delete store.viewports[id]
   persist()
 }
@@ -453,95 +472,157 @@ export function saveLayout(layout: WorkspaceLayout): void {
   persist()
 }
 
-// ---- Agent Teams ----
+// ---- Agent Teams (shared task store + coordinator) ----
+
+// Role lineup by team size, matching the roles the coordinator/UI know how to
+// brief (see ROLE_INSTRUCTIONS in AgentTeamsModal.tsx).
+const TEAM_ROLE_LINEUPS: Record<number, string[]> = {
+  3: ['lead', 'developer', 'tester'],
+  4: ['lead', 'researcher', 'developer', 'tester'],
+  5: ['lead', 'researcher', 'developer', 'tester', 'reviewer']
+}
 
 function teamBundle(team: AgentTeam): AgentTeamBundle {
   return {
-    team: { ...team },
-    members: store.teamMembers.filter((member) => member.teamId === team.id),
-    tasks: store.teamTasks.filter((task) => task.teamId === team.id),
-    events: store.teamEvents.filter((event) => event.teamId === team.id).slice(-200)
+    team,
+    members: store.teamMembers.filter((m) => m.teamId === team.id),
+    tasks: store.teamTasks.filter((t) => t.teamId === team.id).sort((a, b) => a.order - b.order),
+    events: store.teamEvents.filter((e) => e.teamId === team.id).slice(-200)
   }
 }
 
-export function listAgentTeams(workspaceId: string): AgentTeamBundle[] {
-  return store.agentTeams
-    .filter((team) => team.workspaceId === workspaceId)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+export function listTeams(workspaceId: string): AgentTeamBundle[] {
+  return store.teams
+    .filter((t) => t.workspaceId === workspaceId)
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
     .map(teamBundle)
 }
 
-export function createAgentTeam(input: CreateAgentTeamInput): AgentTeamBundle {
+export function createTeam(input: {
+  workspaceId: string
+  objective: string
+  permissionPolicy: TeamPermissionPolicy
+  teamSize: 3 | 4 | 5
+  concurrencyLimit?: number
+}): AgentTeamBundle {
   const objective = input.objective.trim().slice(0, 2000)
   if (!objective) throw new Error('Takım hedefi boş olamaz')
-  if (![3, 4, 5].includes(input.teamSize)) throw new Error('Takım boyutu geçersiz')
   const ts = now()
-  const teamId = nanoid()
   const team: AgentTeam = {
-    id: teamId,
+    id: nanoid(),
     workspaceId: input.workspaceId,
-    name: objective.length > 62 ? `${objective.slice(0, 59)}...` : objective,
+    name: objective.length > 48 ? `${objective.slice(0, 45)}...` : objective,
     objective,
-    status: 'draft',
     permissionPolicy: input.permissionPolicy,
+    status: 'draft',
+    concurrencyLimit: input.concurrencyLimit ?? Math.min(2, input.teamSize),
     createdAt: ts,
     updatedAt: ts
   }
-  const allRoles: TeamMember['role'][] = ['lead', 'researcher', 'developer', 'tester', 'reviewer']
-  const roles = allRoles.slice(0, input.teamSize)
-  const labels: Record<TeamMember['role'], string> = {
+  store.teams.push(team)
+
+  const lineup = TEAM_ROLE_LINEUPS[input.teamSize] ?? TEAM_ROLE_LINEUPS[4]
+  const labels: Record<string, string> = {
     lead: 'Takım Lideri', researcher: 'Araştırmacı', developer: 'Geliştirici', tester: 'Test Uzmanı', reviewer: 'Kod İnceleyici'
   }
-  const members = roles.map<TeamMember>((role) => ({ id: nanoid(), teamId, name: labels[role], role, provider: 'claude', status: 'idle' }))
-  const member = (role: TeamMember['role']): string | undefined => members.find((item) => item.role === role)?.id
-  const planId = nanoid()
-  const buildId = nanoid()
-  const testId = nanoid()
-  const tasks: TeamTask[] = [
-    { id: planId, teamId, title: 'Hedefi incele ve planla', description: objective, assigneeId: member('researcher') ?? member('lead'), status: 'ready', dependencies: [], acceptanceCriteria: ['İlgili kod ve riskler belirlendi', 'Uygulanabilir plan hazırlandı'], updatedAt: ts },
-    { id: buildId, teamId, title: 'Çözümü uygula', description: `Onaylanan plana göre hedefi gerçekleştir: ${objective}`, assigneeId: member('developer') ?? member('lead'), status: 'ready', dependencies: [planId], acceptanceCriteria: ['Değişiklik hedefle sınırlı', 'Kod derleniyor'], updatedAt: ts },
-    { id: testId, teamId, title: 'Doğrula ve test et', description: 'Uygulanan değişikliği test et ve kanıtları raporla.', assigneeId: member('tester') ?? member('lead'), status: 'ready', dependencies: [buildId], acceptanceCriteria: ['İlgili testler geçti', 'Kullanıcı sonucu doğrulandı'], updatedAt: ts }
-  ]
-  const reviewerId = member('reviewer')
-  if (reviewerId) tasks.push({ id: nanoid(), teamId, title: 'Son kod incelemesi', description: 'Değişiklikleri güvenlik, doğruluk ve kapsam açısından incele.', assigneeId: reviewerId, status: 'ready', dependencies: [testId], acceptanceCriteria: ['Engelleyici bulgu kalmadı'], updatedAt: ts })
-  store.agentTeams.push(team)
+  const members: TeamMember[] = lineup.map((role, i) => ({
+    id: nanoid(),
+    teamId: team.id,
+    name: labels[role] ?? `${role[0].toUpperCase()}${role.slice(1)} ${i + 1}`,
+    role,
+    status: 'idle',
+    canBypass: false,
+    retryCount: 0
+  }))
   store.teamMembers.push(...members)
+  const memberByRole = (role: string): string | undefined => members.find((m) => m.role === role)?.id
+
+  // Auto-split the objective into one starter task per non-lead member; the
+  // lead's implicit job is coordination/synthesis, not a queued task. The
+  // coordinator (AgentTeamsModal.tsx's coordinatorTick) hands these out as
+  // members free up. Dependencies/acceptanceCriteria mirror v0.2.1's simpler
+  // plan->build->test->review pipeline so downstream tooling that reads them
+  // keeps working, but they're informational only for the current coordinator.
+  const workers = members.filter((m) => m.role !== 'lead')
+  const ordered = workers.length ? workers : members
+  const tasks: TeamTask[] = ordered.map((m, i) => {
+    const prevId = i > 0 ? ordered[i - 1].id : undefined
+    return {
+      id: nanoid(),
+      teamId: team.id,
+      title: `${m.role[0].toUpperCase()}${m.role.slice(1)} görevi`,
+      description: objective,
+      assigneeId: m.id,
+      status: 'ready',
+      order: i,
+      retryCount: 0,
+      maxRetries: 2,
+      dependencies: prevId ? [prevId] : [],
+      acceptanceCriteria: []
+    }
+  })
   store.teamTasks.push(...tasks)
-  store.teamEvents.push({ id: nanoid(), teamId, type: 'team.created', message: 'Takım ve görev planı oluşturuldu.', createdAt: ts })
+  store.teamEvents.push({ id: nanoid(), teamId: team.id, type: 'team.created', message: 'Takım ve görev planı oluşturuldu.', createdAt: ts })
+
   persist()
   return teamBundle(team)
 }
 
-export function updateAgentTeam(id: string, patch: Partial<Pick<AgentTeam, 'status' | 'name'>>): AgentTeamBundle {
-  const team = store.agentTeams.find((item) => item.id === id)
-  if (!team) throw new Error('Takım bulunamadı')
-  if (patch.name) team.name = patch.name.trim().slice(0, 80)
-  if (patch.status) team.status = patch.status
-  team.updatedAt = now()
-  store.teamEvents.push({ id: nanoid(), teamId: id, type: patch.status === 'running' ? 'team.started' : 'team.stopped', message: patch.status === 'running' ? 'Takım çalışmaya başladı.' : `Takım durumu: ${patch.status ?? team.status}`, createdAt: team.updatedAt })
+export function updateTeam(id: string, patch: Partial<AgentTeam>): AgentTeamBundle | undefined {
+  const team = store.teams.find((t) => t.id === id)
+  if (!team) return undefined
+  Object.assign(team, patch, { updatedAt: now() })
+  if (patch.status) {
+    store.teamEvents.push({
+      id: nanoid(),
+      teamId: id,
+      type: patch.status === 'running' ? 'team.started' : 'team.stopped',
+      message: patch.status === 'running' ? 'Takım çalışmaya başladı.' : `Takım durumu: ${patch.status}`,
+      createdAt: team.updatedAt
+    })
+  }
   persist()
   return teamBundle(team)
 }
 
-export function updateTeamMember(id: string, patch: Partial<Pick<TeamMember, 'status' | 'terminalId'>>): void {
-  const member = store.teamMembers.find((item) => item.id === id)
-  if (!member) throw new Error('Takım üyesi bulunamadı')
-  Object.assign(member, patch)
+export function deleteTeam(id: string): void {
+  store.teams = store.teams.filter((t) => t.id !== id)
+  store.teamMembers = store.teamMembers.filter((m) => m.teamId !== id)
+  store.teamTasks = store.teamTasks.filter((t) => t.teamId !== id)
+  store.teamEvents = store.teamEvents.filter((e) => e.teamId !== id)
   persist()
 }
 
-export function updateTeamTask(id: string, patch: Partial<Pick<TeamTask, 'status' | 'result' | 'assigneeId'>>): void {
-  const task = store.teamTasks.find((item) => item.id === id)
-  if (!task) throw new Error('Görev bulunamadı')
-  Object.assign(task, patch, { updatedAt: now() })
-  store.teamEvents.push({ id: nanoid(), teamId: task.teamId, taskId: task.id, type: 'task.updated', message: `${task.title}: ${task.status}`, createdAt: task.updatedAt })
+export function updateTeamMember(id: string, patch: Partial<TeamMember>): TeamMember | undefined {
+  const idx = store.teamMembers.findIndex((m) => m.id === id)
+  if (idx < 0) return undefined
+  // Security: a bypass grant never survives past this call — it only reflects
+  // the running session's live choice and is re-derived, never persisted as
+  // "always on" (mirrors the global agentAutoApprove runtime-only handling).
+  store.teamMembers[idx] = { ...store.teamMembers[idx], ...patch }
   persist()
+  return store.teamMembers[idx]
 }
 
-export function deleteAgentTeam(id: string): void {
-  store.agentTeams = store.agentTeams.filter((team) => team.id !== id)
-  store.teamMembers = store.teamMembers.filter((member) => member.teamId !== id)
-  store.teamTasks = store.teamTasks.filter((task) => task.teamId !== id)
-  store.teamEvents = store.teamEvents.filter((event) => event.teamId !== id)
+export function createTeamTask(input: Omit<TeamTask, 'id' | 'retryCount'>): TeamTask {
+  const task: TeamTask = { id: nanoid(), retryCount: 0, ...input }
+  store.teamTasks.push(task)
   persist()
+  return task
+}
+
+export function updateTeamTask(id: string, patch: Partial<TeamTask>): TeamTask | undefined {
+  const idx = store.teamTasks.findIndex((t) => t.id === id)
+  if (idx < 0) return undefined
+  store.teamTasks[idx] = { ...store.teamTasks[idx], ...patch }
+  if (patch.status) {
+    store.teamEvents.push({ id: nanoid(), teamId: store.teamTasks[idx].teamId, taskId: id, type: 'task.updated', message: `${store.teamTasks[idx].title}: ${patch.status}`, createdAt: now() })
+  }
+  persist()
+  return store.teamTasks[idx]
+}
+
+export function getTeamBundle(id: string): AgentTeamBundle | undefined {
+  const team = store.teams.find((t) => t.id === id)
+  return team ? teamBundle(team) : undefined
 }

@@ -1,4 +1,5 @@
 import type { ShellKind, NodeType, AgentType } from '../../shared/types'
+import { DEFAULT_ROLE_PROMPTS } from '../../shared/types'
 
 export interface ProfileDef {
   kind: ShellKind
@@ -63,6 +64,16 @@ export const PROFILES: ProfileDef[] = [
 
 export function profileFor(kind: ShellKind): ProfileDef {
   return PROFILES.find((p) => p.kind === kind) ?? PROFILES[0]
+}
+
+// Resolve the system prompt to send an agent node's CLI once it's ready:
+// user override (settings.rolePrompts) first, else the built-in default for
+// that role. Returns undefined for roles with no known template (custom).
+export function rolePromptFor(role: string | undefined, overrides: Record<string, string>): string | undefined {
+  if (!role) return undefined
+  const override = overrides[role]
+  if (override && override.trim()) return override
+  return DEFAULT_ROLE_PROMPTS[role]
 }
 
 // Agent role node types (PRD §10.5.2). Each maps to a default backing CLI which

@@ -7,6 +7,7 @@ export interface PromptField {
   placeholder?: string
   required?: boolean
   defaultValue?: string
+  type?: 'text' | 'textarea'
 }
 
 interface Props {
@@ -45,18 +46,34 @@ export default function PromptModal({
         {fields.map((field, index) => (
           <div className="field" key={field.key}>
             <label>{field.label}</label>
-            <input
-              autoFocus={index === 0}
-              value={values[field.key] ?? ''}
-              placeholder={field.placeholder}
-              onChange={(e) => setValues((s) => ({ ...s, [field.key]: e.target.value }))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && valid) {
-                  onSubmit(values)
-                  onClose()
-                }
-              }}
-            />
+            {field.type === 'textarea' ? (
+              <textarea
+                autoFocus={index === 0}
+                rows={4}
+                value={values[field.key] ?? ''}
+                placeholder={field.placeholder}
+                onChange={(e) => setValues((s) => ({ ...s, [field.key]: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && valid) {
+                    onSubmit(values)
+                    onClose()
+                  }
+                }}
+              />
+            ) : (
+              <input
+                autoFocus={index === 0}
+                value={values[field.key] ?? ''}
+                placeholder={field.placeholder}
+                onChange={(e) => setValues((s) => ({ ...s, [field.key]: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && valid) {
+                    onSubmit(values)
+                    onClose()
+                  }
+                }}
+              />
+            )}
           </div>
         ))}
         <div className="modal-actions">

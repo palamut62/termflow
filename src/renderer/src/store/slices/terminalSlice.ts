@@ -7,7 +7,7 @@ import type {
   ProcStats,
   FlowTemplate
 } from '../../../../shared/types'
-import { profileFor } from '../../profiles'
+import { profileFor, rolePromptFor } from '../../profiles'
 import { computeLayout } from '../../autolayout'
 import { getLeafTerminalIds, getActiveTerminalId, splitPane, closePane, countLeaves } from '../../paneUtils'
 import {
@@ -15,6 +15,8 @@ import {
   parseAgentActivities,
   routeIdleTimers,
   ROUTE_ACTIVE_MS,
+  AI_BANNER_RE,
+  pendingInitialPrompts,
   type AgentActivity,
   type NewTerminalOpts
 } from '../storeShared'
@@ -31,7 +33,7 @@ export interface TerminalSlice {
 
   addTerminal: (kind: ShellKind, opts?: NewTerminalOpts) => Promise<void>
   duplicateNode: (nodeId: string) => Promise<void>
-  applyFlowTemplate: (template: FlowTemplate) => Promise<void>
+  applyFlowTemplate: (template: FlowTemplate, task?: string) => Promise<void>
   saveFlowTemplate: (name: string) => Promise<{ id?: string; error?: string }>
   sendLogToAgent: (sourceNodeId: string, targetNodeId: string | 'new') => Promise<void>
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
@@ -160,6 +162,14 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const persisted: TerminalSession = { ...session, pid: pid && pid > 0 ? pid : undefined, status: session.status === 'error' ? 'error' : 'running' }
     await window.termflow.terminals.upsert(persisted)
 
+    // Role -> real behavior: queue the role's system prompt (or an explicit
+    // override, e.g. a flow-template task) to be typed in once the CLI's
+    // startup banner appears. Only for agent nodes with a real CLI backing.
+    if (persisted.status === 'running' && profile.nodeType === 'agent') {
+      const prompt = opts?.initialPrompt || rolePromptFor(opts?.agentRole, st.settings.rolePrompts)
+      if (prompt) pendingInitialPrompts.set(termId, prompt)
+    }
+
     set((s) => {
       // Auto-arrange so new terminals never stack; tile them proportionally to
       // the canvas (bigger when few, smaller when many). Manual mode tiles as a
@@ -203,13 +213,21 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   // node (in order) then wires the declared connections between them, using
   // each freshly-created node's id (addTerminal sets activeNodeId to it).
   // (feature: agent flow templates)
-  applyFlowTemplate: async (template) => {
+  applyFlowTemplate: async (template, task) => {
     const nodeIds: string[] = []
-    for (const n of template.nodes) {
+    for (let i = 0; i < template.nodes.length; i++) {
+      const n = template.nodes[i]
+      // Auto-start: the team's first node gets the user's task appended to
+      // its role prompt so the pipeline begins working immediately instead of
+      // sitting idle after being wired up. (feature: flow template auto-start)
+      const initialPrompt = i === 0 && task?.trim()
+        ? `${rolePromptFor(n.agentRole, get().settings.rolePrompts) ?? ''}\n\nGörev: ${task.trim()}`.trim()
+        : undefined
       await get().addTerminal(n.kind, {
         name: n.title,
         agentRole: n.agentRole,
-        startupCommand: n.startupCommand
+        startupCommand: n.startupCommand,
+        initialPrompt
       })
       const created = get().activeNodeId
       if (created) nodeIds.push(created)
@@ -584,6 +602,13 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const st = get()
       const metricNode = st.nodes.find((node) => node.terminalId === id || (node.panes ? getLeafTerminalIds(node.panes).includes(id) : false))
       if (st.activeWorkspaceId && (metricNode?.agentType || metricNode?.agentRole)) captureAgentMetric(st.activeWorkspaceId, id, metricNode.agentRole || metricNode.title, data)
+      // Role -> real behavior: fire the queued initial prompt once the CLI's
+      // own startup banner shows up in its output (one-shot per terminal).
+      const queuedPrompt = pendingInitialPrompts.get(id)
+      if (queuedPrompt && AI_BANNER_RE.test(data)) {
+        pendingInitialPrompts.delete(id)
+        window.termflow.pty.write(id, `${queuedPrompt}\r`)
+      }
       const events = parseAgentActivities(id, data, st.nodes, st.terminals)
       if (!events.length) return
       set((s) => {

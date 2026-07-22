@@ -19,7 +19,16 @@ export interface NewTerminalOpts {
   agentRole?: string
   env?: Record<string, string>
   cleanProviderEnv?: boolean
+  // Sent to the CLI once it looks ready (AI_BANNER_RE match). Defaults to the
+  // role's prompt template (profiles.ts rolePromptFor) when agentRole is set
+  // and no explicit override is given (feature: role -> real behavior).
+  initialPrompt?: string
 }
+
+// terminalId -> prompt text queued to be typed into the CLI once its startup
+// banner is detected in the pty output (module-level: survives across renders,
+// one-shot per terminal via delete-on-send).
+export const pendingInitialPrompts = new Map<string, string>()
 
 export interface AgentActivity {
   id: string
@@ -53,7 +62,7 @@ const AI_CLI_RE = /\b(claude|codex|gemini|aider|opencode|crush|qwen|cursor-agent
 // Output banners that reveal an AI CLI was started by hand inside a plain shell
 // (so startupCommand is empty). Conservative — specific phrases only, to avoid
 // flipping an ordinary terminal into "agent mode" on a stray keyword.
-const AI_BANNER_RE = /welcome to claude code|claude code v|▐▛|welcome to codex|openai codex|gemini cli|aider v\d|opencode|goose session|╭─+ *codex/i
+export const AI_BANNER_RE = /welcome to claude code|claude code v|▐▛|welcome to codex|openai codex|gemini cli|aider v\d|opencode|goose session|╭─+ *codex/i
 
 // Tool invocations as AI CLIs actually render them: a bullet (stripped upstream)
 // followed by `ToolName(args)`. Deterministic and low false-positive.
