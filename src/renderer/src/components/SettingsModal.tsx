@@ -13,6 +13,8 @@ import {
 import { useAppStore } from '../store/appStore'
 import { TERMINAL_THEMES } from '../themes'
 import type { EnvEntry, HighlightRule, SshProfile } from '../../../shared/types'
+import { DEFAULT_ROLE_PROMPTS } from '../../../shared/types'
+import { AGENT_ROLES } from '../profiles'
 import PromptModal, { type PromptField } from './PromptModal'
 import { useModalClose } from '../hooks/useModalClose'
 
@@ -261,6 +263,27 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 Claude Code <code>--dangerously-skip-permissions</code>, Codex{' '}
                 <code>--dangerously-bypass-approvals-and-sandbox</code>
               </p>
+            </div>
+
+            <div className="field">
+              <label>Agent role prompts</label>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 8 }}>
+                Bir agent node'u bu rolle başlatıldığında CLI hazır olur olmaz otomatik gönderilen ilk talimat.
+                Boş bırakılırsa varsayılan şablon kullanılır.
+              </p>
+              {AGENT_ROLES.map((r) => (
+                <div key={r.role} style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 12, color: r.color }}>{r.label}</label>
+                  <textarea
+                    rows={2}
+                    value={settings.rolePrompts[r.role] ?? ''}
+                    placeholder={DEFAULT_ROLE_PROMPTS[r.role] ?? ''}
+                    onChange={(e) =>
+                      update({ rolePrompts: { ...settings.rolePrompts, [r.role]: e.target.value } })
+                    }
+                  />
+                </div>
+              ))}
             </div>
           </>
         )}

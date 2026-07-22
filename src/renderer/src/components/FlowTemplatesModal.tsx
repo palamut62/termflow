@@ -20,6 +20,7 @@ export default function FlowTemplatesModal({ onClose }: Props): React.JSX.Elemen
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showSave, setShowSave] = useState(false)
+  const [pendingTemplate, setPendingTemplate] = useState<FlowTemplate | null>(null)
   useModalClose(onClose)
 
   const reload = async (): Promise<void> => setTemplates(await window.termflow.flowTemplates.list())
@@ -28,11 +29,16 @@ export default function FlowTemplatesModal({ onClose }: Props): React.JSX.Elemen
     reload()
   }, [])
 
-  const apply = async (t: FlowTemplate): Promise<void> => {
+  // Ask for the team's task/objective before spawning the pipeline, then hand
+  // it to the first agent so the team starts working right away instead of
+  // sitting idle after being wired up. (feature: flow template auto-start)
+  const apply = (t: FlowTemplate): void => setPendingTemplate(t)
+
+  const runApply = async (t: FlowTemplate, task: string): Promise<void> => {
     setError(null)
     setBusyId(t.id)
     try {
-      await applyFlowTemplate(t)
+      await applyFlowTemplate(t, task)
       onClose()
     } finally {
       setBusyId(null)
@@ -87,6 +93,24 @@ export default function FlowTemplatesModal({ onClose }: Props): React.JSX.Elemen
             else await reload()
           }}
           onClose={() => setShowSave(false)}
+        />
+      )}
+      {pendingTemplate && (
+        <PromptModal
+          title={`"${pendingTemplate.name}" için görev`}
+          submitLabel="Takımı başlat"
+          fields={[{
+            key: 'task',
+            label: 'Bu ekibin ilk ajanına iletilecek hedef/görev',
+            type: 'textarea',
+            required: true
+          } as PromptField]}
+          onSubmit={async (values) => {
+            const t = pendingTemplate
+            setPendingTemplate(null)
+            await runApply(t, values.task)
+          }}
+          onClose={() => setPendingTemplate(null)}
         />
       )}
     </div>

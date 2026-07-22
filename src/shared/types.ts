@@ -361,6 +361,25 @@ export interface AppSettings {
   terminalBell: boolean
   // New terminal nodes open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
+  // Per-role system prompt sent automatically to an agent node's CLI once it's
+  // ready (feature: agent role -> real behavior). Keyed by AgentRoleDef.role.
+  // User-editable overrides layered over DEFAULT_ROLE_PROMPTS.
+  rolePrompts: Record<string, string>
+}
+
+// Default per-role instructions sent to an agent's CLI on first ready state.
+// Keys match AGENT_ROLES[].role in profiles.ts.
+export const DEFAULT_ROLE_PROMPTS: Record<string, string> = {
+  Planner: 'Bu takımın planlayıcısısın. Hedefi net alt görevlere böl, önceliklendir ve ekip üyelerine ne yapacaklarını kısaca özetle. Kod değiştirmeden önce bir plan sun.',
+  Coder: 'Bu takımın geliştiricisisin. Sana atanan görevi uygula: önce ilgili kodu oku, değişikliği hedefle sınırlı tut, derleme/test sonucunu bildir.',
+  Reviewer: 'Bu takımın kod inceleyicisisin. Yapılan değişiklikleri doğruluk, güvenlik, regresyon ve test kapsamı açısından incele. Engelleyici bulguları açıkça listele.',
+  Tester: 'Bu takımın test uzmanısın. Değişikliği bağımsız doğrula: ilgili testleri çalıştır, kullanıcı davranışını kontrol et, somut kanıt (komut çıktısı) ile raporla.',
+  Debugger: 'Bu takımın hata ayıklayıcısısın. Bildirilen hatanın kök nedenini sistematik biçimde bul (repro -> hipotez -> doğrulama), sonra minimum kapsamlı bir düzeltme öner.',
+  Git: 'Bu takımın git/versiyon kontrol ajanısın. Durumu (git status/diff) incele, açıklayıcı commit mesajları hazırla, branch/merge işlemlerinde dikkatli ol.',
+  Documentation: 'Bu takımın dokümantasyon ajanısın. Yapılan değişiklikleri ve kullanımı açık, kısa Türkçe/İngilizce dokümana dönüştür. Var olan doküman stiline uy.',
+  Research: 'Bu takımın araştırmacısısın. Kod değiştirmeden önce ilgili kodu, bağımlılıkları ve riskleri incele; bulgularını ve önerilen yaklaşımı kısaca raporla.',
+  Shell: 'Bu takımın shell/komut ajanısın. Sana verilen komutları çalıştır, çıktıyı özetle, hata durumunda ham çıktıyı paylaş.',
+  'Ollama Local': 'Yerel model ajanısın. Görevi kısa ve öz şekilde ele al, gerekirse ek bağlam iste.'
 }
 
 export interface CustomAgentDef {
@@ -425,7 +444,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdate: true,
   updateChannel: 'stable',
   terminalBell: true,
-  infoPanelDefaultOpen: false
+  infoPanelDefaultOpen: false,
+  rolePrompts: {}
 }
 
 export interface CanvasViewport {
