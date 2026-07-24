@@ -93,7 +93,7 @@ function bool(value: unknown): boolean | undefined {
 
 function checkArray(
   root: Record<string, unknown>,
-  key: 'nodes' | 'terminals' | 'connections',
+  key: 'nodes' | 'terminals',
   errors: string[],
   validateItem: (item: Record<string, unknown>, index: number) => string | null
 ): void {
@@ -158,20 +158,6 @@ export function validateWorkspaceExport(value: unknown): { data: WorkspaceExport
       typeof row.status !== 'string'
     ) {
       return `terminals[${index}] is invalid.`
-    }
-    return null
-  })
-
-  checkArray(root, 'connections', errors, (row, index) => {
-    if (
-      !text(row.id, 128) ||
-      !text(row.sourceNodeId, 128) ||
-      !text(row.targetNodeId, 128) ||
-      typeof row.connectionType !== 'string' ||
-      bool(row.isActive) === undefined ||
-      typeof row.status !== 'string'
-    ) {
-      return `connections[${index}] is invalid.`
     }
     return null
   })

@@ -1,41 +1,25 @@
 import type { StateCreator } from 'zustand'
 import { nanoid } from 'nanoid'
-import type {
-  TerminalSession,
-  CanvasNode,
-  ShellKind,
-  ProcStats,
-  FlowTemplate
-} from '../../../../shared/types'
-import { profileFor, rolePromptFor } from '../../profiles'
+import type { TerminalSession, CanvasNode, ShellKind, ProcStats } from '../../../../shared/types'
+import { profileFor } from '../../profiles'
 import { computeLayout } from '../../autolayout'
 import { getLeafTerminalIds, getActiveTerminalId, splitPane, closePane, countLeaves } from '../../paneUtils'
 import {
   DEFAULT_SIZE,
-  parseAgentActivities,
-  routeIdleTimers,
-  ROUTE_ACTIVE_MS,
   AI_BANNER_RE,
   pendingInitialPrompts,
-  type AgentActivity,
   type NewTerminalOpts
 } from '../storeShared'
-import { initNotifications, notifyLongCommandDone, notifyError, notifyAgentWaiting } from '../notifications'
-import { captureAgentMetric, finishAgentMetric } from '../../agentMetrics'
+import { initNotifications, notifyLongCommandDone, notifyError, notifyOutputPattern } from '../notifications'
 import type { AppState } from '../appStore'
 
 export interface TerminalSlice {
   terminals: Record<string, TerminalSession>
   procStats: Record<string, ProcStats>
-  agentActivities: AgentActivity[]
-  detectedAgents: Record<string, { name: string; terminalId: string; nodeId?: string; lastSeenAt: string }>
   termEpoch: Record<string, number> // bump to force xterm remount on restart
 
   addTerminal: (kind: ShellKind, opts?: NewTerminalOpts) => Promise<void>
   duplicateNode: (nodeId: string) => Promise<void>
-  applyFlowTemplate: (template: FlowTemplate, task?: string) => Promise<void>
-  saveFlowTemplate: (name: string) => Promise<{ id?: string; error?: string }>
-  sendLogToAgent: (sourceNodeId: string, targetNodeId: string | 'new') => Promise<void>
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
   reattachTerminal: (terminalId: string) => Promise<void>
   terminateDetached: (terminalId: string) => Promise<void>
@@ -60,7 +44,6 @@ export interface TerminalSlice {
   saveRecording: (terminalId: string) => Promise<void>
   recordingLimitWarning: { terminalId: string; reason: 'duration' | 'size' } | null
   dismissRecordingLimitWarning: () => void
-  clearAgentActivities: () => void
 
   startRuntimeListeners: () => void
   refreshStats: () => Promise<void>
@@ -72,8 +55,6 @@ const cwdPersistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> = (set, get) => ({
   terminals: {},
   procStats: {},
-  agentActivities: [],
-  detectedAgents: {},
   termEpoch: {},
 
   broadcastEnabled: false,
@@ -87,10 +68,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     if (!wsId) return
     const ws = st.workspaces.find((w) => w.id === wsId)!
     const profile = profileFor(kind)
-    const cleanProviderEnv = opts?.cleanProviderEnv ?? profile.group === 'agent'
+    const cleanProviderEnv = opts?.cleanProviderEnv ?? !!profile.startupCommand
     const termId = nanoid()
     const nodeId = nanoid()
-    const name = opts?.name || `${opts?.agentRole || profile.label} ${st.nodes.length + 1}`
+    const name = opts?.name || `${profile.label} ${st.nodes.length + 1}`
     const cwd = opts?.cwd || ws.path
     const ts = new Date().toISOString()
 
@@ -126,9 +107,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       panes: { type: 'leaf', terminalId: termId, title: name },
       activePaneId: termId,
       title: name,
-      nodeType: opts?.agentRole ? 'agent' : profile.nodeType,
-      agentType: profile.agentType,
-      agentRole: opts?.agentRole,
+      nodeType: profile.nodeType,
       position: { x: 80, y: 80 },
       size: { ...DEFAULT_SIZE },
       zIndex: z,
@@ -162,12 +141,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const persisted: TerminalSession = { ...session, pid: pid && pid > 0 ? pid : undefined, status: session.status === 'error' ? 'error' : 'running' }
     await window.termflow.terminals.upsert(persisted)
 
-    // Role -> real behavior: queue the role's system prompt (or an explicit
-    // override, e.g. a flow-template task) to be typed in once the CLI's
-    // startup banner appears. Only for agent nodes with a real CLI backing.
-    if (persisted.status === 'running' && profile.nodeType === 'agent') {
-      const prompt = opts?.initialPrompt || rolePromptFor(opts?.agentRole, st.settings.rolePrompts)
-      if (prompt) pendingInitialPrompts.set(termId, prompt)
+    // Queue an explicit initial prompt to be typed in once the CLI's startup
+    // banner appears (one-shot).
+    if (persisted.status === 'running' && opts?.initialPrompt) {
+      pendingInitialPrompts.set(termId, opts.initialPrompt)
     }
 
     set((s) => {
@@ -175,7 +152,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // the canvas (bigger when few, smaller when many). Manual mode tiles as a
       // grid; an active layout mode re-runs itself. (user request)
       const all = [...s.nodes, node]
-      const computed = computeLayout('grid', all, s.canvasSize, s.connections)
+      const computed = computeLayout('grid', all, s.canvasSize)
       const nodes = all.map((n) => (computed[n.id] ? { ...n, ...computed[n.id] } : n))
       return {
         terminals: { ...s.terminals, [termId]: persisted },
@@ -203,117 +180,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       customShell: source.shell !== source.kind ? source.shell : undefined,
       args: source.args,
       name: `${node.title} copy`,
-      agentRole: node.agentRole,
       env: source.env,
       cleanProviderEnv: source.cleanProviderEnv
     })
-  },
-
-  // Instantiate a multi-agent pipeline template: spawns one node per template
-  // node (in order) then wires the declared connections between them, using
-  // each freshly-created node's id (addTerminal sets activeNodeId to it).
-  // (feature: agent flow templates)
-  applyFlowTemplate: async (template, task) => {
-    const nodeIds: string[] = []
-    for (let i = 0; i < template.nodes.length; i++) {
-      const n = template.nodes[i]
-      // Auto-start: the team's first node gets the user's task appended to
-      // its role prompt so the pipeline begins working immediately instead of
-      // sitting idle after being wired up. (feature: flow template auto-start)
-      const initialPrompt = i === 0 && task?.trim()
-        ? `${rolePromptFor(n.agentRole, get().settings.rolePrompts) ?? ''}\n\nGörev: ${task.trim()}`.trim()
-        : undefined
-      await get().addTerminal(n.kind, {
-        name: n.title,
-        agentRole: n.agentRole,
-        startupCommand: n.startupCommand,
-        initialPrompt
-      })
-      const created = get().activeNodeId
-      if (created) nodeIds.push(created)
-    }
-    for (const c of template.connections) {
-      const source = nodeIds[c.from]
-      const target = nodeIds[c.to]
-      if (!source || !target) continue
-      get().addConnection(source, target, c.connectionType, c.label, {
-        triggerPattern: c.triggerPattern,
-        routeBehavior: c.routeBehavior,
-        routeDirection: c.routeDirection
-      })
-    }
-    // Tile the freshly spawned pipeline so it fills the canvas — agent_graph
-    // spreads nodes for edge readability and leaves large gaps. (user request)
-    get().setLayoutMode('auto_fit', get().canvasSize)
-  },
-
-  // Save the currently-open agent nodes (+ connections between them) as a
-  // reusable flow template. (feature: agent flow templates)
-  saveFlowTemplate: async (name) => {
-    const st = get()
-    const agentNodes = st.nodes.filter((n) => n.nodeType === 'agent')
-    if (agentNodes.length < 2) return { error: 'Select a workspace with at least 2 agent nodes' }
-    const indexOf = new Map(agentNodes.map((n, i) => [n.id, i]))
-    const nodes = agentNodes.map((n) => {
-      const termId = getActiveTerminalId(n.activePaneId, n.panes, n.terminalId)
-      const source = termId ? st.terminals[termId] : undefined
-      return {
-        title: n.title,
-        kind: source?.kind ?? 'claude',
-        agentRole: n.agentRole,
-        startupCommand: source?.startupCommand
-      }
-    })
-    const connections = st.connections
-      .filter((c) => indexOf.has(c.sourceNodeId) && indexOf.has(c.targetNodeId))
-      .map((c) => ({
-        from: indexOf.get(c.sourceNodeId)!,
-        to: indexOf.get(c.targetNodeId)!,
-        connectionType: c.connectionType,
-        label: c.label,
-        triggerPattern: c.triggerPattern,
-        routeBehavior: c.routeBehavior,
-        routeDirection: c.routeDirection
-      }))
-    return window.termflow.flowTemplates.save(name, nodes, connections)
-  },
-
-  // AI log summary: grab a terminal's recent buffer and hand it to an agent
-  // (existing node or a freshly spawned one) with a "what happened / error /
-  // suggestion" prompt. (feature: AI log summary)
-  sendLogToAgent: async (sourceNodeId, targetNodeId) => {
-    const st = get()
-    const sourceNode = st.nodes.find((n) => n.id === sourceNodeId)
-    if (!sourceNode) return
-    const sourceTermId = getActiveTerminalId(sourceNode.activePaneId, sourceNode.panes, sourceNode.terminalId)
-    if (!sourceTermId) return
-    const raw = await window.termflow.pty.buffer(sourceTermId)
-    // Strip ANSI escapes + collapse whitespace so it survives as one pty.write line.
-    const ESC = String.fromCharCode(27)
-    const cleaned = raw
-      .split(ESC).join('')
-      .replace(/\[[0-9;?]*[A-Za-z]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-    const tail = cleaned.slice(-6000)
-    const prompt = `Bu bir terminalin (${sourceNode.title}) son çıktısıdır. Ne olduğunu, varsa hatayı ve önerini kısaca özetle: """${tail}"""`
-
-    let targetTermId: string | undefined
-    if (targetNodeId === 'new') {
-      await get().addTerminal('claude', { name: `${sourceNode.title} — AI Summary`, agentRole: 'Log Summary' })
-      const newNodeId = get().activeNodeId
-      const newNode = newNodeId ? get().nodes.find((n) => n.id === newNodeId) : undefined
-      targetTermId = newNode ? getActiveTerminalId(newNode.activePaneId, newNode.panes, newNode.terminalId) : undefined
-      if (targetTermId) {
-        const tid = targetTermId
-        setTimeout(() => window.termflow.pty.write(tid, prompt + '\r'), 1800)
-      }
-      return
-    }
-    const targetNode = st.nodes.find((n) => n.id === targetNodeId)
-    if (!targetNode) return
-    targetTermId = getActiveTerminalId(targetNode.activePaneId, targetNode.panes, targetNode.terminalId)
-    if (targetTermId) window.termflow.pty.write(targetTermId, prompt + '\r')
   },
 
   closeNode: async (nodeId, mode) => {
@@ -341,12 +210,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     if (mode === 'terminate') for (const tid of termIds) delete terminals[tid]
     set((s) => {
       const remaining = s.nodes.filter((n) => n.id !== nodeId)
-      const computed = computeLayout('grid', remaining, s.canvasSize, s.connections)
+      const computed = computeLayout('grid', remaining, s.canvasSize)
       const gitStatus = { ...s.gitStatus }
       if (mode === 'terminate') for (const tid of termIds) delete gitStatus[tid]
       return {
       nodes: remaining.map((n) => ({ ...n, ...(computed[n.id] || {}) })),
-      connections: s.connections.filter((c) => c.sourceNodeId !== nodeId && c.targetNodeId !== nodeId),
       terminals,
       gitStatus,
       activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
@@ -499,7 +367,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const inheritedKind = activeTerminal?.kind ?? 'cmd'
     const newName = `${activeTerminal?.name || 'Terminal'} split`
     const cwd = activeTerminal?.cwd || ws.path
-    const cleanProviderEnv = activeTerminal?.cleanProviderEnv ?? profileFor(inheritedKind).group === 'agent'
+    const cleanProviderEnv = activeTerminal?.cleanProviderEnv ?? !!profileFor(inheritedKind).startupCommand
     const ts = new Date().toISOString()
 
     const session: TerminalSession = {
@@ -565,8 +433,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         if (mode === 'terminate') delete gitStatus[terminalId]
         return {
         nodes: s.nodes.filter((n) => n.id !== nodeId),
-        connections: s.connections.filter((c) => c.sourceNodeId !== nodeId && c.targetNodeId !== nodeId),
-        terminals,
+          terminals,
         gitStatus,
         activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
       }})
@@ -599,40 +466,16 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     listenersStarted = true
     initNotifications()
     window.termflow.pty.onData((id, data) => {
-      const st = get()
-      const metricNode = st.nodes.find((node) => node.terminalId === id || (node.panes ? getLeafTerminalIds(node.panes).includes(id) : false))
-      if (st.activeWorkspaceId && (metricNode?.agentType || metricNode?.agentRole)) captureAgentMetric(st.activeWorkspaceId, id, metricNode.agentRole || metricNode.title, data)
-      // Role -> real behavior: fire the queued initial prompt once the CLI's
-      // own startup banner shows up in its output (one-shot per terminal).
+      // Fire the queued initial prompt once the CLI's own startup banner shows
+      // up in its output (one-shot per terminal).
       const queuedPrompt = pendingInitialPrompts.get(id)
       if (queuedPrompt && AI_BANNER_RE.test(data)) {
         pendingInitialPrompts.delete(id)
         window.termflow.pty.write(id, `${queuedPrompt}\r`)
       }
-      const events = parseAgentActivities(id, data, st.nodes, st.terminals)
-      if (!events.length) return
-      set((s) => {
-        const detectedAgents = { ...s.detectedAgents }
-        for (const event of events) {
-          detectedAgents[`${event.terminalId}:${event.agentName}`] = {
-            name: event.agentName,
-            terminalId: event.terminalId,
-            nodeId: event.nodeId,
-            lastSeenAt: event.createdAt
-          }
-        }
-        const existingKeys = new Set(s.agentActivities.slice(0, 30).map((event) => `${event.terminalId}:${event.kind}:${event.message}`))
-        const uniqueEvents = events.filter((event) => !existingKeys.has(`${event.terminalId}:${event.kind}:${event.message}`))
-        if (!uniqueEvents.length) return s
-        return {
-          detectedAgents,
-          agentActivities: [...uniqueEvents, ...s.agentActivities].slice(0, 120)
-        }
-      })
     })
     window.termflow.pty.onExit((id, exitCode, durationMs) => {
       const st = get()
-      if (st.activeWorkspaceId) finishAgentMetric(st.activeWorkspaceId, id)
       const t = st.terminals[id]
       if (t) notifyLongCommandDone(id, t.name, exitCode, durationMs)
       // Check if this terminalId belongs to any node (pane-tree aware)
@@ -660,31 +503,6 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         }
       }
     })
-    window.termflow.agent.onRoute((connectionId) => {
-      // Pulse the edge 'active' while data flows, then relax back to 'idle'.
-      set((s) => {
-        const conn = s.connections.find((c) => c.id === connectionId)
-        if (!conn || conn.status === 'active') return {}
-        return {
-          connections: s.connections.map((c) =>
-            c.id === connectionId ? { ...c, status: 'active' as const } : c
-          )
-        }
-      })
-      const existing = routeIdleTimers.get(connectionId)
-      if (existing) clearTimeout(existing)
-      routeIdleTimers.set(
-        connectionId,
-        setTimeout(() => {
-          routeIdleTimers.delete(connectionId)
-          set((s) => ({
-            connections: s.connections.map((c) =>
-              c.id === connectionId && c.status === 'active' ? { ...c, status: 'idle' as const } : c
-            )
-          }))
-        }, ROUTE_ACTIVE_MS)
-      )
-    })
     window.termflow.pty.onActivity((id, error) => {
       if (!error) return
       const t = get().terminals[id]
@@ -698,7 +516,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     })
     window.termflow.pty.onAwaiting((id) => {
       const t = get().terminals[id]
-      if (t) notifyAgentWaiting(id, t.name)
+      if (t) notifyOutputPattern(id, t.name)
     })
     // OSC 7 cwd tracking: keep the terminal's cwd (and thus the git badge)
     // in sync as the user `cd`s around, without polling. (deep git)
@@ -740,6 +558,5 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   startRecording: (terminalId) => window.termflow.recording.start(terminalId),
   stopRecording: (terminalId) => window.termflow.recording.stop(terminalId),
   saveRecording: (terminalId) => window.termflow.recording.save(terminalId),
-  dismissRecordingLimitWarning: () => set({ recordingLimitWarning: null }),
-  clearAgentActivities: () => set({ agentActivities: [], detectedAgents: {} })
+  dismissRecordingLimitWarning: () => set({ recordingLimitWarning: null })
 })

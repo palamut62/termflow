@@ -20,18 +20,16 @@ const HEAVY_MEM = 1_500_000_000
 
 /**
  * Self-diagnosing panel for TermFlow's own runtime health — detects orphaned
- * sessions, dead/errored terminals, broken agent links and runaway processes,
+ * sessions, dead/errored terminals and runaway processes,
  * and offers one-click fixes. Distinct from Workspace Health (which checks the
  * project: path/git/node/npm). Rendered as the top section of Developer Center.
  */
 export default function AppHealthPanel(): React.JSX.Element {
   const nodes = useAppStore((s) => s.nodes)
   const terminals = useAppStore((s) => s.terminals)
-  const connections = useAppStore((s) => s.connections)
   const procStats = useAppStore((s) => s.procStats)
   const clearAllDetached = useAppStore((s) => s.clearAllDetached)
   const restartNode = useAppStore((s) => s.restartNode)
-  const removeConnection = useAppStore((s) => s.removeConnection)
   const refreshStats = useAppStore((s) => s.refreshStats)
 
   // Refresh CPU/RAM once when the panel mounts so the runaway check is current.
@@ -41,7 +39,6 @@ export default function AppHealthPanel(): React.JSX.Element {
     const attached = new Set(
       nodes.flatMap((n) => (n.panes ? getLeafTerminalIds(n.panes) : n.terminalId ? [n.terminalId] : []))
     )
-    const nodeIds = new Set(nodes.map((n) => n.id))
     const out: HealthIssue[] = []
 
     // 1) Orphaned / detached sessions no longer on the canvas.
@@ -83,20 +80,7 @@ export default function AppHealthPanel(): React.JSX.Element {
       })
     }
 
-    // 4) Agent connections pointing at nodes that no longer exist.
-    const brokenConns = connections.filter((c) => !nodeIds.has(c.sourceNodeId) || !nodeIds.has(c.targetNodeId))
-    if (brokenConns.length) {
-      out.push({
-        id: 'connections',
-        severity: 'warn',
-        label: `${brokenConns.length} broken agent link${brokenConns.length !== 1 ? 's' : ''}`,
-        detail: 'Connections reference a removed terminal.',
-        fixLabel: 'Repair',
-        fix: () => brokenConns.forEach((c) => removeConnection(c.id))
-      })
-    }
-
-    // 5) Runaway processes — informational (no destructive auto-fix).
+    // 4) Runaway processes — informational (no destructive auto-fix).
     const heavy = Object.entries(procStats).filter(([, s]) => s && s.memory > HEAVY_MEM)
     if (heavy.length) {
       const worst = Math.max(...heavy.map(([, s]) => s.memory))
@@ -109,7 +93,7 @@ export default function AppHealthPanel(): React.JSX.Element {
     }
 
     return out
-  }, [nodes, terminals, connections, procStats, clearAllDetached, restartNode, removeConnection])
+  }, [nodes, terminals, procStats, clearAllDetached, restartNode])
 
   const healthy = issues.length === 0
 

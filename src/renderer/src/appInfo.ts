@@ -51,7 +51,7 @@ export interface DeveloperInfo {
 export const DEVELOPER: DeveloperInfo = {
   name: 'Umut Çelik',
   role: 'Creator & Developer',
-  bio: 'TermFlow is designed and built by Umut Çelik — a Windows multi-terminal and multi-agent canvas workspace for developers who run many shells and AI coding agents side by side.',
+  bio: 'TermFlow is designed and built by Umut Çelik — a tmux-style Windows multi-terminal workspace for developers who run many shells and CLI tools side by side.',
   links: [
     { label: 'GitHub', url: 'https://github.com/palamut62' },
     { label: 'Repository', url: 'https://github.com/palamut62/termflow' },

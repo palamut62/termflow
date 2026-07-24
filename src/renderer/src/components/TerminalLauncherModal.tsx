@@ -24,7 +24,7 @@ export default function TerminalLauncherModal({ onClose }: { onClose: () => void
             {launchers.map((profile) => <option key={profile.kind} value={profile.kind}>{profile.label}</option>)}
           </select>
         </div>
-        {selected?.group === 'agent' && <div className="field"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 'auto' }} checked={fullPermissions} onChange={(event) => setFullPermissions(event.target.checked)} />Launch with full permissions</label><p style={{ marginTop: 5, color: 'var(--warning)', fontSize: 10 }}>Use only in a trusted project folder. The agent can modify files and run commands without approval prompts.</p></div>}
+        {!!selected?.bypassArgs && <div className="field"><label style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 'auto' }} checked={fullPermissions} onChange={(event) => setFullPermissions(event.target.checked)} />Launch with full permissions</label><p style={{ marginTop: 5, color: 'var(--warning)', fontSize: 10 }}>Use only in a trusted project folder. The command can modify files and run without approval prompts.</p></div>}
         <div className="field">
           <label>Working directory</label>
           <div className="path-pick">

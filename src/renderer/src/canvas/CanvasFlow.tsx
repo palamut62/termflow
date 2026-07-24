@@ -6,50 +6,29 @@ import {
   Controls,
   MiniMap,
   type Node,
-  type Edge,
   type NodeTypes,
-  type OnConnect,
   type NodeChange,
   type NodeProps,
   useReactFlow
 } from '@xyflow/react'
 import TerminalNode from './TerminalNode'
-import ConnectionModal, { type ConnectionFormResult } from '../components/ConnectionModal'
-import ConfirmModal from '../components/ConfirmModal'
 import { useAppStore } from '../store/appStore'
 import { Bot, FolderOpen, Settings } from 'lucide-react'
 
 const nodeTypes: NodeTypes = { terminal: TerminalNode as unknown as React.ComponentType<NodeProps> }
 
-const CONN_COLORS: Record<string, string> = {
-  control: '#2f80ff',
-  data: '#3fb950',
-  log: '#a0a7b4',
-  error: '#ff4d4f',
-  dependency: '#b48ead',
-  parent_child: '#f6c343',
-  manual: '#6f7685',
-  trigger: '#f0803c'
-}
 
 export default function CanvasFlow(): React.JSX.Element {
   const nodes = useAppStore((s) => s.nodes)
-  const connections = useAppStore((s) => s.connections)
-  const selectedConnectionId = useAppStore((s) => s.selectedConnectionId)
   const snapToGrid = useAppStore((s) => s.settings.snapToGrid)
   const showMinimap = useAppStore((s) => s.settings.minimap)
   const setActiveNode = useAppStore((s) => s.setActiveNode)
-  const selectConnection = useAppStore((s) => s.selectConnection)
   const updateNode = useAppStore((s) => s.updateNode)
-  const addConnection = useAppStore((s) => s.addConnection)
-  const removeConnection = useAppStore((s) => s.removeConnection)
   const setStoredViewport = useAppStore((s) => s.setViewport)
   const { setViewport: setFlowViewport, setCenter } = useReactFlow()
   const wrapRef = useRef<HTMLDivElement>(null)
   const activeNodeId = useAppStore((s) => s.activeNodeId)
-  const tiled = useAppStore((s) => s.layoutMode !== 'manual' && s.layoutMode !== 'agent_graph')
-  const [pending, setPending] = useState<{ source: string; target: string } | null>(null)
-  const [deleteEdgeId, setDeleteEdgeId] = useState<string | null>(null)
+  const tiled = useAppStore((s) => s.layoutMode !== 'manual')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const addTerminal = useAppStore((s) => s.addTerminal)
   const providerProfiles = useAppStore((s) => s.settings.providerProfiles)
@@ -91,25 +70,6 @@ export default function CanvasFlow(): React.JSX.Element {
     }))
   }, [nodes, activeNodeId])
 
-  const rfEdges: Edge[] = useMemo(
-    () =>
-      connections.map((c) => ({
-        id: c.id,
-        source: c.sourceNodeId,
-        target: c.targetNodeId,
-        label: c.label || c.connectionType,
-        animated: c.status === 'active',
-        selected: c.id === selectedConnectionId,
-        style: {
-          stroke: CONN_COLORS[c.connectionType] ?? '#6f7685',
-          strokeWidth: c.id === selectedConnectionId ? 3 : 2
-        },
-        labelStyle: { fill: '#e8eaf0', fontSize: 10 },
-        labelBgStyle: { fill: '#20242c' },
-        markerEnd: { type: 'arrowclosed' as any, color: CONN_COLORS[c.connectionType] ?? '#6f7685' }
-      })),
-    [connections, selectedConnectionId]
-  )
 
   // Live drag & resize: apply every position/dimension change to the store so
   // the controlled node follows the cursor (fixes teleport-on-drop). (Bug #2)
@@ -133,7 +93,7 @@ export default function CanvasFlow(): React.JSX.Element {
               void setFlowViewport({ x: 0, y: 0, zoom: 1 }, { duration: 150 })
               setStoredViewport({ x: 0, y: 0, zoom: 1 })
             } else {
-              // Manual/agent modes: slide neighbours out so panels never overlap.
+              // Manual mode: slide neighbours out so panels never overlap.
               useAppStore.getState().resolveCollisions(ch.id)
             }
           }
@@ -148,28 +108,17 @@ export default function CanvasFlow(): React.JSX.Element {
     [updateNode, setActiveNode, tiled, setFlowViewport, setStoredViewport]
   )
 
-  const onConnect: OnConnect = useCallback((params) => {
-    if (!params.source || !params.target || params.source === params.target) return
-    setPending({ source: params.source, target: params.target })
-  }, [])
 
   return (
     <div ref={wrapRef} style={{ width: '100%', height: '100%' }}>
       <ReactFlow
         nodes={rfNodes}
-        edges={rfEdges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
-        onConnect={onConnect}
         onNodeClick={(_e, n) => setActiveNode(n.id)}
-        onEdgeClick={(_e, edge) => selectConnection(edge.id)}
-        onEdgeDoubleClick={(_e, edge) => {
-          setDeleteEdgeId(edge.id)
-        }}
         onPaneClick={() => {
           setContextMenu(null)
           setActiveNode(null)
-          selectConnection(null)
         }}
         onPaneContextMenu={(event) => {
           event.preventDefault()
@@ -228,30 +177,6 @@ export default function CanvasFlow(): React.JSX.Element {
         </div>
       )}
 
-      {pending && (
-        <ConnectionModal
-          onClose={() => setPending(null)}
-          onSubmit={(result: ConnectionFormResult) => {
-            addConnection(pending.source, pending.target, result.type, result.label, {
-              triggerPattern: result.triggerPattern,
-              transform: result.transform,
-              routeBehavior: result.routeBehavior,
-              routeDirection: result.routeDirection
-            })
-            setPending(null)
-          }}
-        />
-      )}
-      {deleteEdgeId && (
-        <ConfirmModal
-          title="Delete connection"
-          message="This removes the visual connection and any routing attached to it."
-          confirmLabel="Delete"
-          tone="danger"
-          onConfirm={() => removeConnection(deleteEdgeId)}
-          onClose={() => setDeleteEdgeId(null)}
-        />
-      )}
     </div>
   )
 }

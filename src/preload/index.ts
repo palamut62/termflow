@@ -15,9 +15,6 @@ import {
   type EnvEntry,
   type GitStatus,
   type WorkspaceHealthCheck,
-  type FlowTemplate,
-  type FlowTemplateNode,
-  type FlowTemplateConnection,
   type TaskTrigger
   ,type WorkspaceFileEntry
   ,type GitWorkbenchState
@@ -25,11 +22,6 @@ import {
   ,type TermFlowPluginManifest
   ,type PluginDiagnostic
   ,type PluginRegistryEntry
-  ,type AgentTeamBundle
-  ,type AgentTeam
-  ,type TeamMember
-  ,type TeamTask
-  ,type TeamPermissionPolicy
 } from '../shared/types'
 
 // Windows OS build number (e.g. 26200 for current Win11). xterm's windowsPty
@@ -129,10 +121,6 @@ const api = {
     registry: (): Promise<PluginRegistryEntry[]> => ipcRenderer.invoke(IPC.PLUGIN_REGISTRY_LIST),
     installFromRegistry: (entry: PluginRegistryEntry): Promise<TermFlowPluginManifest> => ipcRenderer.invoke(IPC.PLUGIN_REGISTRY_INSTALL, entry)
   },
-  workflowPackages: {
-    export: (): Promise<void> => ipcRenderer.invoke(IPC.FLOW_PACKAGE_EXPORT),
-    import: (): Promise<number> => ipcRenderer.invoke(IPC.FLOW_PACKAGE_IMPORT)
-  },
   recovery: {
     status: (): Promise<{ crashed: boolean }> => ipcRenderer.invoke(IPC.RECOVERY_STATUS),
     acknowledge: (): Promise<void> => ipcRenderer.invoke(IPC.RECOVERY_ACK)
@@ -164,13 +152,6 @@ const api = {
   pkg: {
     scripts: (cwd: string): Promise<{ scripts: Record<string, string>; packageManager: 'npm' | 'pnpm' | 'yarn' } | null> =>
       ipcRenderer.invoke(IPC.PKG_SCRIPTS, cwd)
-  },
-  // ---- Agent Flow Templates ----
-  flowTemplates: {
-    list: (): Promise<FlowTemplate[]> => ipcRenderer.invoke(IPC.FLOW_TEMPLATE_LIST),
-    save: (name: string, nodes: FlowTemplateNode[], connections: FlowTemplateConnection[]): Promise<{ id?: string; error?: string }> =>
-      ipcRenderer.invoke(IPC.FLOW_TEMPLATE_SAVE, name, nodes, connections),
-    remove: (templateId: string): Promise<void> => ipcRenderer.invoke(IPC.FLOW_TEMPLATE_DELETE, templateId)
   },
   // ---- Task Triggers (process_exit / timer) ----
   taskTriggers: {
@@ -208,21 +189,6 @@ const api = {
       ipcRenderer.invoke(IPC.SNIPPET_UPDATE, id, patch),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.SNIPPET_DELETE, id)
   },
-  // ---- Agent Teams (shared task store + coordinator) ----
-  teams: {
-    list: (workspaceId: string): Promise<AgentTeamBundle[]> => ipcRenderer.invoke(IPC.TEAM_LIST, workspaceId),
-    create: (input: { workspaceId: string; objective: string; permissionPolicy: TeamPermissionPolicy; teamSize: 3 | 4 | 5; concurrencyLimit?: number }): Promise<AgentTeamBundle> =>
-      ipcRenderer.invoke(IPC.TEAM_CREATE, input),
-    update: (id: string, patch: Partial<AgentTeam>): Promise<AgentTeamBundle | undefined> =>
-      ipcRenderer.invoke(IPC.TEAM_UPDATE, id, patch),
-    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.TEAM_DELETE, id),
-    updateMember: (id: string, patch: Partial<TeamMember>): Promise<TeamMember | undefined> =>
-      ipcRenderer.invoke(IPC.TEAM_MEMBER_UPDATE, id, patch),
-    createTask: (input: Omit<TeamTask, 'id' | 'retryCount'>): Promise<TeamTask> =>
-      ipcRenderer.invoke(IPC.TEAM_TASK_CREATE, input),
-    updateTask: (id: string, patch: Partial<TeamTask>): Promise<TeamTask | undefined> =>
-      ipcRenderer.invoke(IPC.TEAM_TASK_UPDATE, id, patch)
-  },
   // ---- Highlight Rules ----
   highlightRules: {
     list: (workspaceId?: string): Promise<HighlightRule[]> => ipcRenderer.invoke(IPC.HL_RULE_LIST, workspaceId),
@@ -256,16 +222,6 @@ const api = {
     unstage: (cwd: string, paths: string[]): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_UNSTAGE, cwd, paths),
     commit: (cwd: string, message: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke(IPC.GIT_COMMIT, cwd, message)
   },
-  // ---- Agent Routing ----
-  agent: {
-    setRouting: (terminalId: string, rules: unknown[]): void =>
-      ipcRenderer.send(IPC.AGENT_SET_ROUTING, terminalId, rules),
-    onRoute: (cb: (connectionId: string) => void): (() => void) => {
-      const h = (_e: unknown, payload: { connectionId: string }): void => cb(payload.connectionId)
-      ipcRenderer.on(IPC.PTY_ROUTE, h)
-      return () => ipcRenderer.removeListener(IPC.PTY_ROUTE, h)
-    }
-  },
   // ---- Recording ----
   recording: {
     start: (id: string): void => ipcRenderer.send(IPC.REC_START, id),
@@ -281,7 +237,7 @@ const api = {
   diagnostics: {
     export: (workspaceId: string): Promise<void> => ipcRenderer.invoke(IPC.DIAGNOSTICS_EXPORT, workspaceId)
   },
-  // ---- Claude Code agent config (settings.json / .claude.json) ----
+  // ---- Claude Code profil ayar dosyaları (settings.json / .claude.json) ----
   agentConfig: {
     read: (target: 'settings' | 'config'): Promise<Record<string, unknown>> =>
       ipcRenderer.invoke(IPC.AGENT_CFG_READ, target),

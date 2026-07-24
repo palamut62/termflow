@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { TerminalSquare, X } from 'lucide-react'
+import { TerminalSquare } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Toolbar from './components/Toolbar'
 import StatusBar from './components/StatusBar'
@@ -14,7 +14,6 @@ import HelpModal from './components/HelpModal'
 import TerminalLauncherModal from './components/TerminalLauncherModal'
 import ProviderManagerModal from './components/ProviderManagerModal'
 import RecoveryModal from './components/RecoveryModal'
-import AgentTeamsModal from './components/AgentTeamsModal'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
@@ -23,70 +22,6 @@ import { useAppStore } from './store/appStore'
 import { getActiveTerminalId } from './paneUtils'
 import type { TermFlowPluginManifest } from '../../shared/types'
 import { pluginMatchesWorkspace } from '../../shared/pluginValidation'
-
-function ConnectionInspector(): React.JSX.Element | null {
-  const id = useAppStore((s) => s.selectedConnectionId)
-  const conn = useAppStore((s) => s.connections.find((c) => c.id === id))
-  const nodes = useAppStore((s) => s.nodes)
-  const remove = useAppStore((s) => s.removeConnection)
-  const select = useAppStore((s) => s.selectConnection)
-  if (!conn) return null
-  const src = nodes.find((n) => n.id === conn.sourceNodeId)?.title ?? '—'
-  const tgt = nodes.find((n) => n.id === conn.targetNodeId)?.title ?? '—'
-  return (
-    <div className="conn-inspector">
-      <div className="ci-head">
-        <span>Connection</span>
-        <button onClick={() => select(null)}>
-          <X size={14} />
-        </button>
-      </div>
-      <div className="info-row">
-        <span>Source</span>
-        <span className="v">{src}</span>
-      </div>
-      <div className="info-row">
-        <span>Target</span>
-        <span className="v">{tgt}</span>
-      </div>
-      <div className="info-row">
-        <span>Type</span>
-        <span className="v">{conn.connectionType}</span>
-      </div>
-      <div className="info-row">
-        <span>Label</span>
-        <span className="v">{conn.label || '—'}</span>
-      </div>
-      <div className="info-row">
-        <span>Status</span>
-        <span className="v">{conn.status}</span>
-      </div>
-      <div className="info-row">
-        <span>Routing</span>
-        <span className="v">{conn.routeBehavior ?? 'disabled'}</span>
-      </div>
-      <div className="info-row">
-        <span>Direction</span>
-        <span className="v">{conn.routeDirection ?? 'source_to_target'}</span>
-      </div>
-      {conn.triggerPattern && (
-        <div className="info-row">
-          <span>Trigger</span>
-          <span className="v">{conn.triggerPattern}</span>
-        </div>
-      )}
-      {conn.transform && (
-        <div className="info-row">
-          <span>Transform</span>
-          <span className="v">{conn.transform}</span>
-        </div>
-      )}
-      <button className="btn" style={{ marginTop: 10, width: '100%' }} onClick={() => remove(conn.id)}>
-        Delete Connection
-      </button>
-    </div>
-  )
-}
 
 export default function App(): React.JSX.Element {
   const loadWorkspaces = useAppStore((s) => s.loadWorkspaces)
@@ -109,7 +44,6 @@ export default function App(): React.JSX.Element {
   const [showHelp, setShowHelp] = useState(false)
   const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
   const [showProviderManager, setShowProviderManager] = useState(false)
-  const [showAgentTeams, setShowAgentTeams] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
   const [pluginCommands, setPluginCommands] = useState<TermFlowPluginManifest[]>([])
   const [confirm, setConfirm] = useState<{
@@ -232,7 +166,6 @@ export default function App(): React.JSX.Element {
       { id: 'autofit', title: 'Auto Fit Terminals', run: () => s().setLayoutMode('auto_fit', canvasSize()) },
       { id: 'grid', title: 'Layout: Grid', run: () => s().setLayoutMode('grid', canvasSize()) },
       { id: 'focus', title: 'Layout: Focus + Mini', run: () => s().setLayoutMode('focus', canvasSize()) },
-      { id: 'agent-graph', title: 'Switch to Agent Graph Layout', run: () => s().setLayoutMode('agent_graph', canvasSize()) },
       {
         id: 'restart',
         title: 'Restart Active Terminal',
@@ -328,9 +261,6 @@ export default function App(): React.JSX.Element {
       } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         s.setLayoutMode('auto_fit', canvasSize())
-      } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        s.setLayoutMode('agent_graph', canvasSize())
       } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 't') {
         e.preventDefault()
         s.addTerminal('cmd')
@@ -362,13 +292,11 @@ export default function App(): React.JSX.Element {
         onOpenHelp={() => setShowHelp(true)}
         onOpenTerminalLauncher={() => setShowTerminalLauncher(true)}
         onOpenProviderManager={() => setShowProviderManager(true)}
-        onOpenTeams={() => setShowAgentTeams(true)}
       />
       <div className="canvas-wrap" ref={canvasRef}>
         <ReactFlowProvider>
           <CanvasFlow />
         </ReactFlowProvider>
-        <ConnectionInspector />
         <ProjectManifestPanel />
         <DetachedSessionsPanel />
         {nodes.length === 0 && (
@@ -386,7 +314,6 @@ export default function App(): React.JSX.Element {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showTerminalLauncher && <TerminalLauncherModal onClose={() => setShowTerminalLauncher(false)} />}
       {showProviderManager && <ProviderManagerModal onClose={() => setShowProviderManager(false)} />}
-      {showAgentTeams && <AgentTeamsModal onClose={() => setShowAgentTeams(false)} />}
       {showRecovery && <RecoveryModal onRestore={() => { void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} onDiscard={() => { useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')); void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}

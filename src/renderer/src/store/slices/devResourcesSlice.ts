@@ -12,7 +12,7 @@ import type {
 import { DEFAULT_SETTINGS } from '../../../../shared/types'
 import { isValidSshProfile } from '../../../../shared/validation'
 import { getLeafTerminalIds } from '../../paneUtils'
-import { applyTheme, syncAgentRouting } from '../storeShared'
+import { applyTheme } from '../storeShared'
 import type { AppState } from '../appStore'
 
 export interface DevResourcesSlice {
@@ -238,27 +238,24 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
     set({
       activeWorkspaceId: id,
       nodes: layout.nodes.map((n) => ({ ...n, isMaximized: false })),
-      connections: layout.connections,
-      layoutMode: layout.layoutMode,
+      // Workspaces saved by older builds may still carry the removed
+      // 'agent_graph' mode — fall back to manual instead of crashing.
+      layoutMode: layout.layoutMode === 'agent_graph' ? 'manual' : layout.layoutMode,
       viewport: layout.viewport,
       terminals,
       activeNodeId: layout.activeNodeId && layout.nodes.some((n) => n.id === layout.activeNodeId)
         ? layout.activeNodeId
         : layout.nodes[0]?.id ?? null,
-      selectedConnectionId: null,
       zCounter: layout.nodes.length + 1,
       snippets,
       highlightRules,
       sshProfiles,
       projectManifest: manifest,
-      projectManifestApplied: false,
-      agentActivities: [],
-      detectedAgents: {}
+      projectManifestApplied: false
     })
-    if (layout.layoutMode !== 'manual' && layout.layoutMode !== 'agent_graph') {
+    if (layout.layoutMode !== 'manual') {
       get().applyAutoLayout(get().canvasSize)
     }
-    syncAgentRouting(layout.nodes, layout.connections)
     await window.termflow.workspaces.update(id, { lastOpenedAt: new Date().toISOString() })
     await get().loadPkgScripts()
     await get().loadTaskTriggers()
@@ -277,7 +274,7 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
     const workspaces = await window.termflow.workspaces.list()
     set({ workspaces })
     if (activeWorkspaceId === id) {
-      set({ activeWorkspaceId: null, nodes: [], connections: [], terminals: {}, activeNodeId: null })
+      set({ activeWorkspaceId: null, nodes: [], terminals: {}, activeNodeId: null })
       if (workspaces.length) await get().openWorkspace(workspaces[0].id)
     }
   },
@@ -390,7 +387,6 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
       if (existingAgentNames.has(agent.name.toLowerCase())) continue
       await get().addTerminal(agent.kind ?? 'claude', {
         name: agent.name,
-        agentRole: agent.role,
         startupCommand: agent.command
       })
     }

@@ -43,12 +43,8 @@ import {
   ,type GitWorkbenchState
   ,type CredentialMeta
   ,type TermFlowPluginManifest
-  ,type AgentTeam
-  ,type TeamMember
-  ,type TeamTask
-  ,type TeamPermissionPolicy
 } from '../../shared/types'
-import { PtyManager, type RoutingRule, type RecordingEntry } from '../pty/PtyManager'
+import { PtyManager, type RecordingEntry } from '../pty/PtyManager'
 import { discoverShells } from '../pty/shells'
 import * as dbApi from '../db/database'
 import { validateManifest, validateWorkspaceExport } from '../../shared/validation'
@@ -265,15 +261,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
   ipcMain.handle(IPC.SNIPPET_UPDATE, (_e, id: string, patch: Partial<Snippet>) => dbApi.updateSnippet(id, patch))
   ipcMain.handle(IPC.SNIPPET_DELETE, (_e, id: string) => dbApi.deleteSnippet(id))
 
-  // Agent teams (shared task store + coordinator)
-  ipcMain.handle(IPC.TEAM_LIST, (_e, workspaceId: string) => dbApi.listTeams(workspaceId))
-  ipcMain.handle(IPC.TEAM_CREATE, (_e, input: { workspaceId: string; objective: string; permissionPolicy: TeamPermissionPolicy; teamSize: 3 | 4 | 5; concurrencyLimit?: number }) => dbApi.createTeam(input))
-  ipcMain.handle(IPC.TEAM_UPDATE, (_e, id: string, patch: Partial<AgentTeam>) => dbApi.updateTeam(id, patch))
-  ipcMain.handle(IPC.TEAM_DELETE, (_e, id: string) => dbApi.deleteTeam(id))
-  ipcMain.handle(IPC.TEAM_MEMBER_UPDATE, (_e, id: string, patch: Partial<TeamMember>) => dbApi.updateTeamMember(id, patch))
-  ipcMain.handle(IPC.TEAM_TASK_CREATE, (_e, input: Omit<TeamTask, 'id' | 'retryCount'>) => dbApi.createTeamTask(input))
-  ipcMain.handle(IPC.TEAM_TASK_UPDATE, (_e, id: string, patch: Partial<TeamTask>) => dbApi.updateTeamTask(id, patch))
-
   // ---- Highlight Rules ----
   ipcMain.handle(IPC.HL_RULE_LIST, (_e, workspaceId?: string) => dbApi.listHighlightRules(workspaceId))
   ipcMain.handle(IPC.HL_RULE_CREATE, (_e, input: Omit<HighlightRule, 'id'>) => dbApi.createHighlightRule(input))
@@ -472,7 +459,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       },
       nodes: data.nodes,
       terminals: data.terminals,
-      connections: data.connections,
       viewport: data.viewport ?? { zoom: 1, x: 0, y: 0 },
       snippets: data.snippets,
       highlightRules: data.highlightRules,
@@ -510,13 +496,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
           workspaceId: ''
         }
       })
-      const newConns = (raw.connections || []).map((c: any) => ({
-        ...c, id: remap(c.id),
-        sourceNodeId: remap(c.sourceNodeId),
-        targetNodeId: remap(c.targetNodeId),
-        workspaceId: ''
-      }))
-
       const ws = dbApi.createWorkspace({
         name: overrides?.name || raw.workspace.name || 'Imported',
         path: overrides?.path || raw.workspace.path || process.env.USERPROFILE || '',
@@ -526,7 +505,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
 
       const wsNodes = newNodes.map((n: any) => ({ ...n, workspaceId: ws.id }))
       const wsTerms = newTerms.map((t: any) => ({ ...t, workspaceId: ws.id }))
-      const wsConns = newConns.map((c: any) => ({ ...c, workspaceId: ws.id }))
       const wsSnippets = (raw.snippets || []).map((s: any) => ({
         ...s, id: remap(s.id), workspaceId: ws.id, scope: 'workspace' as const
       }))
@@ -544,7 +522,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
         ws.id,
         wsTerms,
         wsNodes,
-        wsConns,
         wsSnippets,
         wsHighlightRules,
         wsSshProfiles,
@@ -655,122 +632,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     } catch {
       /* ignore */
     }
-  })
-
-  // ---- Agent Flow Templates (multi-agent pipeline wiring, feature: agent flow templates) ----
-  const flowTemplatesDir = join(app.getPath('userData'), 'flow-templates')
-  async function ensureFlowTemplatesDir(): Promise<void> {
-    await mkdir(flowTemplatesDir, { recursive: true })
-  }
-  function flowTemplateFile(id: string): string {
-    return join(flowTemplatesDir, `${id}.json`)
-  }
-
-  const BUILTIN_FLOW_TEMPLATES: Array<{
-    id: string
-    name: string
-    builtin: true
-    nodes: Array<{ title: string; kind: string; agentRole?: string; startupCommand?: string }>
-    connections: Array<{ from: number; to: number; connectionType: string; label?: string; routeBehavior?: string; routeDirection?: string }>
-  }> = [
-    {
-      id: 'builtin:planner-coder-reviewer',
-      name: 'Planner → Coder → Reviewer',
-      builtin: true,
-      nodes: [
-        { title: 'Planner', kind: 'claude', agentRole: 'planner' },
-        { title: 'Coder', kind: 'claude', agentRole: 'coder' },
-        { title: 'Reviewer', kind: 'claude', agentRole: 'reviewer' }
-      ],
-      connections: [
-        { from: 0, to: 1, connectionType: 'control', label: 'plan', routeBehavior: 'marker', routeDirection: 'source_to_target' },
-        { from: 1, to: 2, connectionType: 'control', label: 'review', routeBehavior: 'marker', routeDirection: 'source_to_target' }
-      ]
-    },
-    {
-      id: 'builtin:researcher-writer-editor',
-      name: 'Researcher → Writer → Editor',
-      builtin: true,
-      nodes: [
-        { title: 'Researcher', kind: 'claude', agentRole: 'researcher' },
-        { title: 'Writer', kind: 'claude', agentRole: 'writer' },
-        { title: 'Editor', kind: 'claude', agentRole: 'editor' }
-      ],
-      connections: [
-        { from: 0, to: 1, connectionType: 'data', label: 'findings', routeBehavior: 'marker', routeDirection: 'source_to_target' },
-        { from: 1, to: 2, connectionType: 'control', label: 'draft', routeBehavior: 'marker', routeDirection: 'source_to_target' }
-      ]
-    },
-    {
-      id: 'builtin:debug-trio',
-      name: 'Reproducer → Fixer → Verifier',
-      builtin: true,
-      nodes: [
-        { title: 'Reproducer', kind: 'claude', agentRole: 'reproducer' },
-        { title: 'Fixer', kind: 'claude', agentRole: 'fixer' },
-        { title: 'Verifier', kind: 'claude', agentRole: 'verifier' }
-      ],
-      connections: [
-        { from: 0, to: 1, connectionType: 'error', label: 'repro', routeBehavior: 'marker', routeDirection: 'source_to_target' },
-        { from: 1, to: 2, connectionType: 'control', label: 'fix', routeBehavior: 'marker', routeDirection: 'source_to_target' }
-      ]
-    }
-  ]
-
-  ipcMain.handle(IPC.FLOW_TEMPLATE_LIST, async () => {
-    await ensureFlowTemplatesDir()
-    let saved: unknown[] = []
-    try {
-      const files = (await readdir(flowTemplatesDir)).filter((f) => f.endsWith('.json'))
-      const parsed = await Promise.all(files.map(async (f) => {
-        try {
-          return JSON.parse(await readFile(join(flowTemplatesDir, f), 'utf-8'))
-        } catch {
-          return null
-        }
-      }))
-      saved = parsed.filter(Boolean)
-    } catch {
-      saved = []
-    }
-    return [...BUILTIN_FLOW_TEMPLATES, ...saved]
-  })
-
-  ipcMain.handle(IPC.FLOW_TEMPLATE_SAVE, async (_e, name: string, nodes: unknown[], connections: unknown[]) => {
-    if (!name?.trim() || !Array.isArray(nodes) || nodes.length < 2) return { error: 'At least 2 agent nodes are required' }
-    await ensureFlowTemplatesDir()
-    const id = nanoid()
-    const payload = { id, name: name.trim(), builtin: false, nodes, connections: connections || [] }
-    await writeFile(flowTemplateFile(id), JSON.stringify(payload, null, 2), 'utf-8')
-    return { id }
-  })
-
-  ipcMain.handle(IPC.FLOW_TEMPLATE_DELETE, async (_e, templateId: string) => {
-    if (templateId.startsWith('builtin:')) return
-    try {
-      await unlink(flowTemplateFile(templateId))
-    } catch {
-      /* ignore */
-    }
-  })
-
-  ipcMain.handle(IPC.FLOW_PACKAGE_EXPORT, async () => {
-    await ensureFlowTemplatesDir()
-    const files = (await readdir(flowTemplatesDir)).filter((file) => file.endsWith('.json'))
-    const parsed = await Promise.all(files.map(async (file) => { try { return JSON.parse(await readFile(join(flowTemplatesDir, file), 'utf-8')) } catch { return null } }))
-    const templates = parsed.filter(Boolean)
-    const result = await dialog.showSaveDialog(getWindow()!, { title: 'Export workflow package', defaultPath: 'termflow-workflows.termflow-package.json', filters: [{ name: 'TermFlow Workflow Package', extensions: ['termflow-package.json'] }] })
-    if (!result.canceled && result.filePath) await writeFile(result.filePath, JSON.stringify({ schemaVersion: 1, kind: 'termflow-workflows', exportedAt: new Date().toISOString(), templates }, null, 2), 'utf-8')
-  })
-  ipcMain.handle(IPC.FLOW_PACKAGE_IMPORT, async (): Promise<number> => {
-    const result = await dialog.showOpenDialog(getWindow()!, { title: 'Import workflow package', properties: ['openFile'], filters: [{ name: 'TermFlow Workflow Package', extensions: ['json'] }] })
-    if (result.canceled || !result.filePaths[0]) return 0
-    const info = await stat(result.filePaths[0]); if (info.size > MAX_JSON_FILE_BYTES) throw new Error('Workflow package is too large')
-    const data = JSON.parse(await readFile(result.filePaths[0], 'utf-8')) as { schemaVersion?: number; kind?: string; templates?: unknown[] }
-    if (data.schemaVersion !== 1 || data.kind !== 'termflow-workflows' || !Array.isArray(data.templates)) throw new Error('Invalid workflow package')
-    await ensureFlowTemplatesDir(); let count = 0
-    for (const raw of data.templates) { const template = raw as { id?: string; name?: string; nodes?: unknown[]; connections?: unknown[] }; if (!template.name || !Array.isArray(template.nodes) || !Array.isArray(template.connections)) continue; const id = nanoid(); await writeFile(flowTemplateFile(id), JSON.stringify({ ...template, id, builtin: false }, null, 2), 'utf-8'); count++ }
-    return count
   })
 
   // ---- Task Triggers (process_exit / timer, feature: expanded task triggers) ----
@@ -895,7 +756,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       counts: {
         terminals: dbApi.listTerminals(workspaceId).length,
         nodes: layout.nodes.length,
-        connections: layout.connections.length,
         snippets: dbApi.listSnippets(workspaceId).length,
         sshProfiles: dbApi.listSshProfiles(workspaceId).length,
         envVars: dbApi.listEnvVars(workspaceId).length
@@ -1040,11 +900,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message.split('\n')[0] : 'git commit failed' }
     }
-  })
-
-  // ---- Agent Routing ----
-  ipcMain.on(IPC.AGENT_SET_ROUTING, (_e, terminalId: string, rules: RoutingRule[]) => {
-    pty.setRouting(terminalId, rules)
   })
 
   // ---- Recording ----

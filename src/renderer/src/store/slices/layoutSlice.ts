@@ -1,21 +1,11 @@
 import type { StateCreator } from 'zustand'
-import { nanoid } from 'nanoid'
-import type {
-  CanvasNode,
-  AgentConnection,
-  LayoutMode,
-  ConnectionType,
-  CanvasViewport
-} from '../../../../shared/types'
+import type { CanvasNode, LayoutMode, CanvasViewport } from '../../../../shared/types'
 import { computeLayout } from '../../autolayout'
-import { syncAgentRouting } from '../storeShared'
 import type { AppState } from '../appStore'
 
 export interface LayoutSlice {
   nodes: CanvasNode[]
-  connections: AgentConnection[]
   activeNodeId: string | null
-  selectedConnectionId: string | null
   developerCenterOpen: boolean
   layoutMode: LayoutMode
   viewport: CanvasViewport
@@ -24,7 +14,6 @@ export interface LayoutSlice {
 
   setCanvasSize: (size: { width: number; height: number }) => void
   setActiveNode: (nodeId: string | null) => void
-  selectConnection: (id: string | null) => void
   setDeveloperCenterOpen: (open: boolean) => void
   updateNode: (nodeId: string, patch: Partial<CanvasNode>) => void
   toggleMinimize: (nodeId: string) => void
@@ -32,9 +21,6 @@ export interface LayoutSlice {
   toggleInfo: (nodeId: string) => void
   renameNode: (nodeId: string, title: string) => void
   togglePin: (nodeId: string) => void
-
-  addConnection: (source: string, target: string, type: ConnectionType, label?: string, routeOpts?: { triggerPattern?: string; transform?: string; routeBehavior?: 'marker' | 'continuous' | 'disabled'; routeDirection?: 'source_to_target' | 'bidirectional' }) => void
-  removeConnection: (id: string) => void
 
   setLayoutMode: (mode: LayoutMode, vp?: { width: number; height: number }) => void
   applyAutoLayout: (vp: { width: number; height: number }) => void
@@ -51,9 +37,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (set, get) => ({
   nodes: [],
-  connections: [],
   activeNodeId: null,
-  selectedConnectionId: null,
   developerCenterOpen: false,
   layoutMode: 'manual',
   viewport: { zoom: 1, x: 0, y: 0 },
@@ -62,14 +46,14 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
 
   setCanvasSize: (size) => {
     const st = get()
-    if (st.layoutMode === 'manual' || st.layoutMode === 'agent_graph') {
+    if (st.layoutMode === 'manual') {
       set({ canvasSize: size })
       return
     }
     const ordered = st.activeNodeId
       ? [...st.nodes.filter((n) => n.id === st.activeNodeId), ...st.nodes.filter((n) => n.id !== st.activeNodeId)]
       : st.nodes
-    const computed = computeLayout(st.layoutMode, ordered, size, st.connections)
+    const computed = computeLayout(st.layoutMode, ordered, size)
     set({
       canvasSize: size,
       nodes: st.nodes.map((n) => (computed[n.id] ? { ...n, ...computed[n.id] } : n))
@@ -83,7 +67,6 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
       const z = current.zCounter + 1
       set((s) => ({
         activeNodeId: nodeId,
-        selectedConnectionId: null,
         zCounter: nodeId ? z : s.zCounter,
         nodes: nodeId
           ? s.nodes.map((n) => n.id === nodeId ? { ...n, zIndex: z } : n)
@@ -91,12 +74,9 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
       }))
       return
     }
-    if (nodeId && nodeId === current.activeNodeId) {
-      set({ selectedConnectionId: null })
-      return
-    }
+    if (nodeId && nodeId === current.activeNodeId) return
     if (!nodeId) {
-      set({ activeNodeId: null, selectedConnectionId: null })
+      set({ activeNodeId: null })
       return
     }
     const st = get()
@@ -105,10 +85,9 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
       ...st.nodes.filter((n) => n.id === nodeId),
       ...st.nodes.filter((n) => n.id !== nodeId && !n.isMinimized)
     ]
-    const computed = computeLayout('focus', ordered, st.canvasSize, st.connections)
+    const computed = computeLayout('focus', ordered, st.canvasSize)
     set((s) => ({
       activeNodeId: nodeId,
-      selectedConnectionId: null,
       zCounter: z,
       nodes: s.nodes.map((n) => ({
         ...n,
@@ -120,7 +99,6 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     get().persist()
   },
 
-  selectConnection: (id) => set({ selectedConnectionId: id, activeNodeId: id ? null : get().activeNodeId }),
   setDeveloperCenterOpen: (open) => set({ developerCenterOpen: open }),
 
   updateNode: (nodeId, patch) => {
@@ -144,7 +122,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
       // "Maximize" = focus layout centered on this node: it becomes large while
       // the others scale down into a mini-panel strip. (user request #5)
       const ordered = [node, ...st.nodes.filter((n) => n.id !== nodeId && !n.isMinimized)]
-      const computed = computeLayout('focus', ordered, st.canvasSize, st.connections)
+      const computed = computeLayout('focus', ordered, st.canvasSize)
       set((s) => ({
         zCounter: z,
         activeNodeId: nodeId,
@@ -159,7 +137,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
       }))
     } else {
       // Restore: re-tile everything as a proportional grid.
-      const computed = computeLayout('grid', st.nodes, st.canvasSize, st.connections)
+      const computed = computeLayout('grid', st.nodes, st.canvasSize)
       set((s) => ({
         layoutMode: 'grid',
         nodes: s.nodes.map((n) => ({ ...n, isMaximized: false, ...(computed[n.id] || {}) }))
@@ -183,44 +161,6 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     get().persist()
   },
 
-  addConnection: (source, target, type, label, routeOpts) => {
-    if (source === target) return
-    const st = get()
-    if (!st.activeWorkspaceId) return
-    // avoid duplicate identical edges
-    if (st.connections.some((c) => c.sourceNodeId === source && c.targetNodeId === target && c.connectionType === type))
-      return
-    const conn: AgentConnection = {
-      id: nanoid(),
-      workspaceId: st.activeWorkspaceId,
-      sourceNodeId: source,
-      targetNodeId: target,
-      connectionType: type,
-      label,
-      isActive: true,
-      status: 'idle',
-      triggerPattern: routeOpts?.triggerPattern,
-      transform: routeOpts?.transform,
-      routeBehavior: routeOpts?.routeBehavior || 'disabled',
-      routeDirection: routeOpts?.routeDirection || 'source_to_target'
-    }
-
-    const nextConnections = [...st.connections, conn]
-    syncAgentRouting(st.nodes, nextConnections)
-    set({ connections: nextConnections, selectedConnectionId: conn.id })
-    get().persist()
-  },
-
-  removeConnection: (id) => {
-    const st = get()
-    const connections = st.connections.filter((c) => c.id !== id)
-    syncAgentRouting(st.nodes, connections)
-    set({
-      connections,
-      selectedConnectionId: st.selectedConnectionId === id ? null : st.selectedConnectionId
-    })
-    get().persist()
-  },
 
   setLayoutMode: (mode, vp) => {
     set({ layoutMode: mode })
@@ -231,7 +171,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
   applyAutoLayout: (vp) => {
     const st = get()
     if (st.layoutMode === 'manual') return
-    const computed = computeLayout(st.layoutMode, st.nodes, vp, st.connections)
+    const computed = computeLayout(st.layoutMode, st.nodes, vp)
     set((s) => ({
       nodes: s.nodes.map((n) => (computed[n.id] ? { ...n, ...computed[n.id], isMaximized: false } : n))
     }))
@@ -330,7 +270,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     }
     // Slot centres come from the current layout (dragged node's old slot
     // included) so the drop point can snap to any existing slot.
-    const computed = computeLayout(st.layoutMode, st.nodes, st.canvasSize, st.connections)
+    const computed = computeLayout(st.layoutMode, st.nodes, st.canvasSize)
     let targetIndex = 0
     let best = Infinity
     visibleIds.forEach((id, i) => {
@@ -348,7 +288,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     const currentIndex = visibleIds.indexOf(nodeId)
     if (currentIndex === targetIndex) {
       // No reorder — just re-tile so the dragged node snaps back to its slot.
-      const restore = computeLayout(st.layoutMode, st.nodes, st.canvasSize, st.connections)
+      const restore = computeLayout(st.layoutMode, st.nodes, st.canvasSize)
       set((s) => ({ nodes: s.nodes.map((n) => (restore[n.id] ? { ...n, ...restore[n.id] } : n)) }))
       get().persist()
       return
@@ -361,7 +301,7 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     // (pinned/minimized) keep their array positions untouched.
     let vi = 0
     const reordered = st.nodes.map((n) => (isTiled(n) ? byId.get(nextOrder[vi++])! : n))
-    const computedNext = computeLayout(st.layoutMode, reordered, st.canvasSize, st.connections)
+    const computedNext = computeLayout(st.layoutMode, reordered, st.canvasSize)
     set({ nodes: reordered.map((n) => (computedNext[n.id] ? { ...n, ...computedNext[n.id] } : n)) })
     get().persist()
   },
@@ -385,7 +325,6 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
     window.termflow.layout.save({
       workspaceId: s.activeWorkspaceId,
       nodes: s.nodes,
-      connections: s.connections,
       layoutMode: s.layoutMode,
       viewport: s.viewport,
       activeNodeId: s.activeNodeId || undefined

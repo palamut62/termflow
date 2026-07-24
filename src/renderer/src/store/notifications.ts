@@ -1,8 +1,10 @@
 import type { AppSettings, CanvasNode } from '../../../shared/types'
 import { getLeafTerminalIds } from '../paneUtils'
 
-// Desktop notifications for long-running commands, error output, and agents
-// waiting on a confirmation prompt (feature: masaüstü bildirimleri). Fires
+// Desktop notifications for long-running commands, error output, and a
+// generic output-pattern trigger — the terminal printed something that looks
+// like it is waiting for input (a confirmation/prompt). No profile is
+// special-cased: any terminal can raise it. Fires
 // even while the window is minimized/hidden to the tray — the native
 // Notification API keeps working in a backgrounded renderer, and clicking a
 // notification asks main to restore/focus the window before selecting the
@@ -75,9 +77,12 @@ export function notifyError(terminalId: string, terminalName: string): void {
   fire(`${terminalName}: error detected`, 'An error pattern was detected in the terminal output.', terminalId)
 }
 
-export function notifyAgentWaiting(terminalId: string, terminalName: string): void {
+// Generic output-pattern notification: the terminal's output matched the
+// "waiting for input" pattern. Settings key is still notifyOnAgentWaiting for
+// backwards compatibility with stored settings.
+export function notifyOutputPattern(terminalId: string, terminalName: string): void {
   const s = store?.getState().settings
   if (!s?.notificationsEnabled || !s.notifyOnAgentWaiting) return
   ensurePermission()
-  fire(`${terminalName}: waiting for confirmation`, 'The agent may have paused on a confirmation or command prompt.', terminalId)
+  fire(`${terminalName}: waiting for input`, 'The terminal output matched the "waiting for input" pattern.', terminalId)
 }

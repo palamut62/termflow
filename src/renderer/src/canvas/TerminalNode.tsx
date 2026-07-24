@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useState } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { type NodeProps } from '@xyflow/react'
 import {
   Minus,
   Maximize2,
@@ -11,19 +11,16 @@ import {
   X,
   PanelRightClose,
   PanelRightOpen,
-  Bot,
   TerminalSquare,
   AlertTriangle,
   GitBranch,
   Copy,
   Pin,
   PinOff,
-  Sparkles,
   MoreHorizontal
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
-import LogSummaryModal from '../components/LogSummaryModal'
 import { useAppStore } from '../store/appStore'
 import { profileFor } from '../profiles'
 import type { PaneNode } from '../../../shared/types'
@@ -38,40 +35,16 @@ function InfoArea({ nodeId }: { nodeId: string }): React.JSX.Element | null {
   const termId = node ? activeTermId(node) : undefined
   const terminal = useAppStore((s) => (termId ? s.terminals[termId] : undefined))
   const stats = useAppStore((s) => (termId ? s.procStats[termId] : undefined))
-  const connCount = useAppStore(
-    (s) => s.connections.filter((c) => c.sourceNodeId === nodeId || c.targetNodeId === nodeId).length
-  )
   if (!node || !terminal) return null
-  const isAgent = node.nodeType === 'agent'
   const profile = profileFor(terminal.kind)
 
   return (
     <div className="tnode-info nodrag nowheel">
-      {isAgent ? (
-        <>
-          <h4>Agent</h4>
-          <div className="info-row">
-            <span>Role</span>
-            <span className="v">{node.agentRole ?? '—'}</span>
-          </div>
-          <div className="info-row">
-            <span>Type</span>
-            <span className="v">{profile.label}</span>
-          </div>
-          <div className="info-row">
-            <span>Provider</span>
-            <span className="v">{node.agentType ?? '—'}</span>
-          </div>
-        </>
-      ) : (
-        <>
-          <h4>Process</h4>
-          <div className="info-row">
-            <span>Shell</span>
-            <span className="v">{profile.label}</span>
-          </div>
-        </>
-      )}
+      <h4>Process</h4>
+      <div className="info-row">
+        <span>Shell</span>
+        <span className="v">{profile.label}</span>
+      </div>
       <div className="info-row">
         <span>Status</span>
         <span className="v" style={{ color: statusColor(terminal.status) }}>
@@ -97,10 +70,6 @@ function InfoArea({ nodeId }: { nodeId: string }): React.JSX.Element | null {
       <div className="info-row">
         <span>CWD</span>
         <span className="v">{terminal.cwd}</span>
-      </div>
-      <div className="info-row">
-        <span>Links</span>
-        <span className="v">{connCount}</span>
       </div>
     </div>
   )
@@ -135,7 +104,7 @@ const HANDLES: [string, number, number][] = [
  */
 function ResizeHandles({ nodeId }: { nodeId: string }): React.JSX.Element {
   const updateNode = useAppStore((s) => s.updateNode)
-  const tiled = useAppStore((s) => s.layoutMode !== 'manual' && s.layoutMode !== 'agent_graph')
+  const tiled = useAppStore((s) => s.layoutMode !== 'manual')
   const resizeFocusedNode = useAppStore((s) => s.resizeFocusedNode)
 
   const start = useCallback(
@@ -309,7 +278,6 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [closing, setClosing] = useState(false)
   const [recording, setRecording] = useState(false)
-  const [showLogSummary, setShowLogSummary] = useState(false)
   const [showGitMenu, setShowGitMenu] = useState(false)
   const [gitActionMsg, setGitActionMsg] = useState<string | null>(null)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -334,19 +302,15 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
 
   const active = activeNodeId === id
   const showInfo = node.showInfo && node.size.width > 640 && !node.isMinimized
-  const isAgent = node.nodeType === 'agent'
   const hasError = node.status === 'error'
   const isBroadcasting = broadcastEnabled && termId !== undefined && broadcastGroup.includes(termId)
 
   return (
     <div className="tnode-wrap">
       <div className={`tnode ${active ? 'active' : ''} ${node.isMinimized ? 'minimized' : ''} ${hasError ? 'errored' : ''} ${isBroadcasting ? 'broadcasting' : ''}`}>
-      <Handle type="target" position={Position.Left} />
       <div className="tnode-header">
         {hasError ? (
           <AlertTriangle size={14} color="var(--danger)" />
-        ) : isAgent ? (
-          <Bot size={14} color="var(--accent)" />
         ) : (
           <TerminalSquare size={14} color="var(--text-muted)" />
         )}
@@ -377,7 +341,7 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
             {node.title}
           </span>
         )}
-        <span className="kind-tag">{node.agentRole ?? terminal.kind}</span>
+        <span className="kind-tag">{terminal.kind}</span>
         {recording && <span className="rec-dot" title="Recording in progress" />}
         {node.bypass && (
           <span
@@ -483,9 +447,6 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
                 <div className="menu-item" onClick={() => { togglePin(id); setShowMoreMenu(false) }}>
                   {node.isPinned ? <PinOff size={13} /> : <Pin size={13} />} {node.isPinned ? 'Unpin' : 'Pin'}
                 </div>
-                <div className="menu-item" onClick={() => { setShowLogSummary(true); setShowMoreMenu(false) }}>
-                  <Sparkles size={13} /> AI summary
-                </div>
               </div>
             )}
           </div>
@@ -556,11 +517,6 @@ function TerminalNodeInner({ id, selected }: NodeProps): React.JSX.Element {
             {terminal.status} · pid {terminal.pid ?? '—'}
           </span>
         </div>
-      )}
-      <Handle type="source" position={Position.Right} />
-
-      {showLogSummary && (
-        <LogSummaryModal sourceNodeId={id} onClose={() => setShowLogSummary(false)} />
       )}
 
       {closing && (

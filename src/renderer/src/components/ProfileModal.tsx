@@ -1,10 +1,35 @@
 import { Eye, EyeOff, Plus, Save, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import type { CustomAgentDef, ShellKind } from '../../../shared/types'
+import { useAppStore } from '../store/appStore'
 import { useModalClose } from '../hooks/useModalClose'
+import { PROFILES } from '../profiles'
+import ConfirmModal from './ConfirmModal'
 
 const SECRET_RE = /KEY|TOKEN|SECRET|PASSWORD/i
 
-type Tab = 'settings' | 'config'
+type Tab = 'profiles' | 'settings' | 'config'
+
+// Bundled profiles that carry a startup command are the ones worth overriding
+// (name / command / extra flags). `claude` and `pwsh` are treated identically.
+const builtInProfiles = PROFILES.filter((profile) => profile.startupCommand)
+
+const emptyProfile = (): CustomAgentDef => ({
+  id: crypto.randomUUID(), name: 'New Profile', command: '', fullPermissionArgs: '', color: '#2f80ff'
+})
+
+function initialProfiles(saved: CustomAgentDef[]): CustomAgentDef[] {
+  const overrides = new Map(saved.filter((item) => item.kind).map((item) => [item.kind, item]))
+  const builtIns = builtInProfiles.map((profile) => overrides.get(profile.kind) ?? ({
+    id: `builtin:${profile.kind}`,
+    kind: profile.kind,
+    name: profile.label,
+    command: profile.startupCommand ?? profile.kind,
+    fullPermissionArgs: profile.bypassArgs ?? '',
+    color: profile.color
+  }))
+  return [...builtIns, ...saved.filter((item) => !item.kind)]
+}
 
 const THEMES = ['dark', 'light', 'dark-daltonized', 'light-daltonized']
 const NOTIF_CHANNELS = ['iterm2', 'terminal_bell', 'iterm2_with_bell', 'notifications_disabled']
@@ -14,9 +39,9 @@ interface EnvRow {
   value: string
 }
 
-export default function AgentConfigModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+export default function ProfileModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   useModalClose(onClose)
-  const [tab, setTab] = useState<Tab>('settings')
+  const [tab, setTab] = useState<Tab>('profiles')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
 
@@ -26,6 +51,27 @@ export default function AgentConfigModal({ onClose }: { onClose: () => void }): 
   const [notifChannel, setNotifChannel] = useState('iterm2')
   const [autoUpdates, setAutoUpdates] = useState(true)
   const [verbose, setVerbose] = useState(false)
+
+  // Terminal profiles (name + startup command + extra flags)
+  const appSettings = useAppStore((s) => s.settings)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [profiles, setProfiles] = useState<CustomAgentDef[]>(() => initialProfiles(appSettings.customAgents))
+  const [pendingDelete, setPendingDelete] = useState<CustomAgentDef | null>(null)
+  const hiddenProfileKinds = appSettings.hiddenAgentKinds ?? []
+
+  const patchProfile = (id: string, patch: Partial<CustomAgentDef>): void => {
+    setProfiles((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  const deleteProfile = (id: string): void => {
+    const next = profiles.filter((item) => item.id !== id)
+    setProfiles(next)
+    void updateSettings({ customAgents: next })
+  }
+
+  const restoreProfile = (kind: ShellKind): void => {
+    void updateSettings({ hiddenAgentKinds: hiddenProfileKinds.filter((k) => k !== kind) })
+  }
 
   // settings (.claude/settings.json)
   const [settings, setSettings] = useState<Record<string, unknown>>({})
@@ -98,13 +144,14 @@ export default function AgentConfigModal({ onClose }: { onClose: () => void }): 
       <div className="modal" style={{ width: 560, maxWidth: '92vw', padding: 0, display: 'flex', flexDirection: 'column' }} onMouseDown={(e) => e.stopPropagation()}>
         <header className="workbench-head">
           <div>
-            <h3>Agent Config</h3>
-            <span>Claude Code settings & global config</span>
+            <h3>Profiles</h3>
+            <span>Terminal profiles & Claude Code config files</span>
           </div>
           <button className="hbtn" onClick={onClose}><X size={16} /></button>
         </header>
 
         <div className="tab-bar" style={{ display: 'flex', gap: 6, padding: '10px 15px 0' }}>
+          <button className={`tb-btn ${tab === 'profiles' ? 'active' : ''}`} onClick={() => setTab('profiles')}>Profiles</button>
           <button className={`tb-btn ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>Settings (.claude/settings.json)</button>
           <button className={`tb-btn ${tab === 'config' ? 'active' : ''}`} onClick={() => setTab('config')}>Config (.claude.json)</button>
         </div>
@@ -112,6 +159,45 @@ export default function AgentConfigModal({ onClose }: { onClose: () => void }): 
         <div className="acfg-body">
           {error && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
           {saved && <div style={{ color: 'var(--success)', fontSize: 12 }}>{saved}</div>}
+
+          {tab === 'profiles' && (
+            <>
+              <p className="help-intro">Every profile is just a name plus a startup command — add your own CLIs (grok, qoder, pwsh...) and they show up in the New Terminal menu.</p>
+              <div className="provider-list">
+                {profiles.map((profile) => (
+                  <section className="provider-card" key={profile.id}>
+                    <div className="provider-card-head">
+                      <input value={profile.name} onChange={(e) => patchProfile(profile.id, { name: e.target.value })} aria-label="Profile name" />
+                      <input type="color" value={profile.color} onChange={(e) => patchProfile(profile.id, { color: e.target.value })} aria-label="Profile color" />
+                      {profile.kind ? (
+                        <span className="kind-tag" title="Built-in profile">Built-in</span>
+                      ) : (
+                        <button className="hbtn danger" title="Delete profile" aria-label={`Delete ${profile.name}`} onClick={() => setPendingDelete(profile)}><Trash2 size={14} /></button>
+                      )}
+                    </div>
+                    <div className="provider-fields">
+                      <label>Startup command<input value={profile.command} onChange={(e) => patchProfile(profile.id, { command: e.target.value })} placeholder="claude, pwsh, grok..." /></label>
+                      <label>Extra flags<input value={profile.fullPermissionArgs ?? ''} onChange={(e) => patchProfile(profile.id, { fullPermissionArgs: e.target.value })} placeholder="--dangerously-skip-permissions" /></label>
+                    </div>
+                  </section>
+                ))}
+              </div>
+              <button className="btn" style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setProfiles((items) => [...items, emptyProfile()])}><Plus size={13} />Add profile</button>
+              {hiddenProfileKinds.length > 0 && (
+                <div className="hidden-agents">
+                  <span className="help-intro">Hidden profiles:</span>
+                  {hiddenProfileKinds.map((kind) => {
+                    const hidden = builtInProfiles.find((p) => p.kind === kind)
+                    return (
+                      <button key={kind} className="btn" onClick={() => restoreProfile(kind)}>
+                        {hidden?.label ?? kind} — Restore
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )}
 
           {tab === 'settings' && (
             <>
@@ -193,9 +279,29 @@ export default function AgentConfigModal({ onClose }: { onClose: () => void }): 
 
         <div className="modal-actions" style={{ padding: '12px 15px', borderTop: '1px solid var(--border-soft)', marginTop: 0 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => void (tab === 'settings' ? saveSettings() : saveConfig())}><Save size={13} />Save</button>
+          <button
+            className="btn primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => {
+              if (tab === 'profiles') void updateSettings({ customAgents: profiles }).then(onClose)
+              else if (tab === 'settings') void saveSettings()
+              else void saveConfig()
+            }}
+          >
+            <Save size={13} />Save
+          </button>
         </div>
       </div>
+      {pendingDelete && (
+        <ConfirmModal
+          title="Delete profile?"
+          message={`${pendingDelete.name} will be removed from TermFlow.`}
+          confirmLabel="Delete profile"
+          tone="danger"
+          onConfirm={() => deleteProfile(pendingDelete.id)}
+          onClose={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   )
 }

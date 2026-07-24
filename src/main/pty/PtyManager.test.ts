@@ -38,18 +38,6 @@ vi.mock('./shells', () => ({
 // Import after mocks are registered.
 import { PtyManager } from './PtyManager'
 
-const markerRule = (connectionId: string, targets: string[]): {
-  connectionId: string
-  targetTerminalIds: string[]
-  triggerPattern: string
-  routeBehavior: 'marker'
-} => ({
-  connectionId,
-  targetTerminalIds: targets,
-  triggerPattern: '@@HANDOFF@@([\\s\\S]*?)@@END@@',
-  routeBehavior: 'marker'
-})
-
 const baseInput = { workspaceId: 'w', name: 'T', kind: 'cmd' as const }
 
 let sent: { ch: string; payload: unknown }[]
@@ -63,56 +51,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllTimers()
-})
-
-describe('PtyManager routing', () => {
-  beforeEach(() => vi.useFakeTimers())
-  afterEach(() => vi.useRealTimers())
-
-  it('routes a marker payload from source to target', () => {
-    mgr.create('A', baseInput)
-    mgr.create('B', baseInput)
-    mgr.setRouting('A', [markerRule('c1', ['B'])])
-
-    registry[0].emit('@@HANDOFF@@hello@@END@@')
-    vi.runAllTimers()
-
-    expect(registry[1].writes.join('')).toBe('@@HANDOFF@@hello@@END@@\r')
-  })
-
-  it('blocks an echoed payload looping back A->B->A', () => {
-    mgr.create('A', baseInput)
-    mgr.create('B', baseInput)
-    mgr.setRouting('A', [markerRule('c1', ['B'])])
-    mgr.setRouting('B', [markerRule('c2', ['A'])])
-
-    // A emits -> routed into B (and recorded as inbound on B).
-    registry[0].emit('@@HANDOFF@@hello@@END@@')
-    vi.runAllTimers()
-    expect(registry[1].writes.join('')).toBe('@@HANDOFF@@hello@@END@@\r')
-
-    // B echoes the same payload -> must NOT be routed back to A.
-    registry[1].emit('@@HANDOFF@@hello@@END@@')
-    vi.runAllTimers()
-    expect(registry[0].writes.length).toBe(0)
-  })
-
-  it('cuts routing once the per-connection rate window is exceeded', () => {
-    mgr.create('A', baseInput)
-    mgr.create('B', baseInput)
-    mgr.setRouting('A', [markerRule('c1', ['B'])])
-
-    // 41 distinct payloads in one tight window; the loop backstop trips at 40.
-    // The routing decision runs synchronously at emit time, so all admitted
-    // payloads are scheduled before the single flush; their per-character writes
-    // then interleave. Each completed route submits exactly one Enter ('\r'),
-    // so counting those Enters is the faithful measure of routes that got through.
-    for (let i = 0; i < 41; i++) registry[0].emit(`@@HANDOFF@@msg${i}@@END@@`)
-    vi.runAllTimers()
-
-    const enters = registry[1].writes.filter((w) => w === '\r').length
-    expect(enters).toBe(40)
-  })
 })
 
 describe('PtyManager terminal sizing', () => {

@@ -1,4 +1,4 @@
-import { AlertTriangle, Download, PackageOpen, Pencil, Plus, Play, Power, Puzzle, Trash2, Upload, X } from 'lucide-react'
+import { AlertTriangle, Download, Pencil, Plus, Play, Power, Puzzle, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { PluginDiagnostic, PluginRegistryEntry, ShellKind, TermFlowPluginManifest } from '../../../shared/types'
 import { useAppStore } from '../store/appStore'
@@ -101,14 +101,12 @@ export default function PluginManagerModal({ onClose }: { onClose: () => void })
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal plugin-manager" onMouseDown={(e) => e.stopPropagation()}>
         <header className="workbench-head">
-          <div><h3>Extensions & Workflow Packages</h3><span>Manifest-only plugin SDK with explicit terminal commands</span></div>
+          <div><h3>Extensions</h3><span>Manifest-only plugin SDK with explicit terminal commands</span></div>
           <button className="hbtn" onClick={onClose}><X size={16} /></button>
         </header>
         <div className="plugin-toolbar">
           <button className="btn" onClick={() => { setError(''); setForm(emptyForm()) }}><Plus size={13} />Create plugin</button>
           <button className="btn" onClick={async () => { try { const installed = await window.termflow.plugins.install(); if (installed) { setMessage(`${installed.name} installed`); await reload(); window.dispatchEvent(new Event('termflow:plugins-changed')) } } catch (e) { setMessage((e as Error).message) } }}><Download size={13} />Install plugin</button>
-          <button className="btn" onClick={() => window.termflow.workflowPackages.export()}><Upload size={13} />Export workflows</button>
-          <button className="btn" onClick={async () => { const count = await window.termflow.workflowPackages.import(); setMessage(`${count} workflow templates imported`) }}><PackageOpen size={13} />Import workflows</button>
           <span>{message}</span>
         </div>
         {form && (

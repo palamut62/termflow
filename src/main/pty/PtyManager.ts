@@ -21,29 +21,6 @@ const AWAITING_RE = /(\(y\/n\)|\[y\/n\]|yes\/no|do you want to proceed|do you wa
 // prompt redraw: ESC ] 7 ; file://<host>/<path> BEL|ST (deep git / cwd tracking)
 const OSC7_RE = /\x1b\]7;file:\/\/[^/]*(\/[^\x07\x1b]*)(?:\x07|\x1b\\)/
 
-// Agent-to-agent routing loop/echo guards. Routing writes one process's output
-// into another's input, so an A->B->A topology (or a terminal echoing its own
-// input) can otherwise spin into an infinite feedback loop.
-const CONTINUOUS_THROTTLE_MS = 80 // min gap between continuous flushes per connection
-const ROUTE_ECHO_WINDOW_MS = 4000 // remember recently-injected payloads this long
-const ROUTE_ECHO_MAX_ENTRIES = 200 // cap remembered inbound signatures per terminal
-const ROUTE_LOOP_WINDOW_MS = 1500 // sliding window for the route-rate backstop
-const ROUTE_LOOP_MAX = 40 // max routes per connection in the window before we cut
-const ROUTE_QUEUE_MAX_BYTES = 64 * 1024 // cap the continuous accumulation buffer
-
-// Deliberately has no `routeDirection` field: AgentConnection.routeDirection
-// is already resolved by the renderer (storeShared.syncAgentRouting) into one
-// or two of these one-directional rules (bidirectional = one rule per
-// terminal, each pointing the other way) before they ever reach setRouting().
-// Re-adding direction here would be redundant, not a missing feature.
-export interface RoutingRule {
-  connectionId: string
-  targetTerminalIds: string[]
-  triggerPattern: string // regex source
-  transform?: string
-  routeBehavior: 'marker' | 'continuous'
-}
-
 export interface RecordingEntry {
   ts: number // ms since start
   data: string
@@ -65,19 +42,8 @@ interface ManagedPty {
   awaitingSignalled: boolean
   createdAt: number
   cwd: string
-  routingRules?: RoutingRule[]
-  // Regex compiled once per setRouting() call (per-chunk compilation is costly
-  // and a ReDoS vector). null `re` means the rule's pattern was invalid/skipped.
-  compiledRules?: { rule: RoutingRule; re: RegExp | null }[]
   startupTimer: NodeJS.Timeout | null
   startupPending: boolean
-  lastRouteAt: Map<string, number>
-  // Routing loop/echo protection + continuous queue (per connection)
-  recentInbound: { sig: string; at: number }[] // payloads recently injected INTO this pty
-  routeHops: Map<string, number[]> // connectionId -> recent route timestamps (loop backstop)
-  routeQueues: Map<string, { buf: string; timer: NodeJS.Timeout | null }> // continuous accumulation
-  recentOutbound: Map<string, { sig: string; at: number }[]> // connectionId -> recently routed-out payloads
-  loopWarned: Set<string> // connectionIds already warned about (avoids log spam)
   // Recording
   recording: boolean
   recordingStart: number
@@ -131,12 +97,6 @@ export class PtyManager {
       cwd: resolved.cwd,
       startupTimer: null,
       startupPending: !!input.startupCommand,
-      lastRouteAt: new Map(),
-      recentInbound: [],
-      routeHops: new Map(),
-      routeQueues: new Map(),
-      recentOutbound: new Map(),
-      loopWarned: new Set(),
       recording: false,
       recordingStart: 0,
       recordedChunks: [],
@@ -151,14 +111,6 @@ export class PtyManager {
       this.flush(managed, true)
       const durationMs = Date.now() - managed.createdAt
       this.getSender()?.send(IPC.PTY_EXIT, { id, exitCode, durationMs })
-      // Release the heavy per-terminal routing/echo state now that the process
-      // is gone. `buffer` is intentionally kept so the renderer can rehydrate.
-      managed.recentInbound = []
-      managed.routeHops.clear()
-      managed.recentOutbound.clear()
-      managed.loopWarned.clear()
-      for (const q of managed.routeQueues.values()) if (q.timer) clearTimeout(q.timer)
-      managed.routeQueues.clear()
     })
 
     // Wait for the renderer to report the real xterm dimensions before
@@ -240,51 +192,6 @@ export class PtyManager {
       this.getSender()?.send(IPC.PTY_AWAITING, { id: managed.id })
     }
 
-    // Agent-to-agent routing (opt-in). Continuous routing is intentionally
-    // sanitized and rate-limited because it writes process output into another
-    // process input stream.
-    if (managed.compiledRules?.length) {
-      for (const { rule, re } of managed.compiledRules) {
-        if (rule.routeBehavior === 'continuous') {
-          const clean = this.sanitizeRouteData(data)
-          if (!clean.trim()) continue
-          // Never drop: accumulate into a per-connection queue and flush on a
-          // throttle. Loop/echo checks run at flush time (single point).
-          this.enqueueContinuous(managed, rule, clean)
-        } else if (re) {
-          // 'gs' regex is stateful (lastIndex) — reset before each chunk scan.
-          re.lastIndex = 0
-          let match: RegExpExecArray | null
-          while ((match = re.exec(data)) !== null) {
-            let output = match[0]
-            if (rule.transform) {
-              output = rule.transform.replace(/\$(\d+)/g, (_, n) => match![parseInt(n)] || '')
-            }
-            // TUI line-wrapping injects newlines+indentation into the matched
-            // block; collapse to single spaces so the payload lands as one
-            // clean input line.
-            output = this.sanitizeRouteData(output).replace(/\s+/g, ' ').trim().slice(0, 4000)
-            if (!output.trim()) continue
-            // TUI full-screen repaints replay the same marker block in the
-            // pty stream; skip identical payloads per connection for a short
-            // window so the target doesn't receive duplicates.
-            const outSig = this.routeSignature(output)
-            const now = Date.now()
-            const sent = (managed.recentOutbound.get(rule.connectionId) ?? []).filter((e) => now - e.at <= 20000)
-            if (sent.some((e) => e.sig === outSig)) continue
-            sent.push({ sig: outSig, at: now })
-            managed.recentOutbound.set(rule.connectionId, sent)
-            if (this.shouldBlockRoute(managed, rule.connectionId, output)) continue
-            for (const tid of rule.targetTerminalIds) {
-              this.writeRouted(tid, output)
-              this.recordInbound(tid, output)
-            }
-            this.emitRoute(rule.connectionId)
-          }
-        }
-      }
-    }
-
     if (managed.mode === 'buffer') return // no streaming while offscreen/minimized
 
     managed.pending += data
@@ -292,135 +199,6 @@ export class PtyManager {
       const interval = managed.mode === 'active' ? ACTIVE_INTERVAL_MS : this.passiveIntervalMs
       managed.flushTimer = setTimeout(() => this.flush(managed), interval)
     }
-  }
-
-  /**
-   * Write a routed payload into a target terminal, sending Enter separately
-   * after a short delay: TUI agents (claude/codex CLIs) treat a rapid burst
-   * of characters as a paste, and an Enter inside that burst is inserted as
-   * a newline instead of submitting the prompt.
-   */
-  private writeRouted(targetId: string, payload: string): void {
-    // TUI agents (claude/codex CLIs) mis-handle multi-char bursts as a
-    // paste (codex drops spaces); feed one character at a keystroke-like
-    // pace and press Enter separately so the prompt actually submits.
-    const CHUNK = 1
-    const STEP_MS = 25
-    for (let i = 0; i < payload.length; i += CHUNK) {
-      const part = payload.slice(i, i + CHUNK)
-      setTimeout(() => this.write(targetId, part), (i / CHUNK) * STEP_MS)
-    }
-    const doneAt = Math.ceil(payload.length / CHUNK) * STEP_MS
-    setTimeout(() => this.write(targetId, '\r'), doneAt + 150)
-  }
-
-  private sanitizeRouteData(data: string): string {
-    return data
-      // TUI agents position words with cursor-movement CSI sequences instead of
-      // literal spaces; stripping them to nothing glues words together, so
-      // replace with a space (marker routing collapses runs of whitespace after).
-      .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ' ')
-      .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
-      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
-  }
-
-  // ---- Routing loop/echo protection ----
-
-  /** Whitespace-collapsed, bounded signature used to match echoed payloads. */
-  private routeSignature(s: string): string {
-    return s.replace(/\s+/g, ' ').trim().slice(0, 200)
-  }
-
-  /** Remember a payload we just injected into `targetId`'s input stream. */
-  private recordInbound(targetId: string, payload: string): void {
-    const t = this.terminals.get(targetId)
-    if (!t) return
-    const sig = this.routeSignature(payload)
-    if (!sig) return
-    const now = Date.now()
-    t.recentInbound.push({ sig, at: now })
-    while (t.recentInbound.length && now - t.recentInbound[0].at > ROUTE_ECHO_WINDOW_MS) t.recentInbound.shift()
-    if (t.recentInbound.length > ROUTE_ECHO_MAX_ENTRIES)
-      t.recentInbound.splice(0, t.recentInbound.length - ROUTE_ECHO_MAX_ENTRIES)
-  }
-
-  /**
-   * True when `managed`'s outgoing payload is really an echo of something that
-   * was recently routed INTO it — i.e. the tail of an A->B->A feedback loop.
-   */
-  private isEcho(managed: ManagedPty, payload: string): boolean {
-    const sig = this.routeSignature(payload)
-    if (!sig) return false
-    const now = Date.now()
-    return managed.recentInbound.some(
-      (e) => now - e.at <= ROUTE_ECHO_WINDOW_MS && (e.sig === sig || e.sig.includes(sig) || sig.includes(e.sig))
-    )
-  }
-
-  /** Rate backstop: too many routes over one connection in a short window. */
-  private isLoop(managed: ManagedPty, connectionId: string): boolean {
-    const now = Date.now()
-    const recent = (managed.routeHops.get(connectionId) ?? []).filter((t) => now - t <= ROUTE_LOOP_WINDOW_MS)
-    recent.push(now)
-    managed.routeHops.set(connectionId, recent)
-    return recent.length > ROUTE_LOOP_MAX
-  }
-
-  private warnLoop(managed: ManagedPty, connectionId: string, reason: string): void {
-    if (managed.loopWarned.has(connectionId)) return
-    managed.loopWarned.add(connectionId)
-    console.warn(
-      `[PtyManager] routing loop guard (${reason}) tripped for connection ${connectionId} from terminal ${managed.id}; suppressing route.`
-    )
-  }
-
-  /** Combined echo + rate guard. Returns true when the route must be cut. */
-  private shouldBlockRoute(managed: ManagedPty, connectionId: string, payload: string): boolean {
-    if (this.isEcho(managed, payload)) {
-      this.warnLoop(managed, connectionId, 'echo')
-      return true
-    }
-    if (this.isLoop(managed, connectionId)) {
-      this.warnLoop(managed, connectionId, 'rate')
-      return true
-    }
-    // Traffic that passes the guard clears the warned flag so a later, genuine
-    // loop can be reported again.
-    managed.loopWarned.delete(connectionId)
-    return false
-  }
-
-  private emitRoute(connectionId: string): void {
-    this.getSender()?.send(IPC.PTY_ROUTE, { connectionId })
-  }
-
-  /** Accumulate continuous-mode output; flush on a throttle without dropping. */
-  private enqueueContinuous(managed: ManagedPty, rule: RoutingRule, clean: string): void {
-    const key = rule.connectionId
-    let q = managed.routeQueues.get(key)
-    if (!q) {
-      q = { buf: '', timer: null }
-      managed.routeQueues.set(key, q)
-    }
-    q.buf += clean
-    if (q.buf.length > ROUTE_QUEUE_MAX_BYTES) q.buf = q.buf.slice(q.buf.length - ROUTE_QUEUE_MAX_BYTES)
-    if (!q.timer) q.timer = setTimeout(() => this.flushContinuous(managed, rule), CONTINUOUS_THROTTLE_MS)
-  }
-
-  private flushContinuous(managed: ManagedPty, rule: RoutingRule): void {
-    const key = rule.connectionId
-    const q = managed.routeQueues.get(key)
-    if (!q) return
-    q.timer = null
-    const payload = q.buf.slice(0, 4000)
-    q.buf = ''
-    if (!payload.trim()) return
-    if (this.shouldBlockRoute(managed, key, payload)) return
-    for (const tid of rule.targetTerminalIds) {
-      this.write(tid, payload)
-      this.recordInbound(tid, payload)
-    }
-    this.emitRoute(key)
   }
 
   private flush(managed: ManagedPty, force = false): void {
@@ -500,7 +278,6 @@ export class PtyManager {
     if (!t) return
     if (t.flushTimer) clearTimeout(t.flushTimer)
     if (t.startupTimer) clearTimeout(t.startupTimer)
-    for (const q of t.routeQueues.values()) if (q.timer) clearTimeout(q.timer)
     try {
       if (!t.exited) t.proc.kill()
     } catch {
@@ -525,36 +302,6 @@ export class PtyManager {
 
   setPassiveInterval(ms: number): void {
     this.passiveIntervalMs = ms
-  }
-
-  // ---- Routing ----
-  private static MAX_ROUTE_PATTERN_LEN = 500 // basic ReDoS guard
-
-  setRouting(id: string, rules: RoutingRule[]): void {
-    const t = this.terminals.get(id)
-    if (!t) return
-    if (!rules.length) {
-      t.routingRules = undefined
-      t.compiledRules = undefined
-      return
-    }
-    t.routingRules = rules
-    // Compile each trigger pattern ONCE here instead of on every onData chunk.
-    // Invalid or over-long patterns get a null `re` and are skipped at runtime.
-    t.compiledRules = rules.map((rule) => {
-      if (rule.routeBehavior === 'continuous') return { rule, re: null }
-      if (rule.triggerPattern.length > PtyManager.MAX_ROUTE_PATTERN_LEN) {
-        console.warn(
-          `[PtyManager] routing pattern too long (${rule.triggerPattern.length} > ${PtyManager.MAX_ROUTE_PATTERN_LEN}); skipping rule for connection ${rule.connectionId}.`
-        )
-        return { rule, re: null }
-      }
-      try {
-        return { rule, re: new RegExp(rule.triggerPattern, 'gs') }
-      } catch {
-        return { rule, re: null }
-      }
-    })
   }
 
   // ---- Recording ----

@@ -9,8 +9,6 @@ import { createDevResourcesSlice, type DevResourcesSlice } from './slices/devRes
 // unchanged: state field and action names are identical to the pre-split store.
 export type AppState = LayoutSlice & TerminalSlice & DevResourcesSlice
 
-// Re-exported for consumers that import the type from this module.
-export type { AgentActivity } from './storeShared'
 
 export const useAppStore = create<AppState>()((...a) => ({
   ...createLayoutSlice(...a),

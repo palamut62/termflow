@@ -9,7 +9,6 @@ import { useAppStore } from '../store/appStore'
 import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
 import { getLeafTerminalIds } from '../paneUtils'
-import TerminalAgentPanel from './TerminalAgentPanel'
 
 // Short two-tone chime for the terminal bell (\x07). Web Audio, no asset —
 // throttled so a burst of BELs doesn't stack into noise.
@@ -384,7 +383,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       onDrop={acceptFileDrop}
     >
       <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
-      <TerminalAgentPanel terminalId={terminalId} />
       {searchVisible && (
         <div
           style={{

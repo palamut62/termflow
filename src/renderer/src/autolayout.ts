@@ -1,4 +1,4 @@
-import type { CanvasNode, LayoutMode, AgentConnection } from '../../shared/types'
+import type { CanvasNode, LayoutMode } from '../../shared/types'
 
 interface Viewport {
   width: number
@@ -18,8 +18,7 @@ const PAD = 0
 export function computeLayout(
   mode: LayoutMode,
   nodes: CanvasNode[],
-  vp: Viewport,
-  connections: AgentConnection[] = []
+  vp: Viewport
 ): Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> {
   const result: Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> = {}
   // Pinned nodes stay exactly where the user put them — excluded from the
@@ -27,8 +26,6 @@ export function computeLayout(
   const visible = nodes.filter((n) => !n.isMinimized && !n.isPinned)
   const n = visible.length
   if (n === 0) return result
-
-  if (mode === 'agent_graph') return agentGraphLayout(visible, connections)
 
   const areaW = Math.max(vp.width - PAD * 2, 1)
   const areaH = Math.max(vp.height - PAD * 2, 1)
@@ -73,53 +70,6 @@ export function computeLayout(
       size: { width: Math.round(cellW), height: Math.round(cellH) }
     }
   })
-  return result
-}
-
-/**
- * Layered left-to-right layout driven by connections (PRD §10.4.8). Each node's
- * column = longest path from a root; nodes with no inputs are roots (column 0).
- */
-function agentGraphLayout(
-  nodes: CanvasNode[],
-  connections: AgentConnection[]
-): Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> {
-  const result: Record<string, { position: { x: number; y: number }; size: { width: number; height: number } }> = {}
-  const ids = new Set(nodes.map((n) => n.id))
-  const edges = connections.filter((c) => ids.has(c.sourceNodeId) && ids.has(c.targetNodeId))
-  const depth = new Map<string, number>()
-  nodes.forEach((n) => depth.set(n.id, 0))
-
-  // Relax depths (works for DAGs; cycles converge after |nodes| passes).
-  for (let i = 0; i < nodes.length; i++) {
-    let changed = false
-    for (const e of edges) {
-      const d = (depth.get(e.sourceNodeId) ?? 0) + 1
-      if (d > (depth.get(e.targetNodeId) ?? 0)) {
-        depth.set(e.targetNodeId, d)
-        changed = true
-      }
-    }
-    if (!changed) break
-  }
-
-  const cols = new Map<number, CanvasNode[]>()
-  for (const node of nodes) {
-    const d = depth.get(node.id) ?? 0
-    if (!cols.has(d)) cols.set(d, [])
-    cols.get(d)!.push(node)
-  }
-
-  const colW = 520
-  const rowH = 400
-  for (const [d, colNodes] of [...cols.entries()].sort((a, b) => a[0] - b[0])) {
-    colNodes.forEach((node, r) => {
-      result[node.id] = {
-        position: { x: PAD + d * colW, y: PAD + r * rowH },
-        size: { width: 460, height: 320 }
-      }
-    })
-  }
   return result
 }
 

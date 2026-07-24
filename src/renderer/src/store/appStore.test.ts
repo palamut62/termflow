@@ -8,14 +8,10 @@ const reset = (): void =>
   useAppStore.setState({
     activeWorkspaceId: null,
     nodes: [],
-    connections: [],
     layoutMode: 'manual',
     viewport: { zoom: 1, x: 0, y: 0 },
-    selectedConnectionId: null,
     broadcastEnabled: false,
     broadcastGroup: [],
-    agentActivities: [],
-    detectedAgents: {},
     recordingLimitWarning: null
   })
 
@@ -40,11 +36,12 @@ describe('layout slice', () => {
     expect(useAppStore.getState().nodes[0].title).toBe('Renamed')
   })
 
-  it('selects and clears a connection', () => {
-    useAppStore.getState().selectConnection('c1')
-    expect(useAppStore.getState().selectedConnectionId).toBe('c1')
-    useAppStore.getState().selectConnection(null)
-    expect(useAppStore.getState().selectedConnectionId).toBeNull()
+  it('selects and clears the active node', () => {
+    useAppStore.setState({ nodes: [{ id: 'n1', zIndex: 1, isMinimized: false } as never] })
+    useAppStore.getState().setActiveNode('n1')
+    expect(useAppStore.getState().activeNodeId).toBe('n1')
+    useAppStore.getState().setActiveNode(null)
+    expect(useAppStore.getState().activeNodeId).toBeNull()
   })
 
   it('keeps grid geometry when a terminal is selected', () => {
@@ -78,13 +75,10 @@ describe('terminal slice', () => {
     expect(useAppStore.getState().broadcastGroup).toEqual([])
   })
 
-  it('clears agent activities and dismisses recording warnings', () => {
+  it('dismisses recording warnings', () => {
     useAppStore.setState({
-      agentActivities: [{ id: 'a', terminalId: 't', agentName: 'X', kind: 'status', message: 'm', createdAt: '' }],
       recordingLimitWarning: { terminalId: 't', reason: 'size' }
     })
-    useAppStore.getState().clearAgentActivities()
-    expect(useAppStore.getState().agentActivities).toEqual([])
     useAppStore.getState().dismissRecordingLimitWarning()
     expect(useAppStore.getState().recordingLimitWarning).toBeNull()
   })

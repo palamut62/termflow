@@ -194,7 +194,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
                         onClick={() => setActiveNode(n.id)}
                       >
                         <span className={`dot ${t?.status ?? 'stopped'}`} />
-                        {n.nodeType === 'agent' ? <Bot size={13} /> : <TerminalSquare size={13} />}
+                        <TerminalSquare size={13} />
                         <span
                           style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
                         >

@@ -22,8 +22,7 @@ export type ShellKind =
   | 'ssh'
   | 'custom'
 
-export type NodeType = 'terminal' | 'agent' | 'service' | 'database' | 'test' | 'custom'
-export type AgentType = 'claude' | 'codex' | 'opencode' | 'ollama' | 'custom'
+export type NodeType = 'terminal' | 'service' | 'database' | 'test' | 'custom'
 
 export type TerminalStatus = 'running' | 'stopped' | 'error' | 'exited'
 export type NodeStatus = 'idle' | 'running' | 'waiting' | 'error' | 'completed' | 'stopped'
@@ -55,7 +54,8 @@ export interface TerminalProfile {
   env?: Record<string, string>
   startupCommand?: string
   icon?: string
-  agentType?: AgentType
+  /** Kullanıcı tanımlı profil kimliği (ör. 'claude', 'pwsh'). */
+  agentType?: string
   color?: string
 }
 
@@ -98,7 +98,8 @@ export interface CanvasNode {
   activePaneId?: string // which leaf terminalId is focused within the node
   title: string
   nodeType: NodeType
-  agentType?: AgentType
+  /** Kullanıcı tanımlı profil kimliği (ör. 'claude', 'pwsh'). */
+  agentType?: string
   agentRole?: string
   position: { x: number; y: number }
   size: { width: number; height: number }
@@ -121,32 +122,6 @@ export interface ProcStats {
 }
 
 export type ThemeMode = 'system' | 'vscode-dark' | 'vscode-light' | 'one-dark-pro' | 'tokyo-night'
-
-export type ConnectionType =
-  | 'control'
-  | 'data'
-  | 'log'
-  | 'error'
-  | 'dependency'
-  | 'parent_child'
-  | 'manual'
-  | 'trigger'
-
-export interface AgentConnection {
-  id: string
-  workspaceId: string
-  sourceNodeId: string
-  targetNodeId: string
-  connectionType: ConnectionType
-  label?: string
-  isActive: boolean
-  status: 'idle' | 'active' | 'error' | 'disabled'
-  // Agent-to-agent routing (P1-5)
-  triggerPattern?: string
-  transform?: string
-  routeBehavior?: 'marker' | 'continuous' | 'disabled'
-  routeDirection?: 'source_to_target' | 'bidirectional'
-}
 
 // ---- Snippets (P0-2) ----
 export interface Snippet {
@@ -222,119 +197,10 @@ export interface TermflowManifest {
   snippets?: TermflowManifestSnippet[]
 }
 
-// ---- Agent Teams (feature: shared task store + coordinator) ----
-// A team is a named group of Claude Code sessions working one objective
-// together, backed by a shared task queue and a simple round-robin
-// coordinator (see AgentTeamsModal.tsx's coordinatorTick).
-// NOTE: an earlier, simpler version of this feature shipped in v0.2.1 with a
-// different on-disk shape (`agentTeams`/`teamEvents` fields, dependencies +
-// acceptanceCriteria on tasks). database.ts migrates that shape into this one
-// on load so existing users don't lose in-flight teams/tasks.
-export type TeamPermissionPolicy = 'review' | 'controlled' | 'balanced' | 'full'
-export type TeamStatus = 'draft' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
-export type TeamMemberStatus = 'idle' | 'working' | 'waiting' | 'blocked' | 'done' | 'completed' | 'error' | 'stopped'
-export type TeamTaskStatus = 'ready' | 'working' | 'approval' | 'blocked' | 'review' | 'completed' | 'failed' | 'cancelled'
-
-export interface AgentTeam {
-  id: string
-  workspaceId: string
-  name: string
-  objective: string
-  permissionPolicy: TeamPermissionPolicy
-  status: TeamStatus
-  /** Max members allowed to be 'working' at once (feature: concurrency limit). */
-  concurrencyLimit: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface TeamMember {
-  id: string
-  teamId: string
-  name: string
-  role: string
-  status: TeamMemberStatus
-  terminalId?: string
-  /**
-   * Per-member permission override for this run only — NEVER persisted as an
-   * always-on flag across restarts (security). Rehydrated to false on load;
-   * only meaningful while the team is actively running this session.
-   */
-  canBypass: boolean
-  retryCount: number
-}
-
-export interface TeamTask {
-  id: string
-  teamId: string
-  title: string
-  description: string
-  assigneeId?: string
-  status: TeamTaskStatus
-  order: number
-  result?: string
-  retryCount: number
-  maxRetries: number
-  /** Carried over from the v0.2.1 shape; optional so new tasks don't need them. */
-  dependencies?: string[]
-  acceptanceCriteria?: string[]
-}
-
-export interface TeamEvent {
-  id: string
-  teamId: string
-  memberId?: string
-  taskId?: string
-  type: 'team.created' | 'team.started' | 'team.stopped' | 'member.started' | 'task.updated' | 'note'
-  message: string
-  createdAt: string
-}
-
-export interface AgentTeamBundle {
-  team: AgentTeam
-  members: TeamMember[]
-  tasks: TeamTask[]
-  events?: TeamEvent[]
-}
-
-export interface CreateAgentTeamInput {
-  workspaceId: string
-  objective: string
-  permissionPolicy: TeamPermissionPolicy
-  teamSize: 3 | 4 | 5
-  concurrencyLimit?: number
-}
-
-// ---- Agent Flow Templates (feature: agent flow templates) ----
-export interface FlowTemplateNode {
-  title: string
-  kind: ShellKind
-  agentRole?: string
-  startupCommand?: string
-}
-
-export interface FlowTemplateConnection {
-  from: number // index into FlowTemplate.nodes
-  to: number
-  connectionType: ConnectionType
-  label?: string
-  triggerPattern?: string
-  routeBehavior?: 'marker' | 'continuous' | 'disabled'
-  routeDirection?: 'source_to_target' | 'bidirectional'
-}
-
-export interface FlowTemplate {
-  id: string
-  name: string
-  builtin?: boolean
-  nodes: FlowTemplateNode[]
-  connections: FlowTemplateConnection[]
-}
-
 // ---- Task Triggers (feature: expanded task triggers) ----
-// Beyond output-regex agent routing: fire a shell command when a specific
-// node's process exits (optionally filtered by exit code), or on a repeating
-// timer. ("when command finishes, run X")
+// Fire a shell command when a specific node's process exits (optionally
+// filtered by exit code), or on a repeating timer. ("when command finishes,
+// run X")
 export type TaskTriggerKind = 'process_exit' | 'timer'
 export type ExitCodeFilter = 'any' | 'zero' | 'nonzero'
 
@@ -375,7 +241,6 @@ export interface GitStatus {
 export interface WorkspaceFileEntry { name: string; path: string; directory: boolean; size: number }
 export interface GitWorkbenchState { branch: string; status: string; diff: string; isRepo: boolean }
 export interface CredentialMeta { id: string; name: string; provider: string; envKey: string; workspaceId: string | null; updatedAt: string }
-export interface AgentMetric { terminalId: string; agentName: string; startedAt: string; endedAt?: string; durationMs: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number }
 export type PluginPermission = 'terminal:execute' | 'workspace:read' | 'workspace:write' | 'network:access'
 export interface TermFlowPluginCommand {
   id: string
@@ -424,7 +289,6 @@ export interface WorkspaceExport {
   }
   nodes: CanvasNode[]
   terminals: TerminalSession[]
-  connections: AgentConnection[]
   viewport: { zoom: number; x: number; y: number }
   profiles?: TerminalProfile[]
   snippets?: Snippet[]
@@ -470,25 +334,6 @@ export interface AppSettings {
   terminalBell: boolean
   // New terminal nodes open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
-  // Per-role system prompt sent automatically to an agent node's CLI once it's
-  // ready (feature: agent role -> real behavior). Keyed by AgentRoleDef.role.
-  // User-editable overrides layered over DEFAULT_ROLE_PROMPTS.
-  rolePrompts: Record<string, string>
-}
-
-// Default per-role instructions sent to an agent's CLI on first ready state.
-// Keys match AGENT_ROLES[].role in profiles.ts.
-export const DEFAULT_ROLE_PROMPTS: Record<string, string> = {
-  Planner: 'Bu takımın planlayıcısısın. Hedefi net alt görevlere böl, önceliklendir ve ekip üyelerine ne yapacaklarını kısaca özetle. Kod değiştirmeden önce bir plan sun.',
-  Coder: 'Bu takımın geliştiricisisin. Sana atanan görevi uygula: önce ilgili kodu oku, değişikliği hedefle sınırlı tut, derleme/test sonucunu bildir.',
-  Reviewer: 'Bu takımın kod inceleyicisisin. Yapılan değişiklikleri doğruluk, güvenlik, regresyon ve test kapsamı açısından incele. Engelleyici bulguları açıkça listele.',
-  Tester: 'Bu takımın test uzmanısın. Değişikliği bağımsız doğrula: ilgili testleri çalıştır, kullanıcı davranışını kontrol et, somut kanıt (komut çıktısı) ile raporla.',
-  Debugger: 'Bu takımın hata ayıklayıcısısın. Bildirilen hatanın kök nedenini sistematik biçimde bul (repro -> hipotez -> doğrulama), sonra minimum kapsamlı bir düzeltme öner.',
-  Git: 'Bu takımın git/versiyon kontrol ajanısın. Durumu (git status/diff) incele, açıklayıcı commit mesajları hazırla, branch/merge işlemlerinde dikkatli ol.',
-  Documentation: 'Bu takımın dokümantasyon ajanısın. Yapılan değişiklikleri ve kullanımı açık, kısa Türkçe/İngilizce dokümana dönüştür. Var olan doküman stiline uy.',
-  Research: 'Bu takımın araştırmacısısın. Kod değiştirmeden önce ilgili kodu, bağımlılıkları ve riskleri incele; bulgularını ve önerilen yaklaşımı kısaca raporla.',
-  Shell: 'Bu takımın shell/komut ajanısın. Sana verilen komutları çalıştır, çıktıyı özetle, hata durumunda ham çıktıyı paylaş.',
-  'Ollama Local': 'Yerel model ajanısın. Görevi kısa ve öz şekilde ele al, gerekirse ek bağlam iste.'
 }
 
 export interface CustomAgentDef {
@@ -553,8 +398,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdate: true,
   updateChannel: 'stable',
   terminalBell: true,
-  infoPanelDefaultOpen: false,
-  rolePrompts: {}
+  infoPanelDefaultOpen: false
 }
 
 export interface CanvasViewport {
@@ -566,7 +410,6 @@ export interface CanvasViewport {
 export interface WorkspaceLayout {
   workspaceId: string
   nodes: CanvasNode[]
-  connections: AgentConnection[]
   layoutMode: LayoutMode
   viewport: CanvasViewport
   activeNodeId?: string
@@ -601,7 +444,6 @@ export const IPC = {
   PTY_MODE: 'pty:mode', // renderer -> main: set render mode (active/passive/buffer)
   PTY_ACTIVITY: 'pty:activity', // main -> renderer: error/activity signal
   PTY_AWAITING: 'pty:awaiting', // main -> renderer: process output looks like it's waiting on a y/n confirmation
-  PTY_ROUTE: 'pty:route', // main -> renderer: agent-to-agent data routed over a connection
   PTY_CWD: 'pty:cwd', // main -> renderer: OSC 7 cwd change detected in a terminal's output
   PROC_STATS: 'proc:stats', // renderer -> main: get cpu/mem for pids
   GIT_FETCH: 'git:fetch', // renderer -> main: run `git fetch` for a cwd
@@ -623,8 +465,6 @@ export const IPC = {
   PLUGIN_RELOAD: 'plugin:reload',
   PLUGIN_REGISTRY_LIST: 'plugin:registryList',
   PLUGIN_REGISTRY_INSTALL: 'plugin:registryInstall',
-  FLOW_PACKAGE_EXPORT: 'flowPackage:export',
-  FLOW_PACKAGE_IMPORT: 'flowPackage:import',
   RECOVERY_STATUS: 'recovery:status',
   RECOVERY_ACK: 'recovery:ack',
   UPDATE_CHECK: 'update:check',
@@ -683,10 +523,6 @@ export const IPC = {
   GIT_STATUS: 'git:status',
   // package.json script runner
   PKG_SCRIPTS: 'pkg:scripts',
-  // agent flow templates
-  FLOW_TEMPLATE_LIST: 'flowTemplate:list',
-  FLOW_TEMPLATE_SAVE: 'flowTemplate:save',
-  FLOW_TEMPLATE_DELETE: 'flowTemplate:delete',
   // task triggers
   TASK_TRIGGER_LIST: 'taskTrigger:list',
   TASK_TRIGGER_SAVE: 'taskTrigger:save',
@@ -701,17 +537,7 @@ export const IPC = {
   REC_STOP: 'rec:stop',
   REC_SAVE: 'rec:save',
   REC_LIMIT: 'rec:limit', // main -> renderer: recording auto-stopped (duration/size limit reached)
-  // agent routing
-  AGENT_SET_ROUTING: 'agent:setRouting',
-  // Claude Code agent config files
+  // Claude Code profil ayar dosyaları (settings.json / .claude.json)
   AGENT_CFG_READ: 'agentCfg:read',
-  AGENT_CFG_WRITE: 'agentCfg:write',
-  // agent teams (shared task store + coordinator)
-  TEAM_LIST: 'team:list',
-  TEAM_CREATE: 'team:create',
-  TEAM_UPDATE: 'team:update',
-  TEAM_DELETE: 'team:delete',
-  TEAM_MEMBER_UPDATE: 'team:memberUpdate',
-  TEAM_TASK_CREATE: 'team:taskCreate',
-  TEAM_TASK_UPDATE: 'team:taskUpdate'
+  AGENT_CFG_WRITE: 'agentCfg:write'
 } as const
