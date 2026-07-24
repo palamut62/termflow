@@ -237,25 +237,17 @@ export const createDevResourcesSlice: StateCreator<AppState, [], [], DevResource
     if (request !== workspaceRequest) return
     set({
       activeWorkspaceId: id,
-      nodes: layout.nodes.map((n) => ({ ...n, isMaximized: false })),
-      // Workspaces saved by older builds may still carry the removed
-      // 'agent_graph' mode — fall back to manual instead of crashing.
-      layoutMode: layout.layoutMode === 'agent_graph' ? 'manual' : layout.layoutMode,
-      viewport: layout.viewport,
+      nodes: layout.nodes,
       terminals,
       activeNodeId: layout.activeNodeId && layout.nodes.some((n) => n.id === layout.activeNodeId)
         ? layout.activeNodeId
         : layout.nodes[0]?.id ?? null,
-      zCounter: layout.nodes.length + 1,
       snippets,
       highlightRules,
       sshProfiles,
       projectManifest: manifest,
       projectManifestApplied: false
     })
-    if (layout.layoutMode !== 'manual') {
-      get().applyAutoLayout(get().canvasSize)
-    }
     await window.termflow.workspaces.update(id, { lastOpenedAt: new Date().toISOString() })
     await get().loadPkgScripts()
     await get().loadTaskTriggers()

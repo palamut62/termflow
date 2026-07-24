@@ -21,7 +21,19 @@ describe('validateWorkspaceExport', () => {
   })
 
   it('accepts the current schema', () => {
-    const result = validateWorkspaceExport({ schemaVersion: 1, exportedAt: new Date().toISOString(), workspace: { name: 'Demo', defaultLayoutMode: 'manual' }, nodes: [], terminals: [], connections: [], viewport: { zoom: 1, x: 0, y: 0 } })
+    const result = validateWorkspaceExport({ schemaVersion: 1, exportedAt: new Date().toISOString(), workspace: { name: 'Demo' }, nodes: [], terminals: [] })
+    expect(result.errors).toEqual([])
+  })
+
+  it('accepts legacy exports that still carry canvas geometry', () => {
+    const result = validateWorkspaceExport({
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      workspace: { name: 'Legacy', defaultLayoutMode: 'grid' },
+      nodes: [{ id: 'n1', title: 'One', status: 'running', nodeType: 'terminal', position: { x: 1, y: 2 }, size: { width: 300, height: 200 }, zIndex: 3, isMinimized: false, isMaximized: false, showInfo: false }],
+      terminals: [],
+      viewport: { zoom: 1, x: 0, y: 0 }
+    })
     expect(result.errors).toEqual([])
   })
 })

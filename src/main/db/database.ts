@@ -6,8 +6,7 @@ import type {
   Workspace,
   TerminalSession,
   WorkspaceLayout,
-  CanvasNode,
-  LayoutMode,
+  WindowDef,
   AppSettings,
   Snippet,
   HighlightRule,
@@ -30,8 +29,9 @@ import { DEFAULT_SETTINGS } from '../../shared/types'
 interface StoreShape {
   workspaces: Workspace[]
   terminals: TerminalSession[]
-  nodes: CanvasNode[]
-  viewports: Record<string, { layoutMode: LayoutMode; zoom: number; x: number; y: number; activeNodeId?: string }>
+  nodes: WindowDef[]
+  /** Per-workspace UI state. Older builds also stored layoutMode/zoom/x/y here; those are dropped on load. */
+  viewports: Record<string, { activeNodeId?: string }>
   settings: AppSettings
   snippets: Snippet[]
   highlightRules: HighlightRule[]
@@ -156,8 +156,7 @@ export function initDatabase(): void {
     createWorkspace({
       name: 'Default',
       path: app.getPath('home'),
-      description: 'Default workspace',
-      defaultLayoutMode: 'manual'
+      description: 'Default workspace'
     })
   } else {
     persist()
@@ -175,7 +174,6 @@ export function createWorkspace(input: {
   path: string
   description?: string
   icon?: string
-  defaultLayoutMode?: LayoutMode
 }): Workspace {
   const ts = now()
   const ws: Workspace = {
@@ -184,13 +182,12 @@ export function createWorkspace(input: {
     path: input.path,
     description: input.description,
     icon: input.icon,
-    defaultLayoutMode: input.defaultLayoutMode ?? 'manual',
     createdAt: ts,
     updatedAt: ts,
     lastOpenedAt: ts
   }
   store.workspaces.push(ws)
-  store.viewports[ws.id] = { layoutMode: ws.defaultLayoutMode, zoom: 1, x: 0, y: 0 }
+  store.viewports[ws.id] = {}
   persist()
   return ws
 }
@@ -237,15 +234,27 @@ export function deleteTerminal(id: string): void {
 }
 
 // ---- Node migration: convert legacy single-terminal nodes to pane-tree ----
-function migrateNode(node: CanvasNode): CanvasNode {
-  if (!node.panes && node.terminalId) {
+// Windows saved by pre-tmux builds still carry canvas geometry (position,
+// size, zIndex, isMinimized/isMaximized, showInfo, isPinned, nodeType,
+// agentRole). Strip them silently and backfill a single-leaf pane tree so old
+// workspace files load without any data loss.
+const LEGACY_NODE_FIELDS = [
+  'position', 'size', 'zIndex', 'isMinimized', 'isMaximized',
+  'showInfo', 'isPinned', 'nodeType', 'agentRole'
+] as const
+
+function migrateNode(node: WindowDef): WindowDef {
+  const raw = { ...node } as unknown as Record<string, unknown>
+  for (const key of LEGACY_NODE_FIELDS) delete raw[key]
+  const win = raw as unknown as WindowDef
+  if (!win.panes && win.terminalId) {
     return {
-      ...node,
-      panes: { type: 'leaf', terminalId: node.terminalId, title: node.title },
-      activePaneId: node.terminalId
+      ...win,
+      panes: { type: 'leaf', terminalId: win.terminalId, title: win.title },
+      activePaneId: win.terminalId
     }
   }
-  return node
+  return win
 }
 
 function paneHasTerminal(pane: PaneNode | undefined, terminalId: string): boolean {
@@ -271,12 +280,10 @@ export function remapPaneIds(
 
 export function getLayout(workspaceId: string): WorkspaceLayout {
   const nodes = store.nodes.filter((n) => n.workspaceId === workspaceId).map(migrateNode)
-  const vp = store.viewports[workspaceId] ?? { layoutMode: 'manual' as LayoutMode, zoom: 1, x: 0, y: 0 }
+  const vp = store.viewports[workspaceId] ?? {}
   return {
     workspaceId,
     nodes,
-    layoutMode: vp.layoutMode,
-    viewport: { zoom: vp.zoom, x: vp.x, y: vp.y },
     activeNodeId: vp.activeNodeId
   }
 }
@@ -390,52 +397,43 @@ export function deleteEnvVar(id: string): void {
 
 export function exportWorkspaceData(workspaceId: string): {
   terminals: TerminalSession[]
-  nodes: CanvasNode[]
+  nodes: WindowDef[]
   snippets: Snippet[]
   highlightRules: HighlightRule[]
   sshProfiles: SshProfile[]
   envVars: EnvEntry[]
-  viewport: { zoom: number; x: number; y: number } | null
 } {
   return {
     terminals: store.terminals.filter((t) => t.workspaceId === workspaceId),
-    nodes: store.nodes.filter((n) => n.workspaceId === workspaceId),
+    nodes: store.nodes.filter((n) => n.workspaceId === workspaceId).map(migrateNode),
     snippets: store.snippets.filter((s) => s.workspaceId === workspaceId),
     highlightRules: store.highlightRules.filter((r) => r.workspaceId === workspaceId),
     sshProfiles: store.sshProfiles.filter((p) => p.workspaceId === workspaceId),
-    envVars: store.envVars.filter((e) => e.workspaceId === workspaceId),
-    viewport: store.viewports[workspaceId] ?? null
+    envVars: store.envVars.filter((e) => e.workspaceId === workspaceId)
   }
 }
 
 export function importWorkspaceData(
   workspaceId: string,
   terminals: TerminalSession[],
-  nodes: CanvasNode[],
+  nodes: WindowDef[],
   snippets: Snippet[],
   highlightRules: HighlightRule[],
   sshProfiles: SshProfile[],
-  envVars: EnvEntry[],
-  viewport: { zoom: number; x: number; y: number }
+  envVars: EnvEntry[]
 ): void {
   store.terminals = store.terminals.filter((t) => t.workspaceId !== workspaceId).concat(terminals)
-  store.nodes = store.nodes.filter((n) => n.workspaceId !== workspaceId).concat(nodes)
+  store.nodes = store.nodes.filter((n) => n.workspaceId !== workspaceId).concat(nodes.map(migrateNode))
   store.snippets = store.snippets.filter((s) => s.workspaceId !== workspaceId).concat(snippets)
   store.highlightRules = store.highlightRules.filter((r) => r.workspaceId !== workspaceId).concat(highlightRules)
   store.sshProfiles = store.sshProfiles.filter((p) => p.workspaceId !== workspaceId).concat(sshProfiles)
   store.envVars = store.envVars.filter((e) => e.workspaceId !== workspaceId).concat(envVars)
-  store.viewports[workspaceId] = { layoutMode: 'manual' as LayoutMode, ...viewport }
+  store.viewports[workspaceId] = {}
   persist()
 }
 
 export function saveLayout(layout: WorkspaceLayout): void {
   store.nodes = store.nodes.filter((n) => n.workspaceId !== layout.workspaceId).concat(layout.nodes)
-  store.viewports[layout.workspaceId] = {
-    layoutMode: layout.layoutMode,
-    zoom: layout.viewport.zoom,
-    x: layout.viewport.x,
-    y: layout.viewport.y,
-    activeNodeId: layout.activeNodeId
-  }
+  store.viewports[layout.workspaceId] = { activeNodeId: layout.activeNodeId }
   persist()
 }

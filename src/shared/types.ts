@@ -1,14 +1,5 @@
 // Shared data models between main and renderer (see PRD §14)
 
-export type LayoutMode =
-  | 'manual'
-  | 'auto_fit'
-  | 'grid'
-  | 'columns'
-  | 'rows'
-  | 'focus'
-  | 'agent_graph'
-
 export type ShellKind =
   | 'powershell'
   | 'pwsh'
@@ -21,8 +12,6 @@ export type ShellKind =
   | 'ollama'
   | 'ssh'
   | 'custom'
-
-export type NodeType = 'terminal' | 'service' | 'database' | 'test' | 'custom'
 
 export type TerminalStatus = 'running' | 'stopped' | 'error' | 'exited'
 export type NodeStatus = 'idle' | 'running' | 'waiting' | 'error' | 'completed' | 'stopped'
@@ -65,7 +54,6 @@ export interface Workspace {
   path: string
   description?: string
   icon?: string
-  defaultLayoutMode: LayoutMode
   createdAt: string
   updatedAt: string
   lastOpenedAt?: string
@@ -90,28 +78,23 @@ export interface TerminalSession {
   updatedAt: string
 }
 
-export interface CanvasNode {
+/**
+ * A window = one tmux "window" (tab). It fills the whole work area when
+ * selected; the pane tree inside it maps to tmux panes. Windows carry no
+ * geometry of their own — the tab strip owns ordering, nothing else.
+ */
+export interface WindowDef {
   id: string
   workspaceId: string
   terminalId?: string // legacy single-terminal; use panes for multi-pane
   panes?: PaneNode // pane tree for split-pane / tabbed terminals
-  activePaneId?: string // which leaf terminalId is focused within the node
+  activePaneId?: string // which leaf terminalId is focused within the window
   title: string
-  nodeType: NodeType
+  status: NodeStatus
   /** Kullanıcı tanımlı profil kimliği (ör. 'claude', 'pwsh'). */
   agentType?: string
-  agentRole?: string
-  position: { x: number; y: number }
-  size: { width: number; height: number }
-  zIndex: number
-  isMinimized: boolean
-  isMaximized: boolean
-  status: NodeStatus
-  showInfo: boolean
-  /** Runtime-only: true when the node was spawned with the permission-bypass flag. Not persisted into startupCommand. */
+  /** Runtime-only: true when the window was spawned with the permission-bypass flag. Not persisted into startupCommand. */
   bypass?: boolean
-  /** When true, auto-layout (grid/columns/rows/auto_fit/focus) skips repositioning this node. */
-  isPinned?: boolean
 }
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
@@ -285,11 +268,10 @@ export interface WorkspaceExport {
     name: string
     path?: string
     description?: string
-    defaultLayoutMode: LayoutMode
   }
-  nodes: CanvasNode[]
+  /** Windows (tmux windows). Named `nodes` for backwards compatibility with existing export files. */
+  nodes: WindowDef[]
   terminals: TerminalSession[]
-  viewport: { zoom: number; x: number; y: number }
   profiles?: TerminalProfile[]
   snippets?: Snippet[]
   highlightRules?: HighlightRule[]
@@ -304,9 +286,7 @@ export interface AppSettings {
   scrollback: number
   passiveThrottleMs: number
   webgl: boolean
-  snapToGrid: boolean
   agentAutoApprove: boolean
-  minimap: boolean
   // Theme & Font (P2-12)
   fontFamily: string
   fontSize: number
@@ -332,7 +312,7 @@ export interface AppSettings {
   // Play a sound when a terminal rings the bell (\x07) — how claude/codex
   // signal "task finished" in a regular terminal.
   terminalBell: boolean
-  // New terminal nodes open with the right-side info panel (process/context) visible
+  // New windows open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
 }
 
@@ -365,9 +345,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scrollback: 10000,
   passiveThrottleMs: 250,
   webgl: false,
-  snapToGrid: false,
   agentAutoApprove: false,
-  minimap: false,
   fontFamily: "'0xProto Nerd Font Mono', 'Cascadia Mono', Consolas, monospace",
   fontSize: 12,
   // 1.0: box-drawing glyphs (│─╭╮ in TUI borders) are designed to fill the
@@ -401,17 +379,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   infoPanelDefaultOpen: false
 }
 
-export interface CanvasViewport {
-  zoom: number
-  x: number
-  y: number
-}
-
 export interface WorkspaceLayout {
   workspaceId: string
-  nodes: CanvasNode[]
-  layoutMode: LayoutMode
-  viewport: CanvasViewport
+  /** Ordered window list (tab strip order). */
+  nodes: WindowDef[]
+  /** Currently selected window id. */
   activeNodeId?: string
 }
 

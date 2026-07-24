@@ -8,8 +8,7 @@ const reset = (): void =>
   useAppStore.setState({
     activeWorkspaceId: null,
     nodes: [],
-    layoutMode: 'manual',
-    viewport: { zoom: 1, x: 0, y: 0 },
+    activeNodeId: null,
     broadcastEnabled: false,
     broadcastGroup: [],
     recordingLimitWarning: null
@@ -17,47 +16,37 @@ const reset = (): void =>
 
 beforeEach(reset)
 
-describe('layout slice', () => {
-  it('switches layout mode', () => {
-    useAppStore.getState().setLayoutMode('grid')
-    expect(useAppStore.getState().layoutMode).toBe('grid')
-  })
-
-  it('updates the viewport', () => {
-    useAppStore.getState().setViewport({ zoom: 2, x: 10, y: 20 })
-    expect(useAppStore.getState().viewport).toEqual({ zoom: 2, x: 10, y: 20 })
-  })
-
-  it('toggles a node minimize flag and renames it', () => {
-    useAppStore.setState({ nodes: [{ id: 'n1', title: 'One', isMinimized: false } as never] })
-    useAppStore.getState().toggleMinimize('n1')
-    expect(useAppStore.getState().nodes[0].isMinimized).toBe(true)
+describe('window slice', () => {
+  it('renames a window', () => {
+    useAppStore.setState({ nodes: [{ id: 'n1', title: 'One' } as never] })
     useAppStore.getState().renameNode('n1', 'Renamed')
     expect(useAppStore.getState().nodes[0].title).toBe('Renamed')
   })
 
-  it('selects and clears the active node', () => {
-    useAppStore.setState({ nodes: [{ id: 'n1', zIndex: 1, isMinimized: false } as never] })
+  it('selects and clears the active window, clearing its error marker', () => {
+    useAppStore.setState({ nodes: [{ id: 'n1', status: 'error' } as never] })
     useAppStore.getState().setActiveNode('n1')
     expect(useAppStore.getState().activeNodeId).toBe('n1')
+    expect(useAppStore.getState().nodes[0].status).toBe('idle')
     useAppStore.getState().setActiveNode(null)
     expect(useAppStore.getState().activeNodeId).toBeNull()
   })
 
-  it('keeps grid geometry when a terminal is selected', () => {
+  it('reorders windows in the tab strip', () => {
     useAppStore.setState({
-      layoutMode: 'grid',
-      canvasSize: { width: 1200, height: 800 },
-      nodes: [
-        { id: 'n1', position: { x: 0, y: 0 }, size: { width: 600, height: 400 }, isMinimized: false } as never,
-        { id: 'n2', position: { x: 599, y: 0 }, size: { width: 600, height: 400 }, isMinimized: false } as never
-      ]
+      nodes: [{ id: 'a' } as never, { id: 'b' } as never, { id: 'c' } as never]
     })
+    useAppStore.getState().moveNode('c', 0)
+    expect(useAppStore.getState().nodes.map((n) => n.id)).toEqual(['c', 'a', 'b'])
+    useAppStore.getState().moveNode('c', 99) // clamped to the last slot
+    expect(useAppStore.getState().nodes.map((n) => n.id)).toEqual(['a', 'b', 'c'])
+  })
 
-    useAppStore.getState().setActiveNode('n2')
-
-    expect(useAppStore.getState().layoutMode).toBe('grid')
-    expect(useAppStore.getState().nodes.map((node) => node.size.width)).toEqual([600, 600])
+  it('patches a window without touching the others', () => {
+    useAppStore.setState({ nodes: [{ id: 'n1', title: 'One' } as never, { id: 'n2', title: 'Two' } as never] })
+    useAppStore.getState().updateNode('n2', { status: 'stopped' })
+    expect(useAppStore.getState().nodes[1].status).toBe('stopped')
+    expect(useAppStore.getState().nodes[0].status).toBeUndefined()
   })
 })
 

@@ -292,7 +292,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       keySub.dispose()
       bellSub.dispose()
       unregister()
-      // Component unmounts when the node is minimized -> switch main to
+      // Component unmounts when its window is deselected -> switch main to
       // buffer-only mode so the process keeps running without streaming.
       window.termflow.pty.setMode(terminalId, 'buffer')
       term.dispose()
@@ -348,9 +348,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     if (searchVisible && searchInputRef.current) searchInputRef.current.focus()
   }, [searchVisible])
 
-  // Clicking INSIDE the terminal must activate its node — xterm swallows the
-  // event before React Flow's node-click fires, so a passive terminal would
-  // otherwise never accept keystrokes until its header was clicked.
+  // Clicking INSIDE the terminal must select its window/pane — xterm swallows
+  // the event, so a passive pane would otherwise never accept keystrokes until
+  // its tab was clicked.
   const activateOnClick = (): void => {
     const st = useAppStore.getState()
     const node = st.nodes.find(
@@ -375,7 +375,6 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   return (
     <div
       style={{ position: 'relative', width: '100%', height: '100%' }}
-      className="nodrag nowheel"
       onMouseDownCapture={activateOnClick}
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault()

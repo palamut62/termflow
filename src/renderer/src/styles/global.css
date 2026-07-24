@@ -439,31 +439,116 @@ input {
 .canvas-wrap {
   grid-area: canvas;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   background: var(--bg-main);
 }
-.react-flow__attribution {
-  display: none;
-}
-.react-flow__background {
-  background: var(--bg-main);
+/* The selected window fills the whole area below the tab strip. */
+.window-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
-/* ---- Terminal node ---- */
+/* ---- Window tab strip (tmux windows) ---- */
+.window-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  flex: none;
+  padding: 4px 6px 0;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-soft);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.window-tabs::-webkit-scrollbar {
+  display: none;
+}
+.window-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.window-tab:hover {
+  background: var(--bg-panel-2);
+}
+.window-tab.active {
+  background: var(--bg-terminal);
+  border-color: var(--border-soft);
+  color: var(--text-primary);
+  box-shadow: inset 0 2px 0 var(--active-border);
+}
+.window-tab.errored {
+  color: var(--danger);
+}
+.window-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.window-tab-input {
+  background: var(--bg-main);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 1px 5px;
+  outline: none;
+  width: 130px;
+}
+.window-tab-close,
+.window-tab-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+}
+.window-tab-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+.window-tab-new {
+  margin-left: 4px;
+  padding: 4px 8px;
+}
+.window-tab-new:hover:not(:disabled) {
+  background: var(--bg-panel-2);
+  color: var(--text-primary);
+}
+.window-tab-new:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- Window body ---- */
 .tnode {
   display: flex;
   flex-direction: column;
   height: 100%;
   width: 100%;
   background: var(--bg-terminal);
-  border: 1px solid var(--border-soft);
-  border-radius: 6px;
+  border: none;
+  border-radius: 0;
   overflow: hidden;
   box-shadow: none;
-}
-.tnode.active {
-  border-color: var(--active-border);
-  box-shadow: inset 0 0 0 1px var(--active-border);
 }
 .tnode-header {
   display: flex;
@@ -607,11 +692,6 @@ input {
 .tnode-footer > span:last-child {
   flex: none;
 }
-.tnode.minimized .tnode-body,
-.tnode.minimized .tnode-footer {
-  display: none;
-}
-
 /* xterm should fill its container */
 .tnode-term .xterm {
   height: 100%;
@@ -995,117 +1075,9 @@ input {
   filter: brightness(1.12);
 }
 
-/* ---- Terminal node wrapper (lets resize handles sit outside the card) ---- */
-.tnode-wrap {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-.react-flow__node-terminal,
-.react-flow__node {
-  overflow: visible;
-}
-
-/* ---- Custom resize handles (clean dots sitting just outside the border) ---- */
-.rz {
-  position: absolute;
-  z-index: 30;
-}
-.rz-n {
-  top: -4px;
-  left: 16px;
-  right: 16px;
-  height: 8px;
-  cursor: ns-resize;
-}
-.rz-s {
-  bottom: -4px;
-  left: 16px;
-  right: 16px;
-  height: 8px;
-  cursor: ns-resize;
-}
-.rz-e {
-  right: -4px;
-  top: 16px;
-  bottom: 16px;
-  width: 8px;
-  cursor: ew-resize;
-}
-.rz-tiled-divider {
-  right: -6px;
-  top: 0;
-  bottom: 0;
-  width: 12px;
-  z-index: 40;
-}
-.rz-tiled-divider::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 5px;
-  width: 2px;
-  background: transparent;
-}
-.rz-tiled-divider:hover::after {
-  background: var(--active-border);
-}
-.rz-w {
-  left: -4px;
-  top: 16px;
-  bottom: 16px;
-  width: 8px;
-  cursor: ew-resize;
-}
-.rz-nw,
-.rz-ne,
-.rz-sw,
-.rz-se {
-  width: 18px;
-  height: 18px;
-}
-.rz-nw {
-  top: -9px;
-  left: -9px;
-  cursor: nwse-resize;
-}
-.rz-ne {
-  top: -9px;
-  right: -9px;
-  cursor: nesw-resize;
-}
-.rz-sw {
-  bottom: -9px;
-  left: -9px;
-  cursor: nesw-resize;
-}
-.rz-se {
-  bottom: -9px;
-  right: -9px;
-  cursor: nwse-resize;
-}
-/* clean round grab dots centered on each corner, outside the card */
-.rz-nw::after,
-.rz-ne::after,
-.rz-sw::after,
-.rz-se::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--bg-main);
-  box-shadow: 0 0 0 1px var(--accent);
-}
 
 .tnode.errored {
-  border-color: var(--danger);
-}
-.tnode.errored.active {
-  box-shadow: 0 0 0 1px var(--active-border), 0 10px 34px rgba(255, 77, 79, 0.25);
+  box-shadow: inset 0 0 0 1px var(--danger);
 }
 
 /* ---- Connection inspector ---- */
@@ -1155,74 +1127,6 @@ input {
 .empty-canvas .big {
   font-size: 15px;
   color: var(--text-secondary);
-}
-
-/* React Flow node reset so our card fills it */
-.react-flow__node-terminal {
-  padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: 12px;
-}
-.react-flow__handle {
-  width: 9px;
-  height: 9px;
-  background: var(--accent);
-  border: 2px solid var(--bg-main);
-}
-.react-flow__edge-path {
-  stroke-width: 2;
-}
-
-/* ---- React Flow controls: dark theme (default is white) ---- */
-.react-flow__controls {
-  display: none;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-.react-flow__controls-button {
-  background: var(--bg-panel);
-  border: none;
-  border-bottom: 1px solid var(--border-soft);
-  color: var(--text-secondary);
-  width: 30px;
-  height: 30px;
-}
-.react-flow__controls-button:last-child {
-  border-bottom: none;
-}
-.react-flow__controls-button:hover {
-  background: var(--bg-panel-2);
-}
-.react-flow__controls-button svg {
-  fill: var(--text-secondary);
-  max-width: 14px;
-  max-height: 14px;
-}
-.react-flow__controls-button:hover svg {
-  fill: var(--text-primary);
-}
-
-/* ---- MiniMap ---- */
-.react-flow__minimap {
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.react-flow__minimap-mask {
-  fill: rgba(17, 19, 24, 0.6);
-}
-
-/* ---- Edge label chips ---- */
-.react-flow__edge-textbg {
-  fill: var(--bg-panel);
-}
-.react-flow__edge-text {
-  fill: var(--text-primary);
 }
 
 /* ---- Pane (split-pane) ---- */

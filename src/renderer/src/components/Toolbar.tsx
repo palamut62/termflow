@@ -2,11 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Plus,
   Bot,
-  LayoutGrid,
-  Maximize2,
-  Columns3,
-  Rows3,
-  Focus,
   Settings,
   Search,
   ChevronDown,
@@ -31,27 +26,17 @@ import PluginManagerModal from './PluginManagerModal'
 import ProviderManagerModal from './ProviderManagerModal'
 import ConfirmModal from './ConfirmModal'
 import ProfileModal from './ProfileModal'
-import type { AiProviderProfile, LayoutMode, ShellKind } from '../../../shared/types'
+import type { AiProviderProfile, ShellKind } from '../../../shared/types'
 
 type PendingProfileDelete = { name: string; custom: boolean; id?: string; kind?: ShellKind }
 
 interface Props {
-  canvasSize: () => { width: number; height: number }
   onOpenSettings: () => void
   onOpenPalette: () => void
   onOpenHelp: () => void
   onOpenTerminalLauncher: () => void
   onOpenProviderManager: () => void
 }
-
-const LAYOUTS: { mode: LayoutMode; label: string; icon: React.JSX.Element }[] = [
-  { mode: 'auto_fit', label: 'Auto Fit All', icon: <Maximize2 size={14} /> },
-  { mode: 'grid', label: 'Grid', icon: <LayoutGrid size={14} /> },
-  { mode: 'columns', label: 'Columns', icon: <Columns3 size={14} /> },
-  { mode: 'rows', label: 'Rows', icon: <Rows3 size={14} /> },
-  { mode: 'focus', label: 'Focus + Mini', icon: <Focus size={14} /> },
-  { mode: 'manual', label: 'Manual', icon: <LayoutGrid size={14} /> }
-]
 
 function useOutside(cb: () => void): React.RefObject<HTMLDivElement> {
   const ref = useRef<HTMLDivElement>(null)
@@ -65,10 +50,8 @@ function useOutside(cb: () => void): React.RefObject<HTMLDivElement> {
   return ref
 }
 
-export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onOpenHelp, onOpenTerminalLauncher, onOpenProviderManager }: Props): React.JSX.Element {
+export default function Toolbar({ onOpenSettings, onOpenPalette, onOpenHelp, onOpenTerminalLauncher, onOpenProviderManager }: Props): React.JSX.Element {
   const addTerminal = useAppStore((s) => s.addTerminal)
-  const setLayoutMode = useAppStore((s) => s.setLayoutMode)
-  const layoutMode = useAppStore((s) => s.layoutMode)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const toggleBroadcast = useAppStore((s) => s.toggleBroadcast)
@@ -81,7 +64,6 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const profileOverrides = new Map(customAgents.filter((agent) => agent.kind).map((agent) => [agent.kind, agent]))
 
   const [termMenu, setTermMenu] = useState(false)
-  const [layoutMenu, setLayoutMenu] = useState(false)
   const [moreMenu, setMoreMenu] = useState(false)
   const [customModal, setCustomModal] = useState(false)
   const [globalSearchModal, setGlobalSearchModal] = useState(false)
@@ -92,7 +74,6 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
   const [pendingProviderDelete, setPendingProviderDelete] = useState<AiProviderProfile | null>(null)
   const [profileModal, setProfileModal] = useState(false)
   const termRef = useOutside(() => setTermMenu(false))
-  const layoutRef = useOutside(() => setLayoutMenu(false))
   const moreRef = useOutside(() => setMoreMenu(false))
 
   const create = (kind: ShellKind): void => {
@@ -145,7 +126,7 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
           <button
             className="tb-btn primary split-main"
             disabled={disabled}
-            title="New terminal (CMD)"
+            title="New window (CMD)"
             onClick={() => {
               setTermMenu(false)
               addTerminal('cmd')
@@ -258,31 +239,6 @@ export default function Toolbar({ canvasSize, onOpenSettings, onOpenPalette, onO
         )}
       </div>
 
-
-      <div className="tb-group" ref={layoutRef} style={{ position: 'relative' }}>
-        <button className="tb-btn" disabled={disabled} title="Layout" onClick={() => setLayoutMenu((v) => !v)}>
-          <LayoutGrid size={15} /> <span className="tb-label">Layout</span> <ChevronDown size={13} />
-        </button>
-        {layoutMenu && (
-          <div className="menu" style={{ top: 36, left: 0 }}>
-            {LAYOUTS.map((l) => (
-              <div
-                key={l.mode}
-                className="menu-item"
-                onClick={() => {
-                  setLayoutMode(l.mode, canvasSize())
-                  setLayoutMenu(false)
-                }}
-                style={{ color: layoutMode === l.mode ? 'var(--text-primary)' : undefined }}
-              >
-                {l.icon}
-                {l.label}
-                {layoutMode === l.mode && <span style={{ marginLeft: 'auto' }}>✓</span>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
       <div className="spacer" />
 

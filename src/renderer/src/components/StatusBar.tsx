@@ -1,4 +1,4 @@
-import { Cpu, GitBranch, TerminalSquare, Unplug } from 'lucide-react'
+import { GitBranch, TerminalSquare, Unplug } from 'lucide-react'
 import { useMemo } from 'react'
 import { getLeafTerminalIds } from '../paneUtils'
 import { useAppStore } from '../store/appStore'
@@ -6,7 +6,7 @@ import { useAppStore } from '../store/appStore'
 export default function StatusBar(): React.JSX.Element {
   const nodes = useAppStore((s) => s.nodes)
   const terminals = useAppStore((s) => s.terminals)
-  const layoutMode = useAppStore((s) => s.layoutMode)
+  const activeNodeId = useAppStore((s) => s.activeNodeId)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const workspaces = useAppStore((s) => s.workspaces)
   const ws = workspaces.find((w) => w.id === activeWorkspaceId)
@@ -24,7 +24,7 @@ export default function StatusBar(): React.JSX.Element {
         <GitBranch size={12} /> {ws?.name ?? 'No workspace'}
       </span>
       <span className="sb-item">
-        <TerminalSquare size={12} /> {nodes.length} panel{nodes.length !== 1 ? 's' : ''} · {running} running
+        <TerminalSquare size={12} /> {nodes.length} window{nodes.length !== 1 ? 's' : ''} · {running} running
       </span>
       {detachedCount > 0 && (
         <button
@@ -37,7 +37,7 @@ export default function StatusBar(): React.JSX.Element {
         </button>
       )}
       <span className="sb-item" style={{ marginLeft: 'auto' }}>
-        <Cpu size={12} /> layout: {layoutMode}
+        window: {nodes.find((n) => n.id === activeNodeId)?.title ?? '—'}
       </span>
     </div>
   )

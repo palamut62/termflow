@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ReactFlowProvider } from '@xyflow/react'
+import { useEffect, useMemo, useState } from 'react'
 import { TerminalSquare } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Toolbar from './components/Toolbar'
@@ -17,7 +16,8 @@ import RecoveryModal from './components/RecoveryModal'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette'
-import CanvasFlow from './canvas/CanvasFlow'
+import WindowTabs from './canvas/WindowTabs'
+import WindowView from './canvas/WindowView'
 import { useAppStore } from './store/appStore'
 import { getActiveTerminalId } from './paneUtils'
 import type { TermFlowPluginManifest } from '../../shared/types'
@@ -28,9 +28,9 @@ export default function App(): React.JSX.Element {
   const developerCenterOpen = useAppStore((s) => s.developerCenterOpen)
   const loadSettings = useAppStore((s) => s.loadSettings)
   const startRuntimeListeners = useAppStore((s) => s.startRuntimeListeners)
-  const setCanvasSize = useAppStore((s) => s.setCanvasSize)
   const flushPersist = useAppStore((s) => s.flushPersist)
   const nodes = useAppStore((s) => s.nodes)
+  const activeNodeId = useAppStore((s) => s.activeNodeId)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const snippets = useAppStore((s) => s.snippets)
   const sshProfiles = useAppStore((s) => s.sshProfiles)
@@ -59,7 +59,6 @@ export default function App(): React.JSX.Element {
     submitLabel?: string
     onSubmit: (values: Record<string, string>) => void
   } | null>(null)
-  const canvasRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const openLauncher = (): void => setShowTerminalLauncher(true)
@@ -114,21 +113,18 @@ export default function App(): React.JSX.Element {
     })
   }, [loadSettings, startRuntimeListeners, loadWorkspaces, loadSnippets, loadHighlightRules, startGitPolling])
 
-  const canvasSize = useCallback(() => {
-    const el = canvasRef.current
-    return { width: el?.clientWidth ?? 1200, height: el?.clientHeight ?? 800 }
-  }, [])
-
-  // Keep the store's canvas size current so auto-arrangement fits the viewport.
+  // Global search (and friends) ask to reveal a terminal: switch to the window
+  // that owns it and focus its pane. (feature: global search)
   useEffect(() => {
-    const el = canvasRef.current
-    if (!el) return
-    const update = (): void => setCanvasSize({ width: el.clientWidth, height: el.clientHeight })
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [setCanvasSize])
+    const handler = (e: Event): void => {
+      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail?.nodeId
+      if (!nodeId) return
+      const s = useAppStore.getState()
+      if (s.nodes.some((n) => n.id === nodeId)) s.setActiveNode(nodeId)
+    }
+    window.addEventListener('termflow:focus-node', handler)
+    return () => window.removeEventListener('termflow:focus-node', handler)
+  }, [])
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const s = useAppStore.getState
@@ -163,9 +159,27 @@ export default function App(): React.JSX.Element {
         title: 'Apply .termflow.json Manifest',
         run: () => s().applyProjectManifest()
       },
-      { id: 'autofit', title: 'Auto Fit Terminals', run: () => s().setLayoutMode('auto_fit', canvasSize()) },
-      { id: 'grid', title: 'Layout: Grid', run: () => s().setLayoutMode('grid', canvasSize()) },
-      { id: 'focus', title: 'Layout: Focus + Mini', run: () => s().setLayoutMode('focus', canvasSize()) },
+      { id: 'new-window', title: 'New Window', run: () => s().addTerminal('cmd') },
+      {
+        id: 'next-window',
+        title: 'Next Window',
+        run: () => {
+          const list = s().nodes
+          if (!list.length) return
+          const i = list.findIndex((n) => n.id === s().activeNodeId)
+          s().setActiveNode(list[(i + 1) % list.length].id)
+        }
+      },
+      {
+        id: 'prev-window',
+        title: 'Previous Window',
+        run: () => {
+          const list = s().nodes
+          if (!list.length) return
+          const i = list.findIndex((n) => n.id === s().activeNodeId)
+          s().setActiveNode(list[(i - 1 + list.length) % list.length].id)
+        }
+      },
       {
         id: 'restart',
         title: 'Restart Active Terminal',
@@ -190,7 +204,7 @@ export default function App(): React.JSX.Element {
       { id: 'toggle-broadcast', title: 'Toggle Broadcast Mode', run: () => s().toggleBroadcast() },
       {
         id: 'split-h',
-        title: 'Split Active Node Horizontally',
+        title: 'Split Active Window Horizontally',
         run: () => {
           const a = s().activeNodeId
           if (a) s().splitNode(a, 'horizontal')
@@ -198,7 +212,7 @@ export default function App(): React.JSX.Element {
       },
       {
         id: 'split-v',
-        title: 'Split Active Node Vertically',
+        title: 'Split Active Window Vertically',
         run: () => {
           const a = s().activeNodeId
           if (a) s().splitNode(a, 'vertical')
@@ -240,7 +254,7 @@ export default function App(): React.JSX.Element {
       { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
     ]
     return cmds
-  }, [canvasSize, snippets, sshProfiles, projectManifest, pluginCommands, activeWorkspace])
+  }, [snippets, sshProfiles, projectManifest, pluginCommands, activeWorkspace])
 
   // Keyboard shortcuts (PRD §21). Ctrl+Alt combos avoid clashing with terminal input.
   useEffect(() => {
@@ -258,21 +272,16 @@ export default function App(): React.JSX.Element {
       } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         s.toggleBroadcast()
-      } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault()
-        s.setLayoutMode('auto_fit', canvasSize())
       } else if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 't') {
         e.preventDefault()
         s.addTerminal('cmd')
-      } else if (e.key === 'F11') {
-        e.preventDefault()
-        if (s.activeNodeId) s.toggleMaximize(s.activeNodeId)
       } else if (e.ctrlKey && e.key === 'Tab') {
         e.preventDefault()
         const list = s.nodes
         if (list.length) {
           const i = list.findIndex((n) => n.id === s.activeNodeId)
-          s.setActiveNode(list[(i + 1) % list.length].id)
+          const step = e.shiftKey ? -1 : 1
+          s.setActiveNode(list[(i + step + list.length) % list.length].id)
         }
       } else if (e.key === 'Escape') {
         setShowPalette(false)
@@ -280,32 +289,34 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [canvasSize])
+  }, [])
 
   return (
     <div className={`app${developerCenterOpen ? ' dev-docked' : ''}`}>
       <Sidebar onNewWorkspace={() => setShowWsModal(true)} />
       <Toolbar
-        canvasSize={canvasSize}
         onOpenSettings={() => setShowSettings(true)}
         onOpenPalette={() => setShowPalette(true)}
         onOpenHelp={() => setShowHelp(true)}
         onOpenTerminalLauncher={() => setShowTerminalLauncher(true)}
         onOpenProviderManager={() => setShowProviderManager(true)}
       />
-      <div className="canvas-wrap" ref={canvasRef}>
-        <ReactFlowProvider>
-          <CanvasFlow />
-        </ReactFlowProvider>
-        <ProjectManifestPanel />
-        <DetachedSessionsPanel />
-        {nodes.length === 0 && (
-          <div className="empty-canvas">
-            <TerminalSquare size={40} strokeWidth={1.3} />
-            <div className="big">{activeWorkspaceId ? 'Empty canvas' : 'Select or create a workspace'}</div>
-            <div>{activeWorkspaceId ? 'Add a terminal with "New Terminal"' : ''}</div>
-          </div>
-        )}
+      <div className="canvas-wrap">
+        <WindowTabs />
+        <div className="window-area">
+          {activeNodeId && nodes.some((n) => n.id === activeNodeId) && (
+            <WindowView key={activeNodeId} id={activeNodeId} />
+          )}
+          <ProjectManifestPanel />
+          <DetachedSessionsPanel />
+          {nodes.length === 0 && (
+            <div className="empty-canvas">
+              <TerminalSquare size={40} strokeWidth={1.3} />
+              <div className="big">{activeWorkspaceId ? 'No windows open' : 'Select or create a workspace'}</div>
+              <div>{activeWorkspaceId ? 'Open one with "New Terminal"' : ''}</div>
+            </div>
+          )}
+        </div>
       </div>
       <DeveloperCenter />
       <StatusBar />

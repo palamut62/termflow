@@ -5,7 +5,6 @@ import {
   type Workspace,
   type WorkspaceLayout,
   type TerminalSession,
-  type LayoutMode,
   type RenderMode,
   type AppSettings,
   type ProcStats,
@@ -137,7 +136,6 @@ const api = {
       path: string
       description?: string
       icon?: string
-      defaultLayoutMode?: LayoutMode
     }): Promise<Workspace> => ipcRenderer.invoke(IPC.WS_CREATE, input),
     update: (id: string, patch: Partial<Workspace>): Promise<void> =>
       ipcRenderer.invoke(IPC.WS_UPDATE, id, patch),

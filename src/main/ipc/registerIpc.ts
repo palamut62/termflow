@@ -454,12 +454,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       workspace: {
         name: ws.name,
         path: ws.path,
-        description: ws.description,
-        defaultLayoutMode: ws.defaultLayoutMode
+        description: ws.description
       },
       nodes: data.nodes,
       terminals: data.terminals,
-      viewport: data.viewport ?? { zoom: 1, x: 0, y: 0 },
       snippets: data.snippets,
       highlightRules: data.highlightRules,
       sshProfiles: data.sshProfiles,
@@ -499,8 +497,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
       const ws = dbApi.createWorkspace({
         name: overrides?.name || raw.workspace.name || 'Imported',
         path: overrides?.path || raw.workspace.path || process.env.USERPROFILE || '',
-        description: raw.workspace.description,
-        defaultLayoutMode: raw.workspace.defaultLayoutMode
+        description: raw.workspace.description
       })
 
       const wsNodes = newNodes.map((n: any) => ({ ...n, workspaceId: ws.id }))
@@ -525,8 +522,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyManager {
         wsSnippets,
         wsHighlightRules,
         wsSshProfiles,
-        wsEnvVars,
-        raw.viewport || { zoom: 1, x: 0, y: 0 }
+        wsEnvVars
       )
       return { id: ws.id }
     } catch (err) {

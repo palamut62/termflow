@@ -1,4 +1,4 @@
-import type { AppSettings, CanvasNode } from '../../../shared/types'
+import type { AppSettings, WindowDef } from '../../../shared/types'
 import { getLeafTerminalIds } from '../paneUtils'
 
 // Desktop notifications for long-running commands, error output, and a
@@ -13,7 +13,7 @@ import { getLeafTerminalIds } from '../paneUtils'
 interface NotifyStore {
   getState: () => {
     settings: AppSettings
-    nodes: CanvasNode[]
+    nodes: WindowDef[]
     setActiveNode: (nodeId: string | null) => void
   }
 }
@@ -35,7 +35,7 @@ function ensurePermission(): void {
   }
 }
 
-function findNodeForTerminal(nodes: CanvasNode[], terminalId: string): CanvasNode | undefined {
+function findNodeForTerminal(nodes: WindowDef[], terminalId: string): WindowDef | undefined {
   return nodes.find((n) => n.terminalId === terminalId || (n.panes ? getLeafTerminalIds(n.panes).includes(terminalId) : false))
 }
 

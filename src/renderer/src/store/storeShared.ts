@@ -1,8 +1,4 @@
-import { nanoid } from 'nanoid'
-import type { CanvasNode, TerminalSession, AppSettings } from '../../../shared/types'
-import { getLeafTerminalIds } from '../paneUtils'
-
-export const DEFAULT_SIZE = { width: 900, height: 520 } // PRD §10.3.4
+import type { AppSettings } from '../../../shared/types'
 
 export interface NewTerminalOpts {
   cwd?: string

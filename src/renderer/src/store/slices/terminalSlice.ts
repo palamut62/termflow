@@ -1,11 +1,9 @@
 import type { StateCreator } from 'zustand'
 import { nanoid } from 'nanoid'
-import type { TerminalSession, CanvasNode, ShellKind, ProcStats } from '../../../../shared/types'
+import type { TerminalSession, WindowDef, ShellKind, ProcStats } from '../../../../shared/types'
 import { profileFor } from '../../profiles'
-import { computeLayout } from '../../autolayout'
 import { getLeafTerminalIds, getActiveTerminalId, splitPane, closePane, countLeaves } from '../../paneUtils'
 import {
-  DEFAULT_SIZE,
   AI_BANNER_RE,
   pendingInitialPrompts,
   type NewTerminalOpts
@@ -99,22 +97,16 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const useBypass = !!bypassArgs && st.settings.agentAutoApprove
     const runtimeStartup = useBypass ? `${baseStartup} ${bypassArgs}` : baseStartup
 
-    const z = st.zCounter + 1
-    const node: CanvasNode = {
+    // 'New Terminal' opens a new WINDOW (tmux window); splitting inside a
+    // window is a separate action (Ctrl+Shift+D / Ctrl+Shift+E or the ⋯ menu).
+    const node: WindowDef = {
       id: nodeId,
       workspaceId: wsId,
       terminalId: termId,
       panes: { type: 'leaf', terminalId: termId, title: name },
       activePaneId: termId,
       title: name,
-      nodeType: profile.nodeType,
-      position: { x: 80, y: 80 },
-      size: { ...DEFAULT_SIZE },
-      zIndex: z,
-      isMinimized: false,
-      isMaximized: false,
       status: 'running',
-      showInfo: get().settings.infoPanelDefaultOpen,
       bypass: useBypass
     }
 
@@ -147,21 +139,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       pendingInitialPrompts.set(termId, opts.initialPrompt)
     }
 
-    set((s) => {
-      // Auto-arrange so new terminals never stack; tile them proportionally to
-      // the canvas (bigger when few, smaller when many). Manual mode tiles as a
-      // grid; an active layout mode re-runs itself. (user request)
-      const all = [...s.nodes, node]
-      const computed = computeLayout('grid', all, s.canvasSize)
-      const nodes = all.map((n) => (computed[n.id] ? { ...n, ...computed[n.id] } : n))
-      return {
-        terminals: { ...s.terminals, [termId]: persisted },
-        nodes,
-        layoutMode: 'grid',
-        activeNodeId: nodeId,
-        zCounter: z
-      }
-    })
+    set((s) => ({
+      terminals: { ...s.terminals, [termId]: persisted },
+      nodes: [...s.nodes, node],
+      activeNodeId: nodeId
+    }))
     get().persist()
   },
 
@@ -209,16 +191,21 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const terminals = { ...st.terminals }
     if (mode === 'terminate') for (const tid of termIds) delete terminals[tid]
     set((s) => {
+      const index = s.nodes.findIndex((n) => n.id === nodeId)
       const remaining = s.nodes.filter((n) => n.id !== nodeId)
-      const computed = computeLayout('grid', remaining, s.canvasSize)
       const gitStatus = { ...s.gitStatus }
       if (mode === 'terminate') for (const tid of termIds) delete gitStatus[tid]
       return {
-      nodes: remaining.map((n) => ({ ...n, ...(computed[n.id] || {}) })),
-      terminals,
-      gitStatus,
-      activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
-    }})
+        nodes: remaining,
+        terminals,
+        gitStatus,
+        // Closing the selected window falls back to its neighbour, like tmux.
+        activeNodeId:
+          s.activeNodeId === nodeId
+            ? remaining[Math.min(index, remaining.length - 1)]?.id ?? null
+            : s.activeNodeId
+      }
+    })
     get().persist()
   },
 
@@ -246,28 +233,19 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       }
     }
     const nodeId = nanoid()
-    const z = st.zCounter + 1
-    const node: CanvasNode = {
+    const node: WindowDef = {
       id: nodeId,
       workspaceId: terminal.workspaceId,
       terminalId,
       panes: { type: 'leaf', terminalId, title: terminal.name },
       activePaneId: terminalId,
       title: terminal.name,
-      nodeType: profileFor(terminal.kind).nodeType,
-      position: { x: 36 + st.nodes.length * 24, y: 36 + st.nodes.length * 24 },
-      size: DEFAULT_SIZE,
-      zIndex: z,
-      isMinimized: false,
-      isMaximized: false,
-      status: nextTerminal.status === 'running' ? 'running' : 'error',
-      showInfo: false
+      status: nextTerminal.status === 'running' ? 'running' : 'error'
     }
     set((s) => ({
       terminals: { ...s.terminals, [terminalId]: nextTerminal },
       nodes: [...s.nodes, node],
-      activeNodeId: nodeId,
-      zCounter: z
+      activeNodeId: nodeId
     }))
     await window.termflow.terminals.upsert(nextTerminal)
     get().persist()
@@ -431,12 +409,18 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       set((s) => {
         const gitStatus = { ...s.gitStatus }
         if (mode === 'terminate') delete gitStatus[terminalId]
+        const index = s.nodes.findIndex((n) => n.id === nodeId)
+        const remaining = s.nodes.filter((n) => n.id !== nodeId)
         return {
-        nodes: s.nodes.filter((n) => n.id !== nodeId),
+          nodes: remaining,
           terminals,
-        gitStatus,
-        activeNodeId: s.activeNodeId === nodeId ? null : s.activeNodeId
-      }})
+          gitStatus,
+          activeNodeId:
+            s.activeNodeId === nodeId
+              ? remaining[Math.min(index, remaining.length - 1)]?.id ?? null
+              : s.activeNodeId
+        }
+      })
     } else {
       const remainingLeaves = getLeafTerminalIds(newPane)
       set((s) => {

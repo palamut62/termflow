@@ -1,5 +1,4 @@
 import type {
-  LayoutMode,
   ShellKind,
   TermflowManifest,
   WorkspaceExport
@@ -9,10 +8,6 @@ const SHELLS = new Set<ShellKind>([
   'powershell', 'pwsh', 'cmd', 'wsl', 'gitbash', 'claude', 'codex', 'opencode',
   'ollama', 'ssh', 'custom'
 ])
-const LAYOUTS = new Set<LayoutMode>([
-  'manual', 'auto_fit', 'grid', 'columns', 'rows', 'focus', 'agent_graph'
-])
-
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -83,14 +78,6 @@ export function validateManifest(value: unknown): { data: TermflowManifest | nul
   return { data: { name: text(root.name, 120), tasks, agents, env, snippets }, errors: [] }
 }
 
-function num(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-function bool(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined
-}
-
 function checkArray(
   root: Record<string, unknown>,
   key: 'nodes' | 'terminals',
@@ -120,27 +107,20 @@ export function validateWorkspaceExport(value: unknown): { data: WorkspaceExport
     return { data: null, errors: ['Unsupported or invalid workspace export.'] }
   }
   const name = text(workspace.name, 120)
-  const mode = workspace.defaultLayoutMode
-  if (!name?.trim() || !LAYOUTS.has(mode as LayoutMode)) {
-    return { data: null, errors: ['Workspace name or layout mode is invalid.'] }
+  if (!name?.trim()) {
+    return { data: null, errors: ['Workspace name is invalid.'] }
   }
 
   const errors: string[] = []
 
+  // Windows only need identity + title + status. Geometry fields written by
+  // pre-tmux builds (position/size/zIndex/isMaximized/...) are ignored, so old
+  // export files still import cleanly.
   checkArray(root, 'nodes', errors, (row, index) => {
-    const position = record(row.position)
-    const size = record(row.size)
     if (
       !text(row.id, 128) ||
       !text(row.title, 512) ||
-      typeof row.nodeType !== 'string' ||
-      typeof row.status !== 'string' ||
-      !position || num(position.x) === undefined || num(position.y) === undefined ||
-      !size || num(size.width) === undefined || num(size.height) === undefined ||
-      num(row.zIndex) === undefined ||
-      bool(row.isMinimized) === undefined ||
-      bool(row.isMaximized) === undefined ||
-      bool(row.showInfo) === undefined
+      typeof row.status !== 'string'
     ) {
       return `nodes[${index}] is invalid.`
     }

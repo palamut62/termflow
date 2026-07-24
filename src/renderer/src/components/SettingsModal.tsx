@@ -223,20 +223,12 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
           <>
             <div className="field" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.snapToGrid} style={{ width: 'auto' }} onChange={(e) => update({ snapToGrid: e.target.checked })} />
-                Snap to grid
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={settings.minimap} style={{ width: 'auto' }} onChange={(e) => update({ minimap: e.target.checked })} />
-                Mini-map
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input type="checkbox" checked={false} disabled style={{ width: 'auto' }} />
                 GPU acceleration (disabled for stable terminal resizing)
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input type="checkbox" checked={settings.infoPanelDefaultOpen} style={{ width: 'auto' }} onChange={(e) => update({ infoPanelDefaultOpen: e.target.checked })} />
-                Open info panel (process/context) by default on new terminals
+                Open info panel (process/context) by default on new windows
               </label>
             </div>
 
