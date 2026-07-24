@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, TerminalSquare, X, AlertTriangle } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 
@@ -18,6 +18,16 @@ export default function WindowTabs(): React.JSX.Element {
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
+
+  // tmux `prefix ,` renames the active window through the same inline editor.
+  useEffect(() => {
+    const onRename = (e: Event): void => {
+      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail?.nodeId
+      if (nodeId) setEditingId(nodeId)
+    }
+    window.addEventListener('termflow:rename-window', onRename)
+    return () => window.removeEventListener('termflow:rename-window', onRename)
+  }, [])
 
   return (
     <div className="window-tabs" role="tablist" aria-label="Windows">

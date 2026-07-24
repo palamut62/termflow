@@ -10,7 +10,14 @@ export interface LayoutSlice {
   nodes: WindowDef[]
   activeNodeId: string | null
   developerCenterOpen: boolean
+  /** Zoomed pane (tmux `prefix z`). Runtime only — never persisted. */
+  zoomedPaneId: string | null
+  /** True while the tmux prefix was pressed and we wait for the command key. */
+  prefixPending: boolean
 
+  setZoomedPane: (terminalId: string | null) => void
+  toggleZoomedPane: (terminalId: string) => void
+  setPrefixPending: (pending: boolean) => void
   setActiveNode: (nodeId: string | null) => void
   setDeveloperCenterOpen: (open: boolean) => void
   updateNode: (nodeId: string, patch: Partial<WindowDef>) => void
@@ -27,14 +34,25 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
   nodes: [],
   activeNodeId: null,
   developerCenterOpen: false,
+  zoomedPaneId: null,
+  prefixPending: false,
+
+  setZoomedPane: (terminalId) => set({ zoomedPaneId: terminalId }),
+
+  toggleZoomedPane: (terminalId) =>
+    set((s) => ({ zoomedPaneId: s.zoomedPaneId === terminalId ? null : terminalId })),
+
+  setPrefixPending: (pending) => set({ prefixPending: pending }),
 
   setActiveNode: (nodeId) => {
     if (!nodeId) {
-      set({ activeNodeId: null })
+      set({ activeNodeId: null, zoomedPaneId: null })
       return
     }
     set((s) => ({
       activeNodeId: nodeId,
+      // Switching windows drops the zoom, like tmux.
+      zoomedPaneId: null,
       // Selecting a window clears its "unseen error" marker, like before.
       nodes: s.nodes.map((n) => (n.id === nodeId && n.status === 'error' ? { ...n, status: 'idle' as const } : n))
     }))

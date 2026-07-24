@@ -8,6 +8,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   TerminalSquare,
+  Maximize2,
   AlertTriangle,
   GitBranch,
   Copy,
@@ -168,6 +169,7 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const broadcastGroup = useAppStore((s) => s.broadcastGroup)
   const infoPanelDefaultOpen = useAppStore((s) => s.settings.infoPanelDefaultOpen)
+  const zoomedPaneId = useAppStore((s) => s.zoomedPaneId)
 
   // Info panel is view state (not persisted): it starts from the setting and
   // can be toggled per window from the ⋯ menu.
@@ -177,6 +179,15 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
   const [showGitMenu, setShowGitMenu] = useState(false)
   const [gitActionMsg, setGitActionMsg] = useState<string | null>(null)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+
+  // tmux `prefix x` on a single-pane window asks through the usual dialog.
+  useEffect(() => {
+    const onCloseRequest = (e: Event): void => {
+      if ((e as CustomEvent<{ nodeId: string }>).detail?.nodeId === id) setClosing(true)
+    }
+    window.addEventListener('termflow:close-window', onCloseRequest)
+    return () => window.removeEventListener('termflow:close-window', onCloseRequest)
+  }, [id])
 
   useEffect(() => {
     if (!showMoreMenu) return undefined
@@ -198,6 +209,12 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
 
   const hasError = node.status === 'error'
   const isBroadcasting = broadcastEnabled && termId !== undefined && broadcastGroup.includes(termId)
+  const basePane: PaneNode = node.panes || { type: 'leaf', terminalId: node.terminalId!, title: node.title }
+  // Zoom (tmux `prefix z`): render only the zoomed pane, full size.
+  const zoomActive = !!zoomedPaneId && getLeafTerminalIds(basePane).includes(zoomedPaneId)
+  const renderedPane: PaneNode = zoomActive
+    ? { type: 'leaf', terminalId: zoomedPaneId!, title: terminals[zoomedPaneId!]?.name || node.title }
+    : basePane
 
   return (
     <div className={`tnode ${hasError ? 'errored' : ''} ${isBroadcasting ? 'broadcasting' : ''}`}>
@@ -210,6 +227,15 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
         <span className="title">{node.title}</span>
         <span className="kind-tag">{terminal.kind}</span>
         {recording && <span className="rec-dot" title="Recording in progress" />}
+        {zoomActive && (
+          <span
+            className="kind-tag"
+            title="Pane is zoomed — press the prefix then z to unzoom"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--warning)' }}
+          >
+            <Maximize2 size={11} /> ZOOM
+          </span>
+        )}
         {node.bypass && (
           <span
             title="This window was started with the permission-bypass flag"
@@ -364,7 +390,7 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
         )}
       </div>
       <div className="tnode-body">
-        <PaneRenderer nodeId={id} pane={node.panes || { type: 'leaf', terminalId: node.terminalId!, title: node.title }} path={[]} />
+        <PaneRenderer nodeId={id} pane={renderedPane} path={[]} />
         {showInfo && <InfoArea nodeId={id} />}
       </div>
       <div className="tnode-footer">

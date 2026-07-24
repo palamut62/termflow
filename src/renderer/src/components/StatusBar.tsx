@@ -2,6 +2,7 @@ import { GitBranch, TerminalSquare, Unplug } from 'lucide-react'
 import { useMemo } from 'react'
 import { getLeafTerminalIds } from '../paneUtils'
 import { useAppStore } from '../store/appStore'
+import { prefixLabel } from '../prefixKeys'
 
 export default function StatusBar(): React.JSX.Element {
   const nodes = useAppStore((s) => s.nodes)
@@ -9,6 +10,8 @@ export default function StatusBar(): React.JSX.Element {
   const activeNodeId = useAppStore((s) => s.activeNodeId)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const workspaces = useAppStore((s) => s.workspaces)
+  const prefixPending = useAppStore((s) => s.prefixPending)
+  const prefixKey = useAppStore((s) => s.settings.prefixKey)
   const ws = workspaces.find((w) => w.id === activeWorkspaceId)
   const running = Object.values(terminals).filter((t) => t.status === 'running').length
   const detachedCount = useMemo(() => {
@@ -35,6 +38,15 @@ export default function StatusBar(): React.JSX.Element {
         >
           <Unplug size={12} /> {detachedCount} detached
         </button>
+      )}
+      {prefixPending && (
+        <span
+          className="sb-item"
+          title={`${prefixLabel(prefixKey)} pressed — waiting for a command key (press it again to send it to the terminal)`}
+          style={{ fontWeight: 700, color: 'var(--warning)' }}
+        >
+          PREFIX
+        </span>
       )}
       <span className="sb-item" style={{ marginLeft: 'auto' }}>
         window: {nodes.find((n) => n.id === activeNodeId)?.title ?? '—'}

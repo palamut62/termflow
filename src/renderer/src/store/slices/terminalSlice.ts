@@ -199,6 +199,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         nodes: remaining,
         terminals,
         gitStatus,
+        zoomedPaneId: null,
         // Closing the selected window falls back to its neighbour, like tmux.
         activeNodeId:
           s.activeNodeId === nodeId
@@ -385,6 +386,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
 
     set((s) => ({
       terminals: { ...s.terminals, [newTermId]: session },
+      // Splitting breaks the zoom (tmux behaviour).
+      zoomedPaneId: null,
       nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, panes: newPane, activePaneId: newTermId } : n)
     }))
     get().persist()
@@ -401,6 +404,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     }
 
     const newPane = closePane(node.panes, terminalId)
+    // Closing a pane breaks the zoom (tmux behaviour).
+    set({ zoomedPaneId: null })
     const terminals = { ...st.terminals }
     if (mode === 'terminate') delete terminals[terminalId]
 

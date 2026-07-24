@@ -9,6 +9,7 @@ import { useAppStore } from '../store/appStore'
 import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
 import { getLeafTerminalIds } from '../paneUtils'
+import { isPrefixEvent } from '../prefixKeys'
 
 // Short two-tone chime for the terminal bell (\x07). Web Audio, no asset —
 // throttled so a burst of BELs doesn't stack into noise.
@@ -171,6 +172,15 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.unicode.activeVersion = '11'
     searchAddonRef.current = searchAddon
     term.open(host)
+    // tmux prefix capture: the prefix combo itself, and every key typed while
+    // the prefix is pending, belong to the app — xterm must not consume them.
+    // (Ctrl+A twice still reaches the shell: App sends the raw byte itself.)
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true
+      const st = useAppStore.getState()
+      if (st.prefixPending) return false
+      return !isPrefixEvent(event, st.settings.prefixKey)
+    })
     // Keep the DOM renderer for resize correctness. The WebGL add-on leaves
     // stale atlas tiles/canvas geometry on some Windows GPUs after narrow/wide
     // layout changes, corrupting full-screen TUI borders and glyphs.

@@ -89,6 +89,85 @@ export function setPaneRatio(pane: PaneNode, path: number[], ratio: number): Pan
   return { ...pane, b: setPaneRatio(pane.b, tail, ratio) }
 }
 
+export interface PaneRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface PaneRectEntry {
+  terminalId: string
+  rect: PaneRect
+}
+
+/**
+ * Lay the pane tree out inside `rect` (normalized unit square by default) and
+ * return one rectangle per leaf. Pure geometry — used for directional pane
+ * navigation (tmux select-pane -L/-D/-U/-R).
+ */
+export function computePaneRects(
+  pane: PaneNode,
+  rect: PaneRect = { x: 0, y: 0, w: 1, h: 1 }
+): PaneRectEntry[] {
+  if (pane.type === 'leaf') return [{ terminalId: pane.terminalId, rect }]
+  const split = pane as SplitPane
+  if (split.dir === 'horizontal') {
+    const wA = rect.w * split.ratio
+    return [
+      ...computePaneRects(split.a, { ...rect, w: wA }),
+      ...computePaneRects(split.b, { ...rect, x: rect.x + wA, w: rect.w - wA })
+    ]
+  }
+  const hA = rect.h * split.ratio
+  return [
+    ...computePaneRects(split.a, { ...rect, h: hA }),
+    ...computePaneRects(split.b, { ...rect, y: rect.y + hA, h: rect.h - hA })
+  ]
+}
+
+export type PaneDirection = 'left' | 'right' | 'up' | 'down'
+
+/**
+ * Pick the neighbouring pane in the given direction: among panes whose center
+ * lies beyond the current center on the primary axis, take the closest one,
+ * breaking ties by the smallest perpendicular offset.
+ */
+export function findPaneInDirection(
+  pane: PaneNode,
+  currentTerminalId: string,
+  dir: PaneDirection
+): string | null {
+  const rects = computePaneRects(pane)
+  const current = rects.find((entry) => entry.terminalId === currentTerminalId)
+  if (!current) return null
+  const center = (r: PaneRect): { cx: number; cy: number } => ({ cx: r.x + r.w / 2, cy: r.y + r.h / 2 })
+  const from = center(current.rect)
+  const horizontal = dir === 'left' || dir === 'right'
+  const sign = dir === 'left' || dir === 'up' ? -1 : 1
+  const EPS = 1e-6
+
+  let best: { terminalId: string; primary: number; perp: number } | null = null
+  for (const entry of rects) {
+    if (entry.terminalId === currentTerminalId) continue
+    const to = center(entry.rect)
+    const primaryDelta = (horizontal ? to.cx - from.cx : to.cy - from.cy) * sign
+    if (primaryDelta <= EPS) continue
+    // Like tmux: only panes that share a band on the perpendicular axis with
+    // the current pane are reachable in that direction.
+    const aStart = horizontal ? current.rect.y : current.rect.x
+    const aEnd = aStart + (horizontal ? current.rect.h : current.rect.w)
+    const bStart = horizontal ? entry.rect.y : entry.rect.x
+    const bEnd = bStart + (horizontal ? entry.rect.h : entry.rect.w)
+    if (Math.min(aEnd, bEnd) - Math.max(aStart, bStart) <= EPS) continue
+    const perp = Math.abs(horizontal ? to.cy - from.cy : to.cx - from.cx)
+    if (!best || primaryDelta < best.primary - EPS || (Math.abs(primaryDelta - best.primary) <= EPS && perp < best.perp)) {
+      best = { terminalId: entry.terminalId, primary: primaryDelta, perp }
+    }
+  }
+  return best?.terminalId ?? null
+}
+
 /** Replace a leaf at the given path (for tab switching). */
 export function getLeafAtPath(pane: PaneNode, path: number[]): LeafPane | null {
   if (path.length === 0) return pane.type === 'leaf' ? pane : null

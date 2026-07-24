@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { TerminalSquare } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Toolbar from './components/Toolbar'
@@ -19,7 +19,8 @@ import CommandPalette, { type PaletteCommand } from './components/CommandPalette
 import WindowTabs from './canvas/WindowTabs'
 import WindowView from './canvas/WindowView'
 import { useAppStore } from './store/appStore'
-import { getActiveTerminalId } from './paneUtils'
+import { getActiveTerminalId, getLeafTerminalIds, countLeaves, findPaneInDirection, type PaneDirection } from './paneUtils'
+import { isPrefixEvent, prefixControlChar, PREFIX_TIMEOUT_MS } from './prefixKeys'
 import type { TermFlowPluginManifest } from '../../shared/types'
 import { pluginMatchesWorkspace } from '../../shared/pluginValidation'
 
@@ -42,6 +43,7 @@ export default function App(): React.JSX.Element {
   const [showPalette, setShowPalette] = useState(false)
   const [showSnippetModal, setShowSnippetModal] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [helpTopicId, setHelpTopicId] = useState<string | undefined>(undefined)
   const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
   const [showProviderManager, setShowProviderManager] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
@@ -291,6 +293,170 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Any open modal owns the keyboard: the prefix stays disabled while one is up.
+  const anyModalOpen =
+    showWsModal || showSettings || showPalette || showSnippetModal || showHelp ||
+    showTerminalLauncher || showProviderManager || showRecovery || !!confirm || !!prompt
+  const modalOpenRef = useRef(anyModalOpen)
+  modalOpenRef.current = anyModalOpen
+
+  // tmux-style prefix key (default Ctrl+A). Press the prefix, then a command
+  // key; pressing the prefix twice sends the key itself to the terminal.
+  // Capture phase so we win over xterm and the plain shortcut handler.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const setPending = (pending: boolean): void => {
+      if (timer) clearTimeout(timer)
+      timer = null
+      useAppStore.getState().setPrefixPending(pending)
+      if (pending) timer = setTimeout(() => useAppStore.getState().setPrefixPending(false), PREFIX_TIMEOUT_MS)
+    }
+
+    const activeWindow = (): { nodeId: string; termId: string | undefined } | null => {
+      const s = useAppStore.getState()
+      const node = s.nodes.find((n) => n.id === s.activeNodeId)
+      if (!node) return null
+      return { nodeId: node.id, termId: getActiveTerminalId(node.activePaneId, node.panes, node.terminalId) }
+    }
+
+    const selectPane = (dir: PaneDirection): void => {
+      const s = useAppStore.getState()
+      const node = s.nodes.find((n) => n.id === s.activeNodeId)
+      if (!node?.panes) return
+      const current = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
+      if (!current) return
+      const target = findPaneInDirection(node.panes, current, dir)
+      if (!target) return
+      s.setZoomedPane(null)
+      s.setActivePane(node.id, target)
+    }
+
+    const switchWindow = (step: number): void => {
+      const s = useAppStore.getState()
+      if (!s.nodes.length) return
+      const i = s.nodes.findIndex((n) => n.id === s.activeNodeId)
+      s.setActiveNode(s.nodes[(i + step + s.nodes.length) % s.nodes.length].id)
+    }
+
+    /** Run one prefix command. Returns false when the key is not ours. */
+    const runCommand = (e: KeyboardEvent): boolean => {
+      const s = useAppStore.getState()
+      const win = activeWindow()
+      const key = e.key
+
+      if (key === '%') {
+        if (win) void s.splitNode(win.nodeId, 'vertical')
+        return true
+      }
+      if (key === '"') {
+        if (win) void s.splitNode(win.nodeId, 'horizontal')
+        return true
+      }
+      if (key === 'h' || key === 'ArrowLeft') { selectPane('left'); return true }
+      if (key === 'l' || key === 'ArrowRight') { selectPane('right'); return true }
+      if (key === 'k' || key === 'ArrowUp') { selectPane('up'); return true }
+      if (key === 'j' || key === 'ArrowDown') { selectPane('down'); return true }
+      if (key === 'o') {
+        const node = s.nodes.find((n) => n.id === s.activeNodeId)
+        if (node?.panes) {
+          const leaves = getLeafTerminalIds(node.panes)
+          const current = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
+          const i = leaves.indexOf(current ?? '')
+          const next = leaves[(i + 1) % leaves.length]
+          if (next) {
+            s.setZoomedPane(null)
+            s.setActivePane(node.id, next)
+          }
+        }
+        return true
+      }
+      if (key === 'x') {
+        const node = s.nodes.find((n) => n.id === s.activeNodeId)
+        if (node) {
+          const current = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
+          if (node.panes && countLeaves(node.panes) > 1 && current) void s.closePaneInNode(node.id, current)
+          // A window with a single pane goes through the usual close dialog.
+          else window.dispatchEvent(new CustomEvent('termflow:close-window', { detail: { nodeId: node.id } }))
+        }
+        return true
+      }
+      if (key === 'z') {
+        if (win?.termId) s.toggleZoomedPane(win.termId)
+        return true
+      }
+      if (key === 'c') { void s.addTerminal('cmd'); return true }
+      if (key === 'n') { switchWindow(1); return true }
+      if (key === 'p') { switchWindow(-1); return true }
+      if (key >= '0' && key <= '9') {
+        const target = s.nodes[Number(key)]
+        if (target) s.setActiveNode(target.id)
+        return true
+      }
+      if (key === ',') {
+        if (win) window.dispatchEvent(new CustomEvent('termflow:rename-window', { detail: { nodeId: win.nodeId } }))
+        return true
+      }
+      // Copy mode lands in a later phase; the binding is reserved already.
+      if (key === '[') return true
+      if (key === 'd') {
+        if (win) void s.closeNode(win.nodeId, 'detach')
+        return true
+      }
+      if (key === '?') {
+        setHelpTopicId('prefix')
+        setShowHelp(true)
+        return true
+      }
+      return false
+    }
+
+    const onKeyCapture = (e: KeyboardEvent): void => {
+      const s = useAppStore.getState()
+      if (modalOpenRef.current) {
+        if (s.prefixPending) setPending(false)
+        return
+      }
+
+      if (!s.prefixPending) {
+        if (!isPrefixEvent(e, s.settings.prefixKey)) return
+        // Text fields (tab rename, search boxes) keep their own key handling.
+        const el = document.activeElement
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement | null)?.isContentEditable) return
+        e.preventDefault()
+        e.stopPropagation()
+        setPending(true)
+        return
+      }
+
+      // Pending: bare modifier presses keep waiting for the real key.
+      if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') return
+
+      // Double prefix (e.g. Ctrl+A Ctrl+A) sends the key itself to the shell.
+      if (isPrefixEvent(e, s.settings.prefixKey)) {
+        setPending(false)
+        e.preventDefault()
+        e.stopPropagation()
+        const win = activeWindow()
+        if (win?.termId) window.termflow.pty.write(win.termId, prefixControlChar(s.settings.prefixKey))
+        return
+      }
+
+      // Clear first: an unhandled key must fall through to xterm normally.
+      setPending(false)
+      if (runCommand(e)) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyCapture, true)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('keydown', onKeyCapture, true)
+    }
+  }, [])
+
   return (
     <div className={`app${developerCenterOpen ? ' dev-docked' : ''}`}>
       <Sidebar onNewWorkspace={() => setShowWsModal(true)} />
@@ -322,7 +488,7 @@ export default function App(): React.JSX.Element {
       <StatusBar />
       {showWsModal && <WorkspaceModal onClose={() => setShowWsModal(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
-      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showHelp && <HelpModal initialTopicId={helpTopicId} onClose={() => { setShowHelp(false); setHelpTopicId(undefined) }} />}
       {showTerminalLauncher && <TerminalLauncherModal onClose={() => setShowTerminalLauncher(false)} />}
       {showProviderManager && <ProviderManagerModal onClose={() => setShowProviderManager(false)} />}
       {showRecovery && <RecoveryModal onRestore={() => { void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} onDiscard={() => { useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')); void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} />}

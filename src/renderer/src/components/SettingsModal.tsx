@@ -301,6 +301,18 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
             </div>
 
             <div className="field">
+              <label>tmux prefix key</label>
+              <select value={settings.prefixKey} onChange={(e) => update({ prefixKey: e.target.value as 'ctrl+a' | 'ctrl+b' })}>
+                <option value="ctrl+a">Ctrl+A</option>
+                <option value="ctrl+b">Ctrl+B</option>
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Press the prefix, then a command key (% split, &quot;, z zoom, c new window, ? help).
+                Pressing it twice sends the key itself to the terminal.
+              </p>
+            </div>
+
+            <div className="field">
               <label>Terminal Theme</label>
               <select value={settings.terminalTheme} onChange={(e) => update({ terminalTheme: e.target.value })}>
                 {TERMINAL_THEMES.map((t) => (<option key={t.name} value={t.name}>{t.name}</option>))}

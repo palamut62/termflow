@@ -314,6 +314,8 @@ export interface AppSettings {
   terminalBell: boolean
   // New windows open with the right-side info panel (process/context) visible
   infoPanelDefaultOpen: boolean
+  /** tmux-style prefix key: press it, then a command key (Ctrl+A twice sends the key itself). */
+  prefixKey: 'ctrl+a' | 'ctrl+b'
 }
 
 export interface CustomAgentDef {
@@ -376,7 +378,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdate: true,
   updateChannel: 'stable',
   terminalBell: true,
-  infoPanelDefaultOpen: false
+  infoPanelDefaultOpen: false,
+  prefixKey: 'ctrl+a'
 }
 
 export interface WorkspaceLayout {
