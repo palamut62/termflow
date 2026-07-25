@@ -31,32 +31,26 @@ npx vercel --prod # production
 ```
 
 ## Wire the Download button
-Open `main.js` and set `DOWNLOADS` to where the binaries live. Two options:
-
-**A) GitHub Releases (recommended)** — no file-size limits:
+The installer is hosted on **GitHub Releases** — no file-size limits. `main.js`
+already points at the `latest/download/...` URL:
 ```js
 const DOWNLOADS = {
-  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.2.0-x64.exe'
+  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.4.0-x64.exe'
 }
 ```
-Create the release once:
+Publish a release with the matching asset name:
 ```bash
-gh release create v0.2.0 \
-  dist/TermFlow-0.2.0-x64.exe \
-  --repo palamut62/termflow --title "TermFlow v0.2.0" --notes "Latest release"
+gh release create v0.4.0 \
+  dist/TermFlow-0.4.0-x64.exe \
+  --repo palamut62/termflow --title "TermFlow v0.4.0" --notes "Latest release"
 ```
-The `latest/download/...` URLs then always point at the newest release.
+Because the URL uses `latest/download/...`, every new release is picked up
+automatically — you only need to touch `main.js` when the file name changes
+(i.e. on a version bump). Also update the version and size shown in
+`index.html` (hero meta line and the download card).
 
-**B) Self-host on Vercel** — put the files in `website/public/download/` and use
-relative paths:
-```js
-const DOWNLOADS = {
-  installer: './download/TermFlow-0.2.0-x64.exe'
-}
-```
-Note: the installer is ~91 MB; Vercel's Hobby plan caps individual serverless
-payloads, but static assets are served from the CDN and are generally fine. If
-you hit a limit, use option A.
+The Vercel Blob / `website/public/download/` self-hosting setup is no longer
+used; the installer is ~91 MB and belongs in Releases.
 
 ## Regenerate the GIFs
 From the repo root (needs ffmpeg + `tmp-promo/termflow-promo.mp4`):

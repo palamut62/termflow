@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TermFlow — The AI-native terminal workspace for Windows</title>
-  <meta name="description" content="TermFlow is a multi-terminal workspace for Windows with first-class AI agent support. Run Claude Code, Codex, OpenCode & Ollama side by side on an adaptive tiled canvas." />
+  <title>TermFlow — tmux-style terminal multiplexer for Windows</title>
+  <meta name="description" content="TermFlow is a tmux-style terminal multiplexer for Windows. Windows, panes and a prefix key over real ConPTY terminals — plus a persistent PTY daemon that keeps sessions alive after you close the app." />
   <meta name="theme-color" content="#0b0d12" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="TermFlow — AI-native terminal workspace for Windows" />
-  <meta property="og:description" content="Run Claude Code, Codex, OpenCode & Ollama side by side on an adaptive tiled canvas. Flows, plugins, recording, git — all in one window." />
+  <meta property="og:title" content="TermFlow — tmux-style terminal multiplexer for Windows" />
+  <meta property="og:description" content="Windows, panes, a prefix key and vi-style copy mode over real ConPTY terminals. A persistent PTY daemon gives you true detach and attach." />
   <meta property="og:image" content="./assets/shot-05.png" />
   <meta name="twitter:card" content="summary_large_image" />
 
@@ -37,7 +37,7 @@
     </a>
     <nav class="nav__links" aria-label="Primary">
       <a href="#features">Features</a>
-      <a href="#agents">AI Agents</a>
+      <a href="#keys">Prefix Keys</a>
       <a href="#showcase">Showcase</a>
       <a href="#changelog">Changelog</a>
     </nav>
@@ -56,9 +56,9 @@
     <section class="hero">
       <div class="hero__copy reveal">
         <span class="pill"><span class="pill__dot"></span> Windows 10 / 11 · x64 · Free</span>
-        <h1 class="hero__title">The <span class="grad">AI-native</span> terminal workspace for Windows</h1>
+        <h1 class="hero__title">A <span class="grad">tmux-style</span> terminal multiplexer for Windows</h1>
         <p class="hero__sub">
-          Run <strong>Claude Code</strong>, <strong>Codex</strong>, <strong>OpenCode</strong> and <strong>Ollama</strong> side by side with your shells on one adaptive, tiled canvas. Wire agents into flows, summarize logs with AI, record sessions, and manage git — all in a single window.
+          Workspaces, windows and split panes over real <strong>ConPTY</strong> terminals, driven by a familiar <strong>prefix key</strong>. A persistent PTY daemon keeps your terminals running after you close the app — reopen and attach right back with your scrollback intact.
         </p>
         <div class="hero__cta">
           <a class="btn btn--primary btn--lg" href="#download" id="hero-download">
@@ -67,7 +67,7 @@
           </a>
           <a class="btn btn--ghost btn--lg" href="#showcase">See it in action</a>
         </div>
-        <p class="hero__meta"><span id="dl-size">~91 MB</span> · v0.2.0 · Windows installer</p>
+        <p class="hero__meta"><span id="dl-size">~91 MB</span> · v0.4.0 · Windows installer</p>
       </div>
 
       <div class="hero__visual reveal">
@@ -76,18 +76,18 @@
             <span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span>
             <span class="window__title">TermFlow — Projeler</span>
           </div>
-          <img class="window__media" src="./assets/demo-hero.gif" alt="TermFlow running multiple terminals on an adaptive canvas" loading="eager" width="800" />
+          <img class="window__media" src="./assets/demo-hero.gif" alt="TermFlow running several terminals in one workspace" loading="eager" width="800" />
         </div>
-        <div class="workspace-status workspace-status--top"><span class="status-dot"></span> 4 agents active <b>·</b> one workspace</div>
+        <div class="workspace-status workspace-status--top"><span class="status-dot"></span> Windows &amp; panes <b>·</b> one workspace</div>
         <div class="workspace-status workspace-status--bottom"><span class="status-lock">⌑</span> Local workspace <b>·</b> Windows-encrypted</div>
       </div>
     </section>
 
     <!-- ===== STAT STRIP ===== -->
     <section class="stats reveal">
-      <div class="stat"><b>4+</b><span>AI agents, side by side</span></div>
-      <div class="stat"><b>7</b><span>Adaptive layout modes</span></div>
-      <div class="stat"><b>33</b><span>Built-in help topics</span></div>
+      <div class="stat"><b>Ctrl+A</b><span>Prefix key (or Ctrl+B)</span></div>
+      <div class="stat"><b>0-9</b><span>Jump straight to a window</span></div>
+      <div class="stat"><b>PTY</b><span>Daemon keeps sessions alive</span></div>
       <div class="stat"><b>100%</b><span>Native, offline-capable</span></div>
     </section>
 
@@ -95,52 +95,52 @@
     <section class="pillars" id="features">
       <div class="section-head reveal">
         <span class="eyebrow">Why TermFlow</span>
-        <h2>One window for every terminal <em>and</em> every agent</h2>
-        <p>Stop juggling tabs and windows. TermFlow tiles your shells and AI agents on a single, resizable canvas built for how developers actually work.</p>
+        <h2>tmux muscle memory, <em>native</em> on Windows</h2>
+        <p>A workspace is a session, a window is a tab, and every window splits into a tree of panes. Real ConPTY terminals rendered with xterm.js — no WSL required.</p>
       </div>
       <div class="pillar-grid">
         <article class="card reveal" data-module="01">
           <div class="card__icon icon-blue">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 4h16v4H4V4Zm0 6h7v10H4V10Zm9 0h7v10h-7V10Z"/></svg>
           </div>
-          <h3>Adaptive tiled canvas</h3>
-          <p>Grid, columns, rows, focus and agent-graph modes. Drag terminals to reorder, resize together, pin favorites — no overlapping windows, ever.</p>
+          <h3>Windows &amp; split panes</h3>
+          <p>Split vertically or horizontally into a binary pane tree. A tab strip on top: click to switch, double-click to rename, drag to reorder, middle-click or × to close, + for a new window.</p>
         </article>
         <article class="card reveal" data-module="02">
           <div class="card__icon icon-orange">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2a5 5 0 0 1 5 5v1a5 5 0 0 1-4 4.9V17h3v2h-3v3h-2v-3H8v-2h3v-4.1A5 5 0 0 1 7 8V7a5 5 0 0 1 5-5Z"/></svg>
           </div>
-          <h3>First-class AI agents</h3>
-          <p>Launch Claude Code, Codex, OpenCode, Ollama or custom providers like DeepSeek &amp; OpenRouter — with truecolor, correct TUI rendering and a bypass badge.</p>
+          <h3>Persistent PTY daemon</h3>
+          <p>Terminals live in a background daemon, so they keep running when you close TermFlow. Open it again and attach back to the same sessions, scrollback included — real detach and attach.</p>
         </article>
         <article class="card reveal" data-module="03">
           <div class="card__icon icon-yellow">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M11 2 3 14h7l-1 8 8-12h-7l1-8Z"/></svg>
           </div>
-          <h3>Automate the boring parts</h3>
-          <p>Agent flows, agent-to-agent routing, task triggers, one-click package.json scripts, session recording and global search across every buffer.</p>
+          <h3>Copy mode &amp; broadcast</h3>
+          <p>vi-style scrollback navigation with search and yank, input broadcast to several terminals at once, and asciinema-compatible <code>.cast</code> recording.</p>
         </article>
       </div>
     </section>
 
     <!-- ===== DEEP DIVE: AGENTS ===== -->
-    <section class="split" id="agents">
+    <section class="split" id="keys">
       <div class="split__media reveal">
         <div class="window">
-          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Claude Code · Codex · OpenCode</span></div>
-          <img class="window__media" src="./assets/demo-agents.gif" alt="Multiple AI agents running side by side in TermFlow" loading="lazy" width="800" />
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Prefix key · windows · panes</span></div>
+          <img class="window__media" src="./assets/demo-agents.gif" alt="TermFlow terminals side by side" loading="lazy" width="800" />
         </div>
       </div>
       <div class="split__copy reveal">
-        <span class="eyebrow eyebrow--orange">AI agents</span>
-        <h2>Your whole agent team, in view</h2>
-        <p>Run several coding agents at once and watch them work. TermFlow renders Claude Code and other TUIs exactly like Windows Terminal — crisp borders, truecolor, no flicker.</p>
+        <span class="eyebrow eyebrow--orange">Prefix key</span>
+        <h2>Everything is one keystroke away</h2>
+        <p>Press the prefix — <code>Ctrl+A</code> by default, or switch it to <code>Ctrl+B</code> — then a single key. Press the prefix twice to send the raw control byte straight to the terminal.</p>
         <ul class="ticks">
-          <li>Claude Code, Codex, OpenCode, Ollama out of the box</li>
-          <li>Custom providers (DeepSeek, OpenRouter) with per-provider model &amp; endpoint</li>
-          <li>Agent Activity feed detects tasks, tools, handoffs &amp; status</li>
-          <li>AI log summary — hand a terminal's output to an agent for a verdict</li>
-          <li>Edit <code>~/.claude</code> config with a safe, form-based editor</li>
+          <li><code>c</code> new window · <code>n</code> / <code>p</code> next &amp; previous · <code>0-9</code> jump</li>
+          <li><code>,</code> rename window · <code>d</code> detach · <code>x</code> close</li>
+          <li><code>%</code> split vertically · <code>"</code> split horizontally</li>
+          <li><code>h j k l</code> or arrows to move between panes · <code>o</code> next pane · <code>z</code> zoom</li>
+          <li><code>[</code> copy mode · <code>?</code> in-app key reference</li>
         </ul>
       </div>
     </section>
@@ -149,19 +149,20 @@
     <section class="split split--rev">
       <div class="split__media reveal">
         <div class="window">
-          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Auto Fit · Grid · Flows</span></div>
-          <img class="window__media" src="./assets/demo-layout.gif" alt="Adaptive layouts and drag-to-reorder in TermFlow" loading="lazy" width="800" />
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Copy mode · scrollback · search</span></div>
+          <img class="window__media" src="./assets/demo-layout.gif" alt="Windows, panes and scrollback in TermFlow" loading="lazy" width="800" />
         </div>
       </div>
       <div class="split__copy reveal">
-        <span class="eyebrow eyebrow--yellow">Layouts &amp; flows</span>
-        <h2>Layouts that adapt to you</h2>
-        <p>Tile everything with Auto Fit, or arrange freely in Manual mode. Drag a terminal to reorder it; the rest slide into place. Save multi-agent pipelines as reusable Flows.</p>
+        <span class="eyebrow eyebrow--yellow">Copy mode</span>
+        <h2>Walk the scrollback without a mouse</h2>
+        <p>Hit the prefix and <code>[</code> to freeze the pane and move through history the vi way — then select, yank, and get straight back to work.</p>
         <ul class="ticks">
-          <li>Grid · Columns · Rows · Focus · Agent Graph · Manual</li>
-          <li>Drag-to-reorder in every tiled mode</li>
-          <li>Flows: apply ready-made multi-agent pipelines instantly</li>
-          <li>Split panes, tabs, pin, duplicate &amp; broadcast input</li>
+          <li>Character, word and line motions</li>
+          <li>Half-page and full-page scrolling</li>
+          <li><code>Space</code> or <code>v</code> to start a selection</li>
+          <li><code>Enter</code> or <code>y</code> to copy</li>
+          <li><code>/</code> <code>?</code> to search, <code>n</code> <code>N</code> to step through matches</li>
         </ul>
       </div>
     </section>
@@ -170,19 +171,19 @@
     <section class="split">
       <div class="split__media reveal">
         <div class="window">
-          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Developer Center · Git · Plugins</span></div>
+          <div class="window__bar"><span class="window__controls" aria-hidden="true"><i class="window__minimize"></i><i class="window__maximize"></i><i class="window__close"></i></span><span class="window__title">Developer Workbench · Git · Plugins</span></div>
           <img class="window__media" src="./assets/demo-tools.gif" alt="Developer tools, git and plugins in TermFlow" loading="lazy" width="800" />
         </div>
       </div>
       <div class="split__copy reveal">
         <span class="eyebrow eyebrow--green">Developer tools</span>
         <h2>A workbench, not just a terminal</h2>
-        <p>Everything a project needs is one click away — health checks, scripts, git actions, an encrypted credential vault, and a plugin system you can extend yourself.</p>
+        <p>The Developer Workbench keeps files, command history and git next to your panes — plus snippets, a command palette and a plugin system you can extend yourself.</p>
         <ul class="ticks">
-          <li>One-click <code>package.json</code> scripts (npm / pnpm / yarn)</li>
-          <li>Git badge with branch, dirty state, ahead/behind &amp; quick fetch</li>
-          <li>Task triggers — run a command on process exit or a timer</li>
-          <li>Built-in plugins (Git, Node, Docker, Windows) + in-app creator</li>
+          <li>Developer Workbench — files, command history &amp; git</li>
+          <li>Command palette on <code>Ctrl+K</code> and reusable snippets</li>
+          <li>Global search across your open terminals</li>
+          <li>Plugin system to add your own commands</li>
           <li>Session recording to asciinema <code>.cast</code></li>
         </ul>
       </div>
@@ -196,11 +197,11 @@
         <p>Captured on Windows 11. Click any shot to view it full size.</p>
       </div>
       <div class="gallery">
-        <figure class="gallery__item gallery__item--wide reveal"><img src="./assets/shot-05.png" alt="Claude Code live inside TermFlow with four panes" loading="lazy" /><figcaption>Claude Code — live inside TermFlow</figcaption></figure>
+        <figure class="gallery__item gallery__item--wide reveal"><img src="./assets/shot-05.png" alt="A CLI tool running in a TermFlow pane" loading="lazy" /><figcaption>A CLI running in a pane</figcaption></figure>
         <figure class="gallery__item reveal"><img src="./assets/shot-02.png" alt="A single terminal running natively on Windows" loading="lazy" /><figcaption>Native Windows PTYs</figcaption></figure>
-        <figure class="gallery__item reveal"><img src="./assets/shot-07.png" alt="OpenCode running side by side" loading="lazy" /><figcaption>OpenCode, side by side</figcaption></figure>
-        <figure class="gallery__item reveal"><img src="./assets/shot-04.png" alt="TermFlow adaptive layout" loading="lazy" /><figcaption>Adaptive tiling</figcaption></figure>
-        <figure class="gallery__item reveal"><img src="./assets/shot-08.png" alt="TermFlow full workspace" loading="lazy" /><figcaption>A full agent workspace</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-07.png" alt="Two terminals side by side in TermFlow" loading="lazy" /><figcaption>Panes, side by side</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-04.png" alt="Split panes inside a TermFlow window" loading="lazy" /><figcaption>Split panes</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-08.png" alt="A TermFlow workspace with several windows" loading="lazy" /><figcaption>A full workspace</figcaption></figure>
       </div>
     </section>
 
@@ -209,60 +210,61 @@
       <div class="section-head reveal">
         <span class="eyebrow">Everything inside</span>
         <h2>Packed with features, none in your way</h2>
+        <p>CLI tools like Claude Code, Codex, Gemini and Ollama are just launch profiles here — the same status as PowerShell, CMD, WSL or Git Bash. TermFlow starts them for you; it does not orchestrate them.</p>
       </div>
       <div class="feat-cols reveal">
         <div class="feat-col">
           <h4>Terminals</h4>
           <ul>
-            <li>CMD, PowerShell, PowerShell Core, WSL, Git Bash, SSH, custom</li>
-            <li>Open a terminal at any folder</li>
-            <li>Split panes, tabs, minimize / maximize / restart / duplicate</li>
-            <li>Windows Terminal visual parity (truecolor, Nerd Font)</li>
+            <li>Real ConPTY processes rendered with xterm.js</li>
+            <li>PowerShell, CMD, WSL, Git Bash and custom profiles</li>
+            <li>Vertical &amp; horizontal splits in a binary pane tree</li>
+            <li>Pane zoom to focus one terminal full-window</li>
           </ul>
         </div>
         <div class="feat-col">
-          <h4>AI &amp; providers</h4>
+          <h4>Multiplexing</h4>
           <ul>
-            <li>Claude Code · Codex · OpenCode · Ollama</li>
-            <li>DeepSeek &amp; OpenRouter provider profiles</li>
-            <li>Agent roles, agent graph &amp; agent-to-agent routing</li>
-            <li>Agent Config editor + credential vault</li>
+            <li>Workspace = session, window = tab, pane = split</li>
+            <li>Prefix key: <code>Ctrl+A</code> or <code>Ctrl+B</code></li>
+            <li>Tab strip: switch, rename, drag-reorder, close</li>
+            <li>Detach and attach with the persistent PTY daemon</li>
           </ul>
         </div>
         <div class="feat-col">
           <h4>Workflow</h4>
           <ul>
-            <li>Flows — multi-agent pipeline templates</li>
-            <li>Broadcast input to a group of terminals</li>
-            <li>Global search across all open buffers</li>
-            <li>AI log summary &amp; Agent Activity feed</li>
+            <li>Copy mode with vi motions, search &amp; yank</li>
+            <li>Broadcast the same input to several terminals</li>
+            <li>Global search across your open terminals</li>
+            <li>Command palette <code>Ctrl+K</code> &amp; snippets</li>
           </ul>
         </div>
         <div class="feat-col">
           <h4>Developer</h4>
           <ul>
-            <li>Developer Center — health, tasks, diagnostics</li>
-            <li>package.json script runner &amp; task triggers</li>
-            <li>Deep git badge + quick actions</li>
-            <li>Plugins with built-in packs &amp; in-app creator</li>
+            <li>Developer Workbench — files, command history, git</li>
+            <li>Session recording to asciinema <code>.cast</code></li>
+            <li>Plugin system for your own commands</li>
+            <li>Launch profiles for Claude Code, Codex, Gemini, Ollama</li>
           </ul>
         </div>
         <div class="feat-col">
           <h4>Experience</h4>
           <ul>
-            <li>Categorized settings, 8+ themes, transparency</li>
-            <li>Terminal bell sound, update-only notifications</li>
-            <li>System tray, start-with-Windows, crash recovery</li>
-            <li>Workspace templates &amp; clone</li>
+            <li>Categorized settings and themes</li>
+            <li>Session restore after a crash or restart</li>
+            <li>Automatic updates</li>
+            <li>In-app key reference on prefix + <code>?</code></li>
           </ul>
         </div>
         <div class="feat-col">
           <h4>Privacy &amp; safety</h4>
           <ul>
-            <li>Secrets encrypted by Windows, never shown in the renderer</li>
+            <li>Credential vault encrypted with the OS keychain</li>
+            <li>Secrets never exposed to the renderer</li>
             <li>Context isolation + full Chromium sandbox</li>
             <li>Plugins run only declared commands — no injected JS</li>
-            <li>Bypass badge marks full-permission agent sessions</li>
           </ul>
         </div>
       </div>
@@ -277,15 +279,22 @@
       </div>
       <div class="timeline reveal">
         <div class="rel">
-          <div class="rel__tag"><span class="badge badge--new">v0.2.0</span><time>Latest</time></div>
+          <div class="rel__tag"><span class="badge badge--new">v0.4.0</span><time>Latest</time></div>
           <ul>
-            <li><span class="tg tg-feat">feat</span> In-app plugin creator &amp; editor</li>
-            <li><span class="tg tg-feat">feat</span> Claude Code config editor + provider env isolation</li>
-            <li><span class="tg tg-feat">feat</span> Atomic resize architecture &amp; categorized settings</li>
-            <li><span class="tg tg-feat">feat</span> Drag-to-reorder + compact terminal view</li>
-            <li><span class="tg tg-feat">feat</span> Terminal bell sound &amp; update-only notifications</li>
-            <li><span class="tg tg-feat">feat</span> Agent / provider inline edit &amp; delete</li>
-            <li><span class="tg tg-feat">feat</span> 4 built-in plugins (Git, Node, Docker, Windows)</li>
+            <li><span class="tg tg-feat">feat</span> Persistent PTY daemon — terminals survive closing the app</li>
+            <li><span class="tg tg-feat">feat</span> True detach &amp; attach with scrollback restored</li>
+            <li><span class="tg tg-feat">feat</span> tmux-style windows and a binary pane tree</li>
+            <li><span class="tg tg-feat">feat</span> Prefix key (<code>Ctrl+A</code>, or <code>Ctrl+B</code>) for every command</li>
+            <li><span class="tg tg-feat">feat</span> vi-style copy mode with search, selection &amp; yank</li>
+            <li><span class="tg tg-feat">feat</span> Tab strip — click, rename, drag-reorder, close</li>
+          </ul>
+        </div>
+        <div class="rel">
+          <div class="rel__tag"><span class="badge">Focus</span><time>Simplification</time></div>
+          <ul>
+            <li><span class="tg tg-fix">fix</span> Removed the AI agent orchestration layer</li>
+            <li><span class="tg tg-fix">fix</span> Removed the free-form tiled canvas and layout modes</li>
+            <li><span class="tg tg-feat">feat</span> CLI tools are plain launch profiles, next to your shells</li>
           </ul>
         </div>
         <div class="rel">
@@ -297,15 +306,6 @@
             <li><span class="tg tg-fix">fix</span> Correct color detection (truecolor / COLORTERM)</li>
           </ul>
         </div>
-        <div class="rel">
-          <div class="rel__tag"><span class="badge">Quality</span><time>Hardening</time></div>
-          <ul>
-            <li><span class="tg tg-perf">perf</span> Async filesystem IPC — no main-thread stalls</li>
-            <li><span class="tg tg-fix">fix</span> Memory-leak, ReDoS &amp; IPC error hardening</li>
-            <li><span class="tg tg-fix">fix</span> Accessibility — ESC to close, dialog roles</li>
-            <li><span class="tg tg-perf">perf</span> Debounced persistence &amp; Chromium sandbox on</li>
-          </ul>
-        </div>
       </div>
     </section>
 
@@ -314,7 +314,7 @@
       <div class="download__inner reveal">
         <span class="eyebrow">Get TermFlow</span>
         <h2>Download &amp; start in seconds</h2>
-        <p>Windows 10 / 11 (x64). Install once and keep your workspaces, layouts and settings on updates.</p>
+        <p>Windows 10 / 11 (x64). Install once and keep your workspaces, windows and settings on updates.</p>
         <div class="download__cards download__cards--single">
           <a class="dcard dcard--primary" id="dl-installer" href="#" target="_blank" rel="noopener">
             <div class="dcard__head">
@@ -323,13 +323,13 @@
             </div>
             <h3>Installer (.exe)</h3>
             <p>Guided setup, desktop shortcut &amp; auto-update ready.</p>
-            <span class="dcard__file">TermFlow-0.2.1-x64.exe · <span class="dl-size">~91 MB</span></span>
+            <span class="dcard__file">TermFlow-0.4.0-x64.exe · <span class="dl-size">~91 MB</span></span>
           </a>
         </div>
         <ol class="steps">
           <li><b>1.</b> Download the installer.</li>
           <li><b>2.</b> If Windows SmartScreen appears, choose <em>More info → Run anyway</em>.</li>
-          <li><b>3.</b> Launch TermFlow and hit <em>New Terminal</em>.</li>
+          <li><b>3.</b> Launch TermFlow and press <em>Ctrl+A</em> then <em>c</em> for a new window.</li>
         </ol>
       </div>
     </section>
@@ -345,7 +345,7 @@
       </svg>
       <div>
         <b>TermFlow</b>
-        <span>The AI-native terminal workspace for Windows.</span>
+        <span>A tmux-style terminal multiplexer for Windows.</span>
       </div>
     </div>
     <div class="footer__links">

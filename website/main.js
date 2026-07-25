@@ -1,16 +1,14 @@
 /* ============================================================
    TermFlow promo — interactions
    ------------------------------------------------------------
-   DOWNLOAD LINKS: set these to wherever you host the binaries.
-   Two options:
-   1) GitHub Releases (recommended — no Vercel size limit):
-      create a release and point these at the asset URLs, e.g.
-      https://github.com/palamut62/termflow/releases/download/v0.3.3/TermFlow-0.3.3-x64.exe
-   2) Self-host on Vercel: drop the files in website/public/download/
-      and use "./download/TermFlow-0.3.3-x64.exe"
+   DOWNLOAD LINKS: the installer is served from GitHub Releases.
+   The "latest/download/..." URL always resolves to the newest
+   release, so publishing a new tag is enough — no edit needed here
+   unless the file name changes.
+   (The old Vercel Blob URL is no longer used.)
    ============================================================ */
 const DOWNLOADS = {
-  installer: 'https://zomlia6emkmpi3hi.public.blob.vercel-storage.com/downloads/TermFlow-0.3.3-x64.exe'
+  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.4.0-x64.exe'
 }
 
 // Wire download buttons
