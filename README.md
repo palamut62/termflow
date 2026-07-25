@@ -187,7 +187,7 @@ flowchart LR
 â”œâ”€â”€ e2e/                            # Electron Playwright tests
 â”œâ”€â”€ scripts/                        # Packaging and plugin tools
 â”œâ”€â”€ website/                        # Static product and download site
-â”œâ”€â”€ electron-builder.yml
+â”œâ”€â”€ electron-builder.cjs
 â””â”€â”€ package.json
 ```
 
@@ -200,7 +200,7 @@ Download the current installer from [GitHub Releases](https://github.com/palamut
 - `TermFlow-0.4.1-x64.exe` - Windows installer
 - `TermFlow-0.4.1-x64.zip` - portable package
 
-TermFlow currently targets Windows 10/11 x64. The installer is not code-signed, so Windows may display a SmartScreen warning.
+TermFlow currently targets Windows 10/11 x64. Release installers published on GitHub Releases are code-signed when signing credentials are configured for the release build; unsigned builds (local or fork builds) may trigger a Windows SmartScreen warning. You can check any download with `Get-AuthenticodeSignature .\TermFlow-0.4.1-x64.exe` — see [docs/code-signing.md](docs/code-signing.md).
 
 ### Development Prerequisites
 
@@ -312,6 +312,17 @@ The verified Windows package produces:
 
 The daemon entry is unpacked from ASAR so it can run independently. Release the installer, ZIP, blockmap, and updater metadata together through GitHub Releases. The static product site lives in `website/` and is deployed separately to [termflow.vercel.app](https://termflow.vercel.app).
 
+### Code Signing
+
+Packaging is configured in `electron-builder.cjs`. Windows code signing is enabled automatically when the signing environment variables are present:
+
+- Azure Trusted Signing: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_ENDPOINT`, `AZURE_CODE_SIGNING_NAME`, `AZURE_CERT_PROFILE_NAME`, `AZURE_PUBLISHER_NAME`
+- Certificate file fallback: `CERTIFICATE_FILE`, `CERTIFICATE_PASSWORD`
+
+If they are missing, the build still succeeds and produces an unsigned installer with a warning in the log, so `npm run package` keeps working locally and on forks. `npm run package:verify` reports the installer's `Get-AuthenticodeSignature` status: `Valid` passes, `NotSigned` warns, any other status fails.
+
+Setup instructions and secret descriptions live in [docs/code-signing.md](docs/code-signing.md). Tag pushes matching `v*` run `.github/workflows/release.yml`, which packages, verifies, and uploads the artifacts to a draft GitHub Release using the repository signing secrets.
+
 ## Plugin SDK
 
 TermFlow supports validated manifest plugins and optional runtime plugins in an isolated utility process. Runtime code does not load into the renderer or Electron main process and receives only declared capabilities.
@@ -378,7 +389,7 @@ TermFlow adapts the session/window/pane and prefix-key model to native Windows P
 
 ### Is v0.4.1 production-ready?
 
-TermFlow is actively developed. The core terminal, persistence, pane, and updater workflows are implemented and tested, but the installer is not yet code-signed and breaking changes may still occur.
+TermFlow is actively developed. The core terminal, persistence, pane, and updater workflows are implemented and tested, but breaking changes may still occur. Code signing is wired into the release pipeline and applies to signed release builds.
 
 ## License
 
