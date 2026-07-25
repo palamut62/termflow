@@ -328,6 +328,11 @@ export interface AppSettings {
   infoPanelDefaultOpen: boolean
   /** tmux-style prefix key: press it, then a command key (Ctrl+A twice sends the key itself). */
   prefixKey: 'ctrl+a' | 'ctrl+b'
+  /**
+   * Where a new terminal goes: tiled as an extra pane of the active window
+   * (tmux-style, default) or as its own window tab.
+   */
+  newTerminalTarget: 'pane' | 'window'
 }
 
 export interface CustomAgentDef {
@@ -391,7 +396,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   updateChannel: 'stable',
   terminalBell: true,
   infoPanelDefaultOpen: false,
-  prefixKey: 'ctrl+a'
+  prefixKey: 'ctrl+a',
+  newTerminalTarget: 'pane'
 }
 
 export interface WorkspaceLayout {

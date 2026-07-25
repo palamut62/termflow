@@ -91,7 +91,7 @@ export default function DeveloperCenter(): React.JSX.Element | null {
             {triggerKind === 'process_exit' ? (
               <>
                 <select value={triggerNodeId} onChange={(e) => setTriggerNodeId(e.target.value)}>
-                  <option value="">Select terminal/node…</option>
+                  <option value="">Select window…</option>
                   {nodes.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
                 </select>
                 <select value={triggerExitFilter} onChange={(e) => setTriggerExitFilter(e.target.value as ExitCodeFilter)}>

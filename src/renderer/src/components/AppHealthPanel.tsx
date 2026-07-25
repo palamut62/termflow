@@ -41,20 +41,20 @@ export default function AppHealthPanel(): React.JSX.Element {
     )
     const out: HealthIssue[] = []
 
-    // 1) Orphaned / detached sessions no longer on the canvas.
+    // 1) Orphaned / detached sessions no longer bound to a window.
     const detached = Object.values(terminals).filter((t) => !attached.has(t.id))
     if (detached.length) {
       out.push({
         id: 'orphans',
         severity: 'warn',
         label: `${detached.length} detached session${detached.length !== 1 ? 's' : ''}`,
-        detail: 'Card-less sessions lingering in the store.',
+        detail: 'Sessions running without a window in this workspace.',
         fixLabel: 'Clear all',
         fix: () => void clearAllDetached()
       })
     }
 
-    // 2) Errored terminals still on the canvas.
+    // 2) Errored terminals still bound to a window.
     const errored = nodes.filter((n) => n.status === 'error')
     if (errored.length) {
       out.push({
@@ -67,14 +67,14 @@ export default function AppHealthPanel(): React.JSX.Element {
       })
     }
 
-    // 3) Stopped terminals still on the canvas (process ended, card kept).
+    // 3) Stopped terminals still bound to a window (process ended, window kept).
     const stopped = nodes.filter((n) => n.status === 'stopped')
     if (stopped.length) {
       out.push({
         id: 'stopped',
         severity: 'warn',
         label: `${stopped.length} stopped terminal${stopped.length !== 1 ? 's' : ''}`,
-        detail: 'Process exited but the card is still open.',
+        detail: 'Process exited but the window is still open.',
         fixLabel: 'Restart all',
         fix: () => stopped.forEach((n) => void restartNode(n.id))
       })

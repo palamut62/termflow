@@ -386,6 +386,7 @@ export default function App(): React.JSX.Element {
         return true
       }
       if (key === 'c') { void s.addTerminal('cmd'); return true }
+      if (key === 't') { s.tileAllWindows(); return true }
       if (key === 'n') { switchWindow(1); return true }
       if (key === 'p') { switchWindow(-1); return true }
       if (key >= '0' && key <= '9') {

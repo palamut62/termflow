@@ -193,7 +193,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                   <input type="checkbox" checked={settings.notifyOnAgentWaiting} disabled={!settings.notificationsEnabled} style={{ width: 'auto' }}
                     onChange={(e) => update({ notifyOnAgentWaiting: e.target.checked })} />
-                  Agent awaiting approval
+                  Terminal waiting for input
                 </label>
               </div>
               {settings.notifyOnLongCommand && (
@@ -202,7 +202,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                   <select value={settings.longCommandThresholdMs} disabled={!settings.notificationsEnabled}
                     onChange={(e) => update({ longCommandThresholdMs: Number(e.target.value) })}>
                     {[10000, 30000, 60000, 120000, 300000].map((n) => (
-                      <option key={n} value={n}>{n < 60000 ? `${n / 1000}s` : `${n / 60000}dk`}</option>
+                      <option key={n} value={n}>{n < 60000 ? `${n / 1000}s` : `${n / 60000}m`}</option>
                     ))}
                   </select>
                 </div>
@@ -310,6 +310,20 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
               <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                 Press the prefix, then a command key (% split, &quot;, z zoom, c new window, ? help).
                 Pressing it twice sends the key itself to the terminal.
+              </p>
+            </div>
+
+            <div className="field">
+              <label>New terminal opens</label>
+              <select
+                value={settings.newTerminalTarget}
+                onChange={(e) => update({ newTerminalTarget: e.target.value as 'pane' | 'window' })}
+              >
+                <option value="pane">As a pane in the current window (tiled)</option>
+                <option value="window">As a new window (tab)</option>
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Tiled keeps every terminal visible side by side, like tmux. Window tabs stay available either way.
               </p>
             </div>
 

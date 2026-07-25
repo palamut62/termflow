@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from './appStore'
+import { getLeafTerminalIds, countLeaves } from '../paneUtils'
 
 // These tests exercise pure, window-free state transitions across the split
 // slices. Actions that call persist() are safe here because persist() short-
@@ -70,5 +71,43 @@ describe('terminal slice', () => {
     })
     useAppStore.getState().dismissRecordingLimitWarning()
     expect(useAppStore.getState().recordingLimitWarning).toBeNull()
+  })
+
+  it('tiles every window of the workspace into a single window', () => {
+    useAppStore.setState({
+      activeWorkspaceId: 'w1',
+      terminals: {
+        t1: { id: 't1', name: 'One' } as never,
+        t2: { id: 't2', name: 'Two' } as never,
+        t3: { id: 't3', name: 'Three' } as never
+      },
+      nodes: [
+        { id: 'n1', workspaceId: 'w1', title: 'One', terminalId: 't1', activePaneId: 't1', panes: { type: 'leaf', terminalId: 't1', title: 'One' } } as never,
+        { id: 'n2', workspaceId: 'w1', title: 'Two', terminalId: 't2', activePaneId: 't2', panes: { type: 'split', dir: 'vertical', ratio: 0.5, a: { type: 'leaf', terminalId: 't2', title: 'Two' }, b: { type: 'leaf', terminalId: 't3', title: 'Three' } } } as never
+      ],
+      activeNodeId: 'n2',
+      zoomedPaneId: 't2',
+      copyModePaneId: 't2'
+    })
+    useAppStore.getState().tileAllWindows()
+    const s = useAppStore.getState()
+    expect(s.nodes.map((n) => n.id)).toEqual(['n1'])
+    expect(s.activeNodeId).toBe('n1')
+    expect(getLeafTerminalIds(s.nodes[0].panes!)).toEqual(['t1', 't2', 't3'])
+    expect(countLeaves(s.nodes[0].panes!)).toBe(3)
+    // The previously active pane survives and stays selected.
+    expect(s.nodes[0].activePaneId).toBe('t2')
+    expect(s.zoomedPaneId).toBeNull()
+    expect(s.copyModePaneId).toBeNull()
+  })
+
+  it('does nothing when the workspace has a single window', () => {
+    useAppStore.setState({
+      activeWorkspaceId: 'w1',
+      nodes: [{ id: 'n1', workspaceId: 'w1', title: 'One', terminalId: 't1' } as never],
+      activeNodeId: 'n1'
+    })
+    useAppStore.getState().tileAllWindows()
+    expect(useAppStore.getState().nodes.map((n) => n.id)).toEqual(['n1'])
   })
 })

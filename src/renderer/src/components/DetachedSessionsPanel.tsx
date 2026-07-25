@@ -45,7 +45,7 @@ export default function DetachedSessionsPanel(): React.JSX.Element | null {
           <div className="detached-item" key={terminal.id}>
             <button
               className="detached-item__main"
-              title="Re-attach to canvas"
+              title="Re-attach in a new window"
               onClick={() => reattach(terminal.id)}
             >
               <Link size={13} />

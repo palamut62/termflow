@@ -22,7 +22,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       'Copy mode: vi-style scrollback navigation, word and line motions, half/full page scrolling, selection with Space or v, copy with Enter or y, and / ? n N search.',
       'Persistent PTY daemon: terminals now survive quitting TermFlow and are re-attached with their scrollback on the next launch. The status bar warns when the daemon is unavailable.',
       'Credential vault management is back under Settings > Developer; secrets stay encrypted by the OS keychain and are never shown in the UI.',
-      'Old workspaces migrate automatically: every canvas card becomes a window tab, terminals and pane layouts are preserved.'
+      'Old workspaces migrate automatically: every canvas card becomes a window tab, terminals and pane layouts are preserved.',
+      'Tiled by default: new terminals open as panes of the current window so every terminal is visible at once; prefix t (or ⋯ > Tile all windows into one) merges all windows into one grid, and Settings > Terminal > New terminal opens switches back to tabs.'
     ]
   },
   {

@@ -64,6 +64,25 @@ export function splitPane(
   }
 }
 
+/**
+ * Build a balanced tiled pane tree out of a flat list of terminals, the way
+ * tmux's `select-layout tiled` does: halve the list at every level and
+ * alternate the split direction so the result stays close to a grid.
+ */
+export function buildTiledPane(leaves: Array<{ terminalId: string; title: string }>, dir: 'horizontal' | 'vertical' = 'vertical'): PaneNode | null {
+  if (leaves.length === 0) return null
+  if (leaves.length === 1) return { type: 'leaf', terminalId: leaves[0].terminalId, title: leaves[0].title }
+  const mid = Math.ceil(leaves.length / 2)
+  const next = dir === 'vertical' ? 'horizontal' : 'vertical'
+  return {
+    type: 'split',
+    dir,
+    ratio: 0.5,
+    a: buildTiledPane(leaves.slice(0, mid), next)!,
+    b: buildTiledPane(leaves.slice(mid), next)!
+  }
+}
+
 /** Close a leaf pane; collapses splits that would have only one child. */
 export function closePane(pane: PaneNode, terminalIdToClose: string): PaneNode | null {
   if (pane.type === 'leaf') {

@@ -11,6 +11,8 @@ export interface NewTerminalOpts {
   cleanProviderEnv?: boolean
   // Sent to the CLI once it looks ready (AI_BANNER_RE match).
   initialPrompt?: string
+  /** Always open a new window tab, ignoring the newTerminalTarget setting. */
+  forceNewWindow?: boolean
 }
 
 // terminalId -> prompt text queued to be typed into the CLI once its startup

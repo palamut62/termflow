@@ -20,7 +20,7 @@ import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
 import { useAppStore } from '../store/appStore'
 import { profileFor } from '../profiles'
-import type { PaneNode } from '../../../shared/types'
+import type { PaneNode, SplitPane } from '../../../shared/types'
 import { getLeafTerminalIds, countLeaves, setPaneRatio } from '../paneUtils'
 
 function activeTermId(node: { activePaneId?: string; panes?: PaneNode; terminalId?: string }): string | undefined {
@@ -79,26 +79,44 @@ function statusColor(status: string): string {
   return 'var(--text-secondary)'
 }
 
+/**
+ * Leaf and split live in separate components on purpose: a leaf turning into a
+ * split (and back) changes which hooks are needed, and calling a hook inside a
+ * conditional branch corrupts React's hook order — that is what made the UI
+ * break the moment a pane was split.
+ */
+function PaneLeaf({ nodeId, terminalId }: { nodeId: string; terminalId: string }): React.JSX.Element {
+  const activeNodeId = useAppStore((s) => s.activeNodeId)
+  const activePaneId = useAppStore((s) => s.nodes.find((n) => n.id === nodeId)?.activePaneId)
+  const epoch = useAppStore((s) => s.termEpoch[terminalId] ?? 0)
+  return (
+    <div className="pane-leaf">
+      <TerminalView
+        key={`${terminalId}:${epoch}`}
+        terminalId={terminalId}
+        active={activeNodeId === nodeId && (activePaneId ?? terminalId) === terminalId}
+      />
+    </div>
+  )
+}
+
 function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; path: number[] }): React.JSX.Element {
-  const activeNodeId = useAppStore(s => s.activeNodeId)
-  const activePaneId = useAppStore(s => s.nodes.find(n => n.id === nodeId)?.activePaneId)
-  const updateNode = useAppStore(s => s.updateNode)
+  if (pane.type === 'leaf') return <PaneLeaf nodeId={nodeId} terminalId={pane.terminalId} />
+  return <PaneSplit nodeId={nodeId} pane={pane} path={path} />
+}
 
-  if (pane.type === 'leaf') {
-    const epoch = useAppStore(s => s.termEpoch[pane.terminalId] ?? 0)
-    return (
-      <div className="pane-leaf" key={pane.terminalId}>
-        <TerminalView key={`${pane.terminalId}:${epoch}`}
-          terminalId={pane.terminalId}
-          active={activeNodeId === nodeId && (activePaneId ?? pane.terminalId) === pane.terminalId} />
-      </div>
-    )
-  }
-
-  // Split pane
+function PaneSplit({ nodeId, pane, path }: { nodeId: string; pane: SplitPane; path: number[] }): React.JSX.Element {
+  const updateNode = useAppStore((s) => s.updateNode)
   const isHorizontal = pane.dir === 'horizontal'
-  const sizeA = `${Math.round(pane.ratio * 100)}%`
-  const sizeB = `${Math.round((1 - pane.ratio) * 100)}%`
+  // Grow factors, not percentages: the splitter itself occupies space in the
+  // same flex container, so two rounded percentages adding up to 100% overflow it.
+  const wrap = (grow: number): React.CSSProperties => ({
+    flex: `${grow} 1 0`,
+    display: 'flex',
+    minWidth: 0,
+    minHeight: 0,
+    overflow: 'hidden'
+  })
 
   const onSplitterDrag = (e: React.PointerEvent): void => {
     e.stopPropagation()
@@ -128,11 +146,11 @@ function PaneRenderer({ nodeId, pane, path }: { nodeId: string; pane: PaneNode; 
 
   return (
     <div className={`pane-split ${isHorizontal ? 'horizontal' : 'vertical'}`}>
-      <div style={{ [isHorizontal ? 'width' : 'height']: sizeA, overflow: 'hidden' }}>
+      <div style={wrap(pane.ratio)}>
         <PaneRenderer nodeId={nodeId} pane={pane.a} path={[...path, 0]} />
       </div>
       <div className={`pane-splitter ${isHorizontal ? 'h' : 'v'}`} onPointerDown={onSplitterDrag} />
-      <div style={{ [isHorizontal ? 'width' : 'height']: sizeB, overflow: 'hidden' }}>
+      <div style={wrap(1 - pane.ratio)}>
         <PaneRenderer nodeId={nodeId} pane={pane.b} path={[...path, 1]} />
       </div>
     </div>

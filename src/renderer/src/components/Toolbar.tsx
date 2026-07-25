@@ -16,6 +16,7 @@ import {
   ,Puzzle
   ,SlidersHorizontal
   ,Pencil
+  ,LayoutGrid
 } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { PROFILES } from '../profiles'
@@ -55,6 +56,7 @@ export default function Toolbar({ onOpenSettings, onOpenPalette, onOpenHelp, onO
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const broadcastEnabled = useAppStore((s) => s.broadcastEnabled)
   const toggleBroadcast = useAppStore((s) => s.toggleBroadcast)
+  const tileAllWindows = useAppStore((s) => s.tileAllWindows)
   const sshProfiles = useAppStore((s) => s.sshProfiles)
   const launchSshProfile = useAppStore((s) => s.launchSshProfile)
   const providerProfiles = useAppStore((s) => s.settings.providerProfiles)
@@ -271,6 +273,14 @@ export default function Toolbar({ onOpenSettings, onOpenPalette, onOpenHelp, onO
               Close All
             </div>
             <div
+              className={`menu-item ${disabled ? 'disabled' : ''}`}
+              title="Merge every window into one tiled window"
+              onClick={() => { if (disabled) return; setMoreMenu(false); tileAllWindows() }}
+            >
+              <LayoutGrid size={14} />
+              Tile all windows into one
+            </div>
+            <div
               className="menu-item"
               title="Search all terminals"
               onClick={() => { setMoreMenu(false); setGlobalSearchModal(true) }}
@@ -302,7 +312,7 @@ export default function Toolbar({ onOpenSettings, onOpenPalette, onOpenHelp, onO
             </div>
             <div
               className={`menu-item ${disabled ? 'disabled' : ''}`}
-              title="Extensions and workflow packages"
+              title="Command plugins and extensions"
               onClick={() => { if (disabled) return; setMoreMenu(false); setPlugins(true) }}
             >
               <Puzzle size={14} />

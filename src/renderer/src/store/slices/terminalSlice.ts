@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand'
 import { nanoid } from 'nanoid'
 import type { TerminalSession, WindowDef, ShellKind, ProcStats } from '../../../../shared/types'
 import { profileFor } from '../../profiles'
-import { getLeafTerminalIds, getActiveTerminalId, splitPane, closePane, countLeaves } from '../../paneUtils'
+import { getLeafTerminalIds, getActiveTerminalId, splitPane, closePane, countLeaves, buildTiledPane } from '../../paneUtils'
 import {
   AI_BANNER_RE,
   pendingInitialPrompts,
@@ -35,6 +35,8 @@ export interface TerminalSlice {
   splitNode: (nodeId: string, dir: 'horizontal' | 'vertical') => Promise<void>
   closePaneInNode: (nodeId: string, terminalId: string, mode?: 'terminate' | 'detach') => Promise<void>
   setActivePane: (nodeId: string, terminalId: string) => void
+  /** Merge every window of the active workspace into one tiled window. */
+  tileAllWindows: () => void
 
   // Recording (P2-10)
   startRecording: (terminalId: string) => void
@@ -97,8 +99,13 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const useBypass = !!bypassArgs && st.settings.agentAutoApprove
     const runtimeStartup = useBypass ? `${baseStartup} ${bypassArgs}` : baseStartup
 
-    // 'New Terminal' opens a new WINDOW (tmux window); splitting inside a
-    // window is a separate action (Ctrl+Shift+D / Ctrl+Shift+E or the ⋯ menu).
+    // Tiled by default: a new terminal joins the active window as an extra
+    // pane (tmux-style). With newTerminalTarget === 'window' — or when there is
+    // no active window in this workspace, or the caller forces it — it opens as
+    // its own window tab instead.
+    const activeNode = st.nodes.find((n) => n.id === st.activeNodeId && n.workspaceId === wsId)
+    const asPane = !opts?.forceNewWindow && st.settings.newTerminalTarget === 'pane' && !!activeNode
+
     const node: WindowDef = {
       id: nodeId,
       workspaceId: wsId,
@@ -139,6 +146,27 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       pendingInitialPrompts.set(termId, opts.initialPrompt)
     }
 
+    if (asPane && activeNode) {
+      set((s) => ({
+        terminals: { ...s.terminals, [termId]: persisted },
+        // Adding a pane breaks the zoom and leaves copy mode (tmux behaviour).
+        zoomedPaneId: null,
+        copyModePaneId: null,
+        nodes: s.nodes.map((n) => {
+          if (n.id !== activeNode.id) return n
+          const current = n.panes || (n.terminalId ? { type: 'leaf' as const, terminalId: n.terminalId, title: n.title } : null)
+          const existing = current ? getLeafTerminalIds(current) : []
+          const leaves = [
+            ...existing.map((tid) => ({ terminalId: tid, title: s.terminals[tid]?.name || n.title })),
+            { terminalId: termId, title: name }
+          ]
+          return { ...n, panes: buildTiledPane(leaves)!, activePaneId: termId }
+        })
+      }))
+      get().persist()
+      return
+    }
+
     set((s) => ({
       terminals: { ...s.terminals, [termId]: persisted },
       nodes: [...s.nodes, node],
@@ -163,7 +191,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       args: source.args,
       name: `${node.title} copy`,
       env: source.env,
-      cleanProviderEnv: source.cleanProviderEnv
+      cleanProviderEnv: source.cleanProviderEnv,
+      // "Duplicate into new window" always opens a tab, whatever the setting.
+      forceNewWindow: true
     })
   },
 
@@ -451,6 +481,42 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     set((s) => ({
       copyModePaneId: s.copyModePaneId === terminalId ? s.copyModePaneId : null,
       nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, activePaneId: terminalId } : n)
+    }))
+    get().persist()
+  },
+
+  // Merge every window of the active workspace into a single tiled window
+  // (tmux `join-pane` for the whole session). No PTY is touched.
+  tileAllWindows: () => {
+    const st = get()
+    const wsNodes = st.nodes.filter((n) => !st.activeWorkspaceId || n.workspaceId === st.activeWorkspaceId)
+    if (wsNodes.length < 2) return
+
+    const target = wsNodes[0]
+    const leaves: Array<{ terminalId: string; title: string }> = []
+    for (const n of wsNodes) {
+      const ids = n.panes ? getLeafTerminalIds(n.panes) : n.terminalId ? [n.terminalId] : []
+      for (const tid of ids) leaves.push({ terminalId: tid, title: st.terminals[tid]?.name || n.title })
+    }
+    const panes = buildTiledPane(leaves)
+    if (!panes) return
+
+    const previousActive = getActiveTerminalId(
+      st.nodes.find((n) => n.id === st.activeNodeId)?.activePaneId,
+      st.nodes.find((n) => n.id === st.activeNodeId)?.panes,
+      st.nodes.find((n) => n.id === st.activeNodeId)?.terminalId
+    )
+    const survivors = leaves.map((l) => l.terminalId)
+    const activePaneId = previousActive && survivors.includes(previousActive) ? previousActive : survivors[0]
+    const mergedIds = new Set(wsNodes.slice(1).map((n) => n.id))
+
+    set((s) => ({
+      zoomedPaneId: null,
+      copyModePaneId: null,
+      activeNodeId: target.id,
+      nodes: s.nodes
+        .filter((n) => !mergedIds.has(n.id))
+        .map((n) => (n.id === target.id ? { ...n, panes, activePaneId, terminalId: activePaneId } : n))
     }))
     get().persist()
   },
