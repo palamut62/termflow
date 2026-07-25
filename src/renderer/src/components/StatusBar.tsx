@@ -1,9 +1,22 @@
-import { GitBranch, TerminalSquare, TriangleAlert, Unplug } from 'lucide-react'
+import { DownloadCloud, GitBranch, RefreshCw, TerminalSquare, TriangleAlert, Unplug } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { PtyBackendStatus } from '../../../shared/types'
+import { APP_VERSION } from '../appInfo'
 import { getLeafTerminalIds } from '../paneUtils'
 import { useAppStore } from '../store/appStore'
 import { prefixLabel } from '../prefixKeys'
+
+/** Short, human-readable label for each electron-updater lifecycle state. */
+function updateLabel(status: string, detail?: string): string {
+  if (status === 'checking') return 'checking…'
+  if (status === 'available') return `downloading${detail ? ` ${detail}` : ''}`
+  if (status === 'downloading') return `downloading${detail ? ` ${detail}` : ''}`
+  if (status === 'ready') return 'restart to update'
+  if (status === 'current') return 'up to date'
+  if (status === 'error') return 'check failed'
+  if (status === 'development') return 'dev build'
+  return ''
+}
 
 export default function StatusBar(): React.JSX.Element {
   const nodes = useAppStore((s) => s.nodes)
@@ -22,6 +35,11 @@ export default function StatusBar(): React.JSX.Element {
     window.termflow.pty.backendStatus().then(setBackend).catch(() => setBackend(null))
     return window.termflow.pty.onBackendChanged(setBackend)
   }, [])
+  // Version + update state live here so a check is always one click away
+  // instead of being buried in Settings > General.
+  const updateChannel = useAppStore((s) => s.settings.updateChannel)
+  const [update, setUpdate] = useState<{ status: string; detail?: string }>({ status: 'idle' })
+  useEffect(() => window.termflow.updates.onStatus(setUpdate), [])
   const running = Object.values(terminals).filter((t) => t.status === 'running').length
   const detachedCount = useMemo(() => {
     const attached = new Set(
@@ -78,6 +96,33 @@ export default function StatusBar(): React.JSX.Element {
       <span className="sb-item" style={{ marginLeft: 'auto' }}>
         window: {nodes.find((n) => n.id === activeNodeId)?.title ?? '—'}
       </span>
+      {update.status === 'ready' ? (
+        <button
+          className="sb-item sb-btn"
+          title="An update has been downloaded — restart TermFlow to install it"
+          onClick={() => void window.termflow.updates.install()}
+          style={{ color: 'var(--success)', fontWeight: 700 }}
+        >
+          <DownloadCloud size={12} /> restart to update
+        </button>
+      ) : (
+        <button
+          className="sb-item sb-btn"
+          title={`TermFlow v${APP_VERSION} — click to check for updates (${updateChannel} channel)`}
+          aria-label="Check for updates"
+          onClick={() => {
+            setUpdate({ status: 'checking' })
+            window.termflow.updates.check(updateChannel).catch(() => setUpdate({ status: 'error' }))
+          }}
+        >
+          <RefreshCw size={12} /> v{APP_VERSION}
+          {updateLabel(update.status, update.detail) && (
+            <span style={{ marginLeft: 5, color: update.status === 'error' ? 'var(--warning)' : 'var(--text-muted)' }}>
+              · {updateLabel(update.status, update.detail)}
+            </span>
+          )}
+        </button>
+      )}
     </div>
   )
 }
