@@ -68,7 +68,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const openLauncher = (): void => setShowTerminalLauncher(true)
     const openProviders = (): void => setShowProviderManager(true)
-    const closeAll = (): void => setConfirm({ title: 'Close all terminals', message: 'All terminal processes in this workspace will be terminated completely.', confirmLabel: 'Terminate All', tone: 'danger', onConfirm: () => useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')) })
+    const closeAll = (): void => setConfirm({ title: 'Close all terminals', message: 'All terminal processes in this workspace will be terminated completely.', confirmLabel: 'Terminate All', tone: 'danger', onConfirm: () => { void useAppStore.getState().closeAllNodes() } })
     // DeveloperCenter is lazily mounted, so its open event has to be handled
     // here — the component itself is not in the tree while it is closed.
     const openDevCenter = (): void => useAppStore.getState().setDeveloperCenterOpen(true)

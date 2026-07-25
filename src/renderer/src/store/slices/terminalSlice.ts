@@ -26,6 +26,8 @@ export interface TerminalSlice {
   addTerminal: (kind: ShellKind, opts?: NewTerminalOpts) => Promise<void>
   duplicateNode: (nodeId: string) => Promise<void>
   closeNode: (nodeId: string, mode: 'terminate' | 'detach') => Promise<void>
+  /** Terminate every terminal of the active workspace and drop its windows. */
+  closeAllNodes: () => Promise<void>
   reattachTerminal: (terminalId: string) => Promise<void>
   terminateDetached: (terminalId: string) => Promise<void>
   clearAllDetached: () => Promise<void>
@@ -265,6 +267,47 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           s.activeNodeId === nodeId
             ? remaining[Math.min(index, remaining.length - 1)]?.id ?? null
             : s.activeNodeId
+      }
+    })
+    get().persist()
+  },
+
+  closeAllNodes: async () => {
+    const st = get()
+    // closeNode() on a split window closes only the *active* pane, so looping it
+    // over the node list left every extra pane running. Collect the leaves up
+    // front and tear them all down in one pass instead.
+    const wsNodes = st.nodes.filter((n) => !st.activeWorkspaceId || n.workspaceId === st.activeWorkspaceId)
+    if (wsNodes.length === 0) return
+    const doomedNodes = new Set(wsNodes.map((n) => n.id))
+    const termIds = wsNodes.flatMap((n) =>
+      n.panes ? getLeafTerminalIds(n.panes) : n.terminalId ? [n.terminalId] : []
+    )
+
+    for (const tid of termIds) {
+      window.termflow.pty.kill(tid)
+      forgetTerminalSize(tid)
+      await window.termflow.terminals.remove(tid)
+    }
+
+    // One set() at the end, reading the *current* state — the old per-node loop
+    // ran concurrently and each call wrote back a stale `terminals` snapshot,
+    // resurrecting sessions a sibling call had just deleted.
+    set((s) => {
+      const terminals = { ...s.terminals }
+      const gitStatus = { ...s.gitStatus }
+      for (const tid of termIds) {
+        delete terminals[tid]
+        delete gitStatus[tid]
+      }
+      const remaining = s.nodes.filter((n) => !doomedNodes.has(n.id))
+      return {
+        nodes: remaining,
+        terminals,
+        gitStatus,
+        zoomedPaneId: null,
+        copyModePaneId: null,
+        activeNodeId: remaining.some((n) => n.id === s.activeNodeId) ? s.activeNodeId : remaining[0]?.id ?? null
       }
     })
     get().persist()

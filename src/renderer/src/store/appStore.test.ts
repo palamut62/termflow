@@ -101,6 +101,47 @@ describe('terminal slice', () => {
     expect(s.copyModePaneId).toBeNull()
   })
 
+  it('closes every terminal of the workspace, including extra panes', async () => {
+    // closeNode() on a split window only closes the *active* pane, so the old
+    // "loop closeNode over every node" implementation left panes 3 and 4 alive.
+    const killed: string[] = []
+    const removed: string[] = []
+    ;(globalThis as never as { window: unknown }).window = {
+      termflow: {
+        pty: { kill: (id: string) => killed.push(id) },
+        terminals: { remove: async (id: string) => void removed.push(id) }
+      }
+    }
+    useAppStore.setState({
+      activeWorkspaceId: 'w1',
+      terminals: {
+        t1: { id: 't1' } as never,
+        t2: { id: 't2' } as never,
+        t3: { id: 't3' } as never,
+        other: { id: 'other' } as never
+      },
+      gitStatus: { t1: {} as never },
+      nodes: [
+        { id: 'n1', workspaceId: 'w1', terminalId: 't1', panes: { type: 'leaf', terminalId: 't1', title: 'One' } } as never,
+        { id: 'n2', workspaceId: 'w1', terminalId: 't2', activePaneId: 't2', panes: { type: 'split', dir: 'vertical', ratio: 0.5, a: { type: 'leaf', terminalId: 't2', title: 'Two' }, b: { type: 'leaf', terminalId: 't3', title: 'Three' } } } as never,
+        { id: 'n9', workspaceId: 'w2', terminalId: 'other' } as never
+      ],
+      activeNodeId: 'n2'
+    })
+
+    await useAppStore.getState().closeAllNodes()
+
+    const s = useAppStore.getState()
+    expect(killed.sort()).toEqual(['t1', 't2', 't3'])
+    expect(removed.sort()).toEqual(['t1', 't2', 't3'])
+    expect(Object.keys(s.terminals)).toEqual(['other']) // no stale-snapshot revival
+    expect(s.gitStatus.t1).toBeUndefined()
+    // Other workspaces are untouched, and the active window falls back to one
+    // that still exists.
+    expect(s.nodes.map((n) => n.id)).toEqual(['n9'])
+    expect(s.activeNodeId).toBe('n9')
+  })
+
   it('does nothing when the workspace has a single window', () => {
     useAppStore.setState({
       activeWorkspaceId: 'w1',

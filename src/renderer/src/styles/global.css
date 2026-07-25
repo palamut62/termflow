@@ -606,6 +606,7 @@ input {
   margin-left: auto;
   display: flex;
   min-width: 0;
+  flex: none;
   /* No overflow:hidden here — the ⋯ dropdown opens position:absolute inside
      this container and would be clipped invisible otherwise. */
   gap: 2px;
@@ -1176,8 +1177,11 @@ input {
 }
 
 /* ---- Tab bar for multi-pane nodes ---- */
-/* Pane chips sit in the window header, right-aligned. The leading auto margin
-   claims the free space so `.hactions` (also margin-left:auto) gets none. */
+/* Pane chips sit at the right end of the window header, just before the action
+   buttons. The auto margin claims all the free space; `.hactions` keeps its own
+   `margin-left:auto` for the single-pane case (no chips in the row at all), so
+   it has to be neutralised when the chips are actually there — otherwise the
+   two auto margins split the gap and the chips drift into the middle. */
 .tnode-tabs {
   display: flex;
   align-items: center;
@@ -1190,6 +1194,9 @@ input {
 }
 .tnode-tabs::-webkit-scrollbar {
   display: none;
+}
+.tnode-header .tnode-tabs + .hactions {
+  margin-left: 4px;
 }
 .tnode-tab {
   display: flex;
@@ -1233,8 +1240,8 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Only the active pane spells its name out; the rest stay as numbers. */
-.tnode-tab:not(.active):not(:hover) .pane-name,
+/* Every pane spells its name out; only the × stays hidden until the chip is
+   active or hovered, so the row does not read as a wall of close buttons. */
 .tnode-tab:not(.active):not(:hover) .tab-close {
   display: none;
 }

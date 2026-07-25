@@ -297,8 +297,11 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
               const t = terminals[tid]
               const full = t?.name || tid.slice(0, 8)
               // Pane names are prefixed with the window title ("CMD 1.2"); showing
-              // that prefix again next to the window tab is pure noise.
-              const short = full.startsWith(node.title) ? full.slice(node.title.length).replace(/^[.\s]+/, '') : full
+              // that prefix again next to the window tab is pure noise. Older
+              // sessions whose pane name *is* the window title strip down to
+              // nothing, so fall back to the full name rather than an empty chip.
+              const stripped = full.startsWith(node.title) ? full.slice(node.title.length).replace(/^[.\s]+/, '') : full
+              const short = stripped || full
               const isActive = (node.activePaneId ?? getLeafTerminalIds(node.panes!)[0]) === tid
               return (
                 <div
