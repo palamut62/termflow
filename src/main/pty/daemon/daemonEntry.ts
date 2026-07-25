@@ -25,8 +25,12 @@ import {
   type ServerFrame
 } from '../../../shared/ptyDaemonProtocol'
 import { PtyCore } from '../PtyCore'
+import { warmPathCache } from '../shells'
 
-const token = process.env.TERMFLOW_DAEMON_TOKEN || ''
+// Same warm-up as the main process: the daemon spawns shells too.
+warmPathCache()
+
+const token =process.env.TERMFLOW_DAEMON_TOKEN || ''
 const pipePath = process.env.TERMFLOW_DAEMON_PIPE || ''
 const logPath = process.env.TERMFLOW_DAEMON_LOG || ''
 const idleMs = Number(process.env.TERMFLOW_DAEMON_IDLE_MS) || DEFAULT_DAEMON_IDLE_MS

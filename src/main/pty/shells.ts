@@ -1,6 +1,6 @@
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { execSync } from 'child_process'
+import { execFile } from 'child_process'
 import type { CreateTerminalInput, ShellKind } from '../../shared/types'
 
 export interface ResolvedShell {
@@ -71,6 +71,28 @@ export function discoverShells(): ShellCandidate[] {
   ]
 }
 
+/**
+ * Locate a bundled shell-integration script. Resolved without electron's `app`
+ * so the detached PTY daemon (a plain node process) can use it too.
+ * Dev: <project>/resources/... — packaged: <resources>/resources/... .
+ */
+function shellIntegrationScript(file: string): string | undefined {
+  const candidates = [
+    join(__dirname, '../../resources/shell-integration', file),
+    process.resourcesPath ? join(process.resourcesPath, 'resources', 'shell-integration', file) : '',
+    join(process.cwd(), 'resources', 'shell-integration', file)
+  ].filter(Boolean)
+  return firstExisting(candidates)
+}
+
+/**
+ * Shell kinds that can emit OSC 133 semantic prompts. CMD is intentionally
+ * absent: it has no pre/post-exec hook and its prompt expands %ERRORLEVEL% at
+ * assignment time, so a `133;D;<exitcode>` from it would always be stale — see
+ * resources/shell-integration/cmd-unsupported.md.
+ */
+export const SHELL_INTEGRATION_KINDS: ShellKind[] = ['powershell', 'pwsh', 'gitbash']
+
 function expandEnvVars(value: string): string {
   return value.replace(/%([^%]+)%/g, (match, name) => {
     const found = process.env[name]
@@ -78,36 +100,93 @@ function expandEnvVars(value: string): string {
   })
 }
 
-function readRegPath(hive: 'HKLM' | 'HKCU'): string | undefined {
+/**
+ * Read a PATH value from the registry WITHOUT blocking the event loop.
+ * `execSync` here used to stall the whole main process (IPC, PTY output,
+ * window events) for ~190ms on every cache miss — see refreshPathCache().
+ */
+function readRegPath(hive: 'HKLM' | 'HKCU'): Promise<string | undefined> {
   const key =
     hive === 'HKLM'
       ? 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'
       : 'HKCU\\Environment'
-  const output = execSync(`reg query "${key}" /v Path`, { encoding: 'utf8', windowsHide: true })
-  const match = output.match(/Path\s+(REG_SZ|REG_EXPAND_SZ)\s+(.*)/)
-  if (!match) return undefined
-  return expandEnvVars(match[2].trim())
+  return new Promise((resolve) => {
+    execFile(
+      'reg',
+      ['query', key, '/v', 'Path'],
+      { encoding: 'utf8', windowsHide: true },
+      (err, stdout) => {
+        if (err) return resolve(undefined)
+        const match = String(stdout).match(/Path\s+(REG_SZ|REG_EXPAND_SZ)\s+(.*)/)
+        resolve(match ? expandEnvVars(match[2].trim()) : undefined)
+      }
+    )
+  })
 }
 
 let pathCache: { value: string | null; ts: number } | null = null
-const PATH_CACHE_TTL_MS = 30_000
+let pathRefreshInFlight: Promise<void> | null = null
+let refreshScheduled = false
+const PATH_CACHE_TTL_MS = 5 * 60_000
 
+/**
+ * Refresh the registry PATH cache in the background. Concurrent calls share a
+ * single in-flight refresh. Nothing on the terminal-creation path ever awaits
+ * this: resolveShell() always uses the last known value immediately.
+ */
+export function refreshPathCache(): Promise<void> {
+  if (pathRefreshInFlight) return pathRefreshInFlight
+  pathRefreshInFlight = (async () => {
+    try {
+      const [machine, user] = await Promise.all([readRegPath('HKLM'), readRegPath('HKCU')])
+      const combined = [machine, user].filter((v): v is string => !!v).join(';')
+      pathCache = { value: combined || null, ts: Date.now() }
+    } catch {
+      pathCache = { value: null, ts: Date.now() }
+    } finally {
+      pathRefreshInFlight = null
+    }
+  })()
+  return pathRefreshInFlight
+}
+
+/**
+ * Kick off a refresh on the next tick. Even `execFile` pays ~10-30ms of
+ * synchronous spawn cost, which must not land on the terminal-creation path.
+ */
+function scheduleRefresh(): void {
+  if (pathRefreshInFlight || refreshScheduled) return
+  refreshScheduled = true
+  setImmediate(() => {
+    refreshScheduled = false
+    void refreshPathCache()
+  })
+}
+
+/** Warm the cache once at startup so the very first terminal already has it. */
+export function warmPathCache(): void {
+  void refreshPathCache()
+}
+
+/**
+ * Stale-while-revalidate: return the cached value synchronously (null when the
+ * cache was never populated, in which case the caller simply keeps
+ * process.env.PATH) and kick off a background refresh when it went stale.
+ */
 function freshPath(): string | null {
-  const now = Date.now()
-  if (pathCache && now - pathCache.ts < PATH_CACHE_TTL_MS) {
-    return pathCache.value
-  }
-  try {
-    const machine = readRegPath('HKLM')
-    const user = readRegPath('HKCU')
-    const combined = [machine, user].filter((v): v is string => !!v).join(';')
-    const value = combined || null
-    pathCache = { value, ts: now }
-    return value
-  } catch {
-    pathCache = { value: null, ts: now }
+  if (!pathCache) {
+    scheduleRefresh()
     return null
   }
+  if (Date.now() - pathCache.ts >= PATH_CACHE_TTL_MS) scheduleRefresh()
+  return pathCache.value
+}
+
+/** Test seam: reset the module-level PATH cache. */
+export function __resetPathCacheForTests(): void {
+  pathCache = null
+  pathRefreshInFlight = null
+  refreshScheduled = false
 }
 
 function mergePathValues(registryPath: string, currentPath: string): string {
@@ -190,17 +269,41 @@ export function resolveShell(input: CreateTerminalInput): ResolvedShell {
   // Windows "Open with" dialog. Errors also stay visible in-terminal.
   const host = (): ResolvedShell => ({ shell: cmdPath, args: [], cwd, env })
 
+  // Opt-in OSC 133 shell integration (settings.shellIntegration, default off).
+  // The script is dot-sourced/rc-sourced into THIS session only — nothing is
+  // ever written to $PROFILE or ~/.bashrc. When the flag is off, or the script
+  // is missing, every branch below falls through to the legacy args unchanged.
+  const psIntegrationArgs = (): string[] | null => {
+    if (!input.shellIntegration) return null
+    const script = shellIntegrationScript('powershell.ps1')
+    if (!script) return null
+    return ['-NoLogo', '-NoExit', '-Command', `. '${script.replace(/'/g, "''")}'`]
+  }
+  const bashIntegrationArgs = (): string[] | null => {
+    if (!input.shellIntegration) return null
+    const script = shellIntegrationScript('bash.sh')
+    if (!script) return null
+    // --rcfile only applies to interactive non-login shells, so --login is
+    // dropped here; the rc file sources /etc/bash.bashrc and ~/.bashrc itself.
+    return ['-i', '--rcfile', script.replace(/\\/g, '/')]
+  }
+
   switch (input.kind) {
     case 'powershell':
-      return { shell: psPath, args: ['-NoLogo'], cwd, env }
+      return { shell: psPath, args: psIntegrationArgs() ?? ['-NoLogo'], cwd, env }
     case 'pwsh':
-      return { shell: pwsh ?? psPath, args: ['-NoLogo'], cwd, env }
+      return { shell: pwsh ?? psPath, args: psIntegrationArgs() ?? ['-NoLogo'], cwd, env }
     case 'cmd':
       return { shell: cmdPath, args: [], cwd, env }
     case 'wsl':
       return { shell: wsl, args: input.args ?? [], cwd, env }
     case 'gitbash':
-      return { shell: gitBash ?? psPath, args: gitBash ? ['--login', '-i'] : ['-NoLogo'], cwd, env }
+      return {
+        shell: gitBash ?? psPath,
+        args: gitBash ? bashIntegrationArgs() ?? ['--login', '-i'] : ['-NoLogo'],
+        cwd,
+        env
+      }
     case 'ssh': {
       const ssh = sshPath()
       if (!ssh) return host()

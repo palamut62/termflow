@@ -9,6 +9,7 @@ const APP_ICON = app.isPackaged
   ? join(process.resourcesPath, 'resources', 'icon.ico')
   : join(__dirname, '../../resources/icon.ico')
 import { getSettings, initDatabase, flushPersist } from './db/database'
+import { warmPathCache } from './pty/shells'
 import { registerIpc } from './ipc/registerIpc'
 import type { PtyController } from './pty/backend'
 
@@ -129,6 +130,9 @@ if (!gotLock) {
 }
 
 app.whenReady().then(() => {
+  // Warm the registry PATH cache off the critical path so the first terminal
+  // never pays for a `reg query` round trip.
+  warmPathCache()
   recoveryFile = join(app.getPath('userData'), 'session-state.json')
   if (existsSync(recoveryFile)) { try { previousSessionCrashed = !(JSON.parse(readFileSync(recoveryFile, 'utf-8')) as { cleanExit?: boolean }).cleanExit } catch { previousSessionCrashed = true } }
   try { writeFileSync(recoveryFile, JSON.stringify({ cleanExit: false, startedAt: new Date().toISOString() }), 'utf-8') } catch (err) { console.warn('[recovery] failed to write session-state:', err) }

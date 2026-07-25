@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync } from 'fs'
+import fsp from 'fs/promises'
 import { nanoid } from 'nanoid'
 import type {
   Workspace,
@@ -70,16 +71,47 @@ const BACKUP_INTERVAL_MS = 60_000
 let persistTimer: ReturnType<typeof setTimeout> | null = null
 let lastBackupAt = 0
 
-/** Synchronous atomic write. Backs up at most once per BACKUP_INTERVAL_MS. */
+/**
+ * Synchronous atomic write. Backs up at most once per BACKUP_INTERVAL_MS.
+ * Only used on the shutdown path, where the process may die at any moment.
+ */
 function writeStore(): void {
-  const tmp = filePath + '.tmp'
-  writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8')
+  const tmp = filePath + '.flush.tmp'
+  writeFileSync(tmp, JSON.stringify(store), 'utf-8')
   const nowMs = Date.now()
   if (existsSync(filePath) && nowMs - lastBackupAt >= BACKUP_INTERVAL_MS) {
     copyFileSync(filePath, filePath + '.bak')
     lastBackupAt = nowMs
   }
   renameSync(tmp, filePath)
+}
+
+/**
+ * Asynchronous atomic write, serialized through a single-slot queue so two
+ * writes can never interleave on the same temp file. The JSON is serialized
+ * eagerly (on the caller's tick) so the snapshot matches the state at schedule
+ * time; only the disk I/O is deferred, keeping the main thread responsive.
+ */
+let writeChain: Promise<void> = Promise.resolve()
+let shuttingDown = false
+
+function writeStoreAsync(): Promise<void> {
+  const payload = JSON.stringify(store)
+  writeChain = writeChain.then(async () => {
+    if (shuttingDown) return // flushPersist() owns the file from here on
+    const tmp = filePath + '.tmp'
+    await fsp.writeFile(tmp, payload, 'utf-8')
+    if (shuttingDown) return
+    const nowMs = Date.now()
+    if (existsSync(filePath) && nowMs - lastBackupAt >= BACKUP_INTERVAL_MS) {
+      await fsp.copyFile(filePath, filePath + '.bak')
+      lastBackupAt = nowMs
+    }
+    await fsp.rename(tmp, filePath)
+  }).catch((err) => {
+    console.error('[termflow] persist failed:', err)
+  })
+  return writeChain
 }
 
 /**
@@ -91,7 +123,7 @@ function persist(): void {
   if (persistTimer) return
   persistTimer = setTimeout(() => {
     persistTimer = null
-    writeStore()
+    void writeStoreAsync()
   }, PERSIST_DEBOUNCE_MS)
 }
 
@@ -105,7 +137,20 @@ export function flushPersist(): void {
     clearTimeout(persistTimer)
     persistTimer = null
   }
+  // Any queued/in-flight async write is abandoned: this synchronous write has
+  // the newest state and its own temp file, so the two cannot interleave.
+  shuttingDown = true
   writeStore()
+}
+
+/** Test seam: wait for every scheduled async write to reach the disk. */
+export function __drainPersistForTests(): Promise<void> {
+  return writeChain
+}
+
+/** Test seam: re-enable async persistence after a flush. */
+export function __resumePersistForTests(): void {
+  shuttingDown = false
 }
 
 function now(): string {

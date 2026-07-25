@@ -7,7 +7,6 @@ import {
   X,
   PanelRightClose,
   PanelRightOpen,
-  TerminalSquare,
   Maximize2,
   AlertTriangle,
   GitBranch,
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
+import WindowTabs from './WindowTabs'
 import { useAppStore } from '../store/appStore'
 import { profileFor } from '../profiles'
 import type { PaneNode, SplitPane } from '../../../shared/types'
@@ -237,13 +237,10 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
   return (
     <div className={`tnode ${hasError ? 'errored' : ''} ${isBroadcasting ? 'broadcasting' : ''}`}>
       <div className="tnode-header">
-        {hasError ? (
-          <AlertTriangle size={14} color="var(--danger)" />
-        ) : (
-          <TerminalSquare size={14} color="var(--text-muted)" />
-        )}
-        <span className="title">{node.title}</span>
-        <span className="kind-tag">{terminal.kind}</span>
+        {/* The window name is owned by the tab strip; repeating it as a title
+            here is what made the two chrome rows look duplicated. */}
+        <WindowTabs />
+        {hasError && <AlertTriangle size={14} color="var(--danger)" />}
         {recording && <span className="rec-dot" title="Recording in progress" />}
         {zoomActive && (
           <span
@@ -294,6 +291,39 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
           </span>
         )}
         {gitActionMsg && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{gitActionMsg}</span>}
+        {node.panes && countLeaves(node.panes) > 1 && (
+          <div className="tnode-tabs" role="tablist" aria-label="Panes">
+            {getLeafTerminalIds(node.panes).map((tid, i) => {
+              const t = terminals[tid]
+              const full = t?.name || tid.slice(0, 8)
+              // Pane names are prefixed with the window title ("CMD 1.2"); showing
+              // that prefix again next to the window tab is pure noise.
+              const short = full.startsWith(node.title) ? full.slice(node.title.length).replace(/^[.\s]+/, '') : full
+              const isActive = (node.activePaneId ?? getLeafTerminalIds(node.panes!)[0]) === tid
+              return (
+                <div
+                  key={tid}
+                  role="tab"
+                  aria-selected={isActive}
+                  title={full}
+                  className={`tnode-tab ${isActive ? 'active' : ''}`}
+                  onClick={() => setActivePane(id, tid)}
+                  onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closePaneInNode(id, tid) } }}
+                >
+                  <span className="pane-idx">{i + 1}</span>
+                  {short && <span className="pane-name">{short}</span>}
+                  <button
+                    className="tab-close"
+                    aria-label={`Close pane ${full}`}
+                    onClick={(e) => { e.stopPropagation(); closePaneInNode(id, tid) }}
+                  >
+                    &times;
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
         <div className="hactions">
           <div style={{ position: 'relative', display: 'inline-flex' }}>
             <button
@@ -369,21 +399,6 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
         <button className="hbtn danger close-node" title="Close" aria-label={`Close ${node.title}`} onClick={() => setClosing(true)}>
           <X size={15} />
         </button>
-        {node.panes && countLeaves(node.panes) > 1 && (
-          <div className="tnode-tabs">
-            {getLeafTerminalIds(node.panes).map(tid => {
-              const t = terminals[tid]
-              const isActive = (node.activePaneId ?? getLeafTerminalIds(node.panes!)[0]) === tid
-              return (
-                <div key={tid} className={`tnode-tab ${isActive ? 'active' : ''}`}
-                  onClick={() => setActivePane(id, tid)}>
-                  <span>{t?.name || tid.slice(0, 8)}</span>
-                  <button className="tab-close" onClick={(e) => { e.stopPropagation(); closePaneInNode(id, tid) }}>&times;</button>
-                </div>
-              )
-            })}
-          </div>
-        )}
         {recordingLimitWarning && recordingLimitWarning.terminalId === termId && (
           <div
             style={{

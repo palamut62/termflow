@@ -9,6 +9,13 @@ import {
   type NewTerminalOpts
 } from '../storeShared'
 import { initNotifications, notifyLongCommandDone, notifyError, notifyOutputPattern } from '../notifications'
+import {
+  awaitTerminalSize,
+  forgetTerminalSize,
+  markTerminalCreateReturned,
+  markTerminalCreateStart,
+  markTerminalFirstData
+} from '../../terminalStartup'
 import type { AppState } from '../appStore'
 
 export interface TerminalSlice {
@@ -85,7 +92,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       cwd,
       env: opts?.env,
       cleanProviderEnv,
-      status: 'stopped',
+      // Optimistic: the pane is on screen before the PTY exists.
+      status: 'starting',
       createdAt: ts,
       updatedAt: ts
     }
@@ -117,38 +125,13 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       bypass: useBypass
     }
 
-    let pid: number | undefined
-    try {
-      const res = await window.termflow.pty.create(termId, {
-        workspaceId: wsId,
-        name,
-        kind,
-        shell: opts?.customShell,
-        args: opts?.args,
-        cwd,
-        env: opts?.env,
-        cleanProviderEnv,
-        startupCommand: runtimeStartup
-      })
-      pid = res.pid
-    } catch {
-      session.status = 'error'
-    }
-
-    // ConPTY can report pid 0 even though creation succeeded and the PTY is
-    // usable. Only a rejected create call means startup failed.
-    const persisted: TerminalSession = { ...session, pid: pid && pid > 0 ? pid : undefined, status: session.status === 'error' ? 'error' : 'running' }
-    await window.termflow.terminals.upsert(persisted)
-
-    // Queue an explicit initial prompt to be typed in once the CLI's startup
-    // banner appears (one-shot).
-    if (persisted.status === 'running' && opts?.initialPrompt) {
-      pendingInitialPrompts.set(termId, opts.initialPrompt)
-    }
-
+    // ---- Optimistic render ----
+    // The pane goes on screen NOW, before any IPC round trip. xterm mounts,
+    // measures its real cell grid and reports it, so the PTY below can be
+    // spawned at exactly that size (no startup resize, no ConPTY rewrap).
     if (asPane && activeNode) {
       set((s) => ({
-        terminals: { ...s.terminals, [termId]: persisted },
+        terminals: { ...s.terminals, [termId]: session },
         // Adding a pane breaks the zoom and leaves copy mode (tmux behaviour).
         zoomedPaneId: null,
         copyModePaneId: null,
@@ -163,16 +146,62 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           return { ...n, panes: buildTiledPane(leaves)!, activePaneId: termId }
         })
       }))
-      get().persist()
-      return
+    } else {
+      set((s) => ({
+        terminals: { ...s.terminals, [termId]: session },
+        nodes: [...s.nodes, node],
+        activeNodeId: nodeId
+      }))
+    }
+    get().persist()
+
+    // ---- Spawn (after the pane is visible) ----
+    markTerminalCreateStart(termId, `${kind} terminal`)
+    const size = await awaitTerminalSize(termId)
+    let pid: number | undefined
+    let failed = false
+    try {
+      const res = await window.termflow.pty.create(termId, {
+        workspaceId: wsId,
+        name,
+        kind,
+        shell: opts?.customShell,
+        args: opts?.args,
+        cwd,
+        env: opts?.env,
+        cleanProviderEnv,
+        startupCommand: runtimeStartup,
+        cols: size?.cols,
+        rows: size?.rows,
+        // Opt-in OSC 133 injection; off => the legacy spawn path.
+        shellIntegration: st.settings.shellIntegration
+      })
+      pid = res.pid
+    } catch (err) {
+      failed = true
+      console.error('[termflow] pty.create failed', err)
+    }
+    markTerminalCreateReturned(termId)
+
+    // ConPTY can report pid 0 even though creation succeeded and the PTY is
+    // usable. Only a rejected create call means startup failed.
+    const persisted: TerminalSession = {
+      ...session,
+      pid: pid && pid > 0 ? pid : undefined,
+      status: failed ? 'error' : 'running',
+      updatedAt: new Date().toISOString()
     }
 
+    // Queue an explicit initial prompt to be typed in once the CLI's startup
+    // banner appears (one-shot).
+    if (!failed && opts?.initialPrompt) pendingInitialPrompts.set(termId, opts.initialPrompt)
+
     set((s) => ({
-      terminals: { ...s.terminals, [termId]: persisted },
-      nodes: [...s.nodes, node],
-      activeNodeId: nodeId
+      terminals: s.terminals[termId] ? { ...s.terminals, [termId]: persisted } : s.terminals,
+      nodes: failed ? s.nodes.map((n) => (n.id === nodeId || n.id === activeNode?.id ? { ...n, status: 'error' as const } : n)) : s.nodes
     }))
-    get().persist()
+    // Persistence must never gate the terminal becoming usable.
+    void window.termflow.terminals.upsert(persisted).catch((err) => console.error('[termflow] terminals.upsert failed', err))
   },
 
   // Duplicate a node: spawn a fresh terminal with the same shell/cwd/startup
@@ -215,6 +244,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     if (mode === 'terminate') {
       for (const tid of termIds) {
         window.termflow.pty.kill(tid)
+        forgetTerminalSize(tid)
         await window.termflow.terminals.remove(tid)
       }
     }
@@ -256,7 +286,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           cwd: terminal.cwd,
           env: terminal.env,
           cleanProviderEnv: terminal.cleanProviderEnv,
-          startupCommand: terminal.startupCommand
+          startupCommand: terminal.startupCommand,
+          shellIntegration: st.settings.shellIntegration
         })
         nextTerminal = { ...terminal, pid, status: 'running', updatedAt: new Date().toISOString() }
       } catch {
@@ -290,6 +321,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     if (!st.terminals[terminalId]) return
     try {
       window.termflow.pty.kill(terminalId)
+      forgetTerminalSize(terminalId)
       await window.termflow.terminals.remove(terminalId)
     } catch {
       // Process may already be gone; still drop it from state below.
@@ -318,6 +350,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     for (const tid of detachedIds) {
       try {
         window.termflow.pty.kill(tid)
+        forgetTerminalSize(tid)
         await window.termflow.terminals.remove(tid)
       } catch {
         // Already gone; still drop from state below.
@@ -374,7 +407,18 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     const activeTerminal = st.terminals[activeTermId]
     const newTermId = nanoid()
     const inheritedKind = activeTerminal?.kind ?? 'cmd'
-    const newName = `${activeTerminal?.name || 'Terminal'} split`
+    // tmux-style `window.pane` naming. Appending " split" to the *active* pane's
+    // name compounded on every split ("CMD 1 split split split") and made the
+    // pane tab strip unreadable; numbering off the window keeps names flat.
+    const existingLeafCount = node.panes ? countLeaves(node.panes) : 1
+    const usedNames = new Set(
+      (node.panes ? getLeafTerminalIds(node.panes) : [])
+        .map((tid) => st.terminals[tid]?.name)
+        .filter((n): n is string => !!n)
+    )
+    let paneIndex = existingLeafCount + 1
+    while (usedNames.has(`${node.title}.${paneIndex}`)) paneIndex++
+    const newName = `${node.title}.${paneIndex}`
     const cwd = activeTerminal?.cwd || ws.path
     const cleanProviderEnv = activeTerminal?.cleanProviderEnv ?? !!profileFor(inheritedKind).startupCommand
     const ts = new Date().toISOString()
@@ -388,32 +432,16 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       args: activeTerminal?.args || [],
       cwd,
       cleanProviderEnv,
-      status: 'stopped',
+      status: 'starting',
       createdAt: ts,
       updatedAt: ts
     }
-
-    try {
-      const res = await window.termflow.pty.create(newTermId, {
-        workspaceId: st.activeWorkspaceId!,
-        name: newName,
-        kind: inheritedKind,
-        shell: activeTerminal?.shell,
-        args: activeTerminal?.args,
-        cwd,
-        cleanProviderEnv
-      })
-      session.pid = res.pid
-      session.status = 'running'
-    } catch {
-      session.status = 'error'
-    }
-    await window.termflow.terminals.upsert(session)
 
     const currentPane = node.panes || { type: 'leaf' as const, terminalId: node.terminalId!, title: node.title }
     const existingTitle = getLeafTerminalIds(currentPane).includes(activeTermId) ? (get().terminals[activeTermId]?.name || node.title) : node.title
     const newPane = splitPane(currentPane, activeTermId, dir === 'vertical' ? 'horizontal' : 'vertical', existingTitle, newTermId, newName)
 
+    // Optimistic render: the split appears immediately, the PTY follows.
     set((s) => ({
       terminals: { ...s.terminals, [newTermId]: session },
       // Splitting breaks the zoom (tmux behaviour) and leaves copy mode.
@@ -422,6 +450,38 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, panes: newPane, activePaneId: newTermId } : n)
     }))
     get().persist()
+
+    markTerminalCreateStart(newTermId, `${inheritedKind} split`)
+    const size = await awaitTerminalSize(newTermId)
+    let failed = false
+    try {
+      const res = await window.termflow.pty.create(newTermId, {
+        workspaceId: st.activeWorkspaceId!,
+        name: newName,
+        kind: inheritedKind,
+        shell: activeTerminal?.shell,
+        args: activeTerminal?.args,
+        cwd,
+        cleanProviderEnv,
+        cols: size?.cols,
+        rows: size?.rows,
+        shellIntegration: st.settings.shellIntegration
+      })
+      session.pid = res.pid
+      session.status = 'running'
+    } catch (err) {
+      failed = true
+      session.status = 'error'
+      console.error('[termflow] pty.create failed', err)
+    }
+    markTerminalCreateReturned(newTermId)
+
+    const spawned: TerminalSession = { ...session, updatedAt: new Date().toISOString() }
+    set((s) => ({
+      terminals: s.terminals[newTermId] ? { ...s.terminals, [newTermId]: spawned } : s.terminals,
+      nodes: failed ? s.nodes.map((n) => (n.id === nodeId ? { ...n, status: 'error' as const } : n)) : s.nodes
+    }))
+    void window.termflow.terminals.upsert(spawned).catch((err) => console.error('[termflow] terminals.upsert failed', err))
   },
 
   closePaneInNode: async (nodeId, terminalId, mode = 'terminate') => {
@@ -431,6 +491,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
 
     if (mode === 'terminate') {
       window.termflow.pty.kill(terminalId)
+      forgetTerminalSize(terminalId)
       await window.termflow.terminals.remove(terminalId)
     }
 
@@ -526,6 +587,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     listenersStarted = true
     initNotifications()
     window.termflow.pty.onData((id, data) => {
+      markTerminalFirstData(id)
       // Fire the queued initial prompt once the CLI's own startup banner shows
       // up in its output (one-shot per terminal).
       const queuedPrompt = pendingInitialPrompts.get(id)

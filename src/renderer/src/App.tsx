@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { TerminalSquare } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Toolbar from './components/Toolbar'
 import StatusBar from './components/StatusBar'
 import WorkspaceModal from './components/WorkspaceModal'
-import SettingsModal from './components/SettingsModal'
+// Heavy, rarely-opened modals are code-split so they never sit in the startup
+// bundle with the terminal path. (TerminalView/xterm is deliberately eager.)
+const SettingsModal = lazy(() => import('./components/SettingsModal'))
+const DeveloperCenter = lazy(() => import('./components/DeveloperCenter'))
+const ProviderManagerModal = lazy(() => import('./components/ProviderManagerModal'))
 import SnippetModal from './components/SnippetModal'
 import ProjectManifestPanel from './components/ProjectManifestPanel'
 import DetachedSessionsPanel from './components/DetachedSessionsPanel'
-import DeveloperCenter from './components/DeveloperCenter'
 import HelpModal from './components/HelpModal'
 import TerminalLauncherModal from './components/TerminalLauncherModal'
-import ProviderManagerModal from './components/ProviderManagerModal'
 import RecoveryModal from './components/RecoveryModal'
 import ConfirmModal from './components/ConfirmModal'
 import PromptModal, { type PromptField } from './components/PromptModal'
@@ -21,6 +23,7 @@ import WindowView from './canvas/WindowView'
 import { useAppStore } from './store/appStore'
 import { getActiveTerminalId, getLeafTerminalIds, countLeaves, findPaneInDirection, type PaneDirection } from './paneUtils'
 import { isPrefixEvent, prefixControlChar, PREFIX_TIMEOUT_MS } from './prefixKeys'
+import { readLastCommandOutput } from './shellIntegration'
 import type { TermFlowPluginManifest } from '../../shared/types'
 import { pluginMatchesWorkspace } from '../../shared/pluginValidation'
 
@@ -66,13 +69,18 @@ export default function App(): React.JSX.Element {
     const openLauncher = (): void => setShowTerminalLauncher(true)
     const openProviders = (): void => setShowProviderManager(true)
     const closeAll = (): void => setConfirm({ title: 'Close all terminals', message: 'All terminal processes in this workspace will be terminated completely.', confirmLabel: 'Terminate All', tone: 'danger', onConfirm: () => useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')) })
+    // DeveloperCenter is lazily mounted, so its open event has to be handled
+    // here — the component itself is not in the tree while it is closed.
+    const openDevCenter = (): void => useAppStore.getState().setDeveloperCenterOpen(true)
     window.addEventListener('termflow:open-terminal-launcher', openLauncher)
     window.addEventListener('termflow:open-provider-manager', openProviders)
     window.addEventListener('termflow:close-all-terminals', closeAll)
+    window.addEventListener('termflow:open-developer-center', openDevCenter)
     return () => {
       window.removeEventListener('termflow:open-terminal-launcher', openLauncher)
       window.removeEventListener('termflow:open-provider-manager', openProviders)
       window.removeEventListener('termflow:close-all-terminals', closeAll)
+      window.removeEventListener('termflow:open-developer-center', openDevCenter)
     }
   }, [])
 
@@ -254,6 +262,19 @@ export default function App(): React.JSX.Element {
           }
         }
       })),
+      {
+        // Needs shell integration (OSC 133) to know where the last command's
+        // output starts; without it there is nothing to copy.
+        id: 'copy-last-output',
+        title: 'Copy Last Command Output',
+        run: () => {
+          const node = s().nodes.find((n) => n.id === s().activeNodeId)
+          if (!node) return
+          const tid = getActiveTerminalId(node.activePaneId, node.panes, node.terminalId)
+          const text = tid ? readLastCommandOutput(tid) : null
+          if (text) void navigator.clipboard.writeText(text)
+        }
+      },
       { id: 'new-snippet', title: 'Create New Snippet', run: () => setShowSnippetModal(true) },
       { id: 'settings', title: 'Open Settings', run: () => setShowSettings(true) },
       { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
@@ -482,7 +503,9 @@ export default function App(): React.JSX.Element {
         onOpenProviderManager={() => setShowProviderManager(true)}
       />
       <div className="canvas-wrap">
-        <WindowTabs />
+        {/* The window tab strip lives inside the window header (single chrome
+            row); it only needs its own row when there is no window to host it. */}
+        {nodes.length > 0 && !nodes.some((n) => n.id === activeNodeId) && <WindowTabs />}
         <div className="window-area">
           {activeNodeId && nodes.some((n) => n.id === activeNodeId) && (
             <WindowView key={activeNodeId} id={activeNodeId} />
@@ -498,13 +521,13 @@ export default function App(): React.JSX.Element {
           )}
         </div>
       </div>
-      <DeveloperCenter />
+      {developerCenterOpen && <Suspense fallback={null}><DeveloperCenter /></Suspense>}
       <StatusBar />
       {showWsModal && <WorkspaceModal onClose={() => setShowWsModal(false)} />}
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && <Suspense fallback={null}><SettingsModal onClose={() => setShowSettings(false)} /></Suspense>}
       {showHelp && <HelpModal initialTopicId={helpTopicId} onClose={() => { setShowHelp(false); setHelpTopicId(undefined) }} />}
       {showTerminalLauncher && <TerminalLauncherModal onClose={() => setShowTerminalLauncher(false)} />}
-      {showProviderManager && <ProviderManagerModal onClose={() => setShowProviderManager(false)} />}
+      {showProviderManager && <Suspense fallback={null}><ProviderManagerModal onClose={() => setShowProviderManager(false)} /></Suspense>}
       {showRecovery && <RecoveryModal onRestore={() => { void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} onDiscard={() => { useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')); void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}

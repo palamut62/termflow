@@ -1,5 +1,26 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolveShell } from './shells'
+import { resolveShell, __resetPathCacheForTests, refreshPathCache } from './shells'
+
+describe('PATH resolution never blocks the main process', () => {
+  it('returns immediately on a cold cache and keeps the inherited PATH', () => {
+    __resetPathCacheForTests()
+    const started = Date.now()
+    const resolved = resolveShell({ workspaceId: 'w', name: 'CMD', kind: 'cmd' })
+    // A synchronous `reg query` pair costs ~200ms; this path must be instant.
+    expect(Date.now() - started).toBeLessThan(30)
+    const pathKey = Object.keys(resolved.env).find((k) => k.toLowerCase() === 'path')
+    expect(pathKey).toBeDefined()
+    expect(resolved.env[pathKey!]).toBeTruthy()
+  })
+
+  it('populates the cache in the background and reuses it', async () => {
+    __resetPathCacheForTests()
+    await refreshPathCache()
+    const started = Date.now()
+    resolveShell({ workspaceId: 'w', name: 'CMD', kind: 'cmd' })
+    expect(Date.now() - started).toBeLessThan(30)
+  })
+})
 
 describe('resolveShell provider isolation', () => {
   const originalAnthropicBaseUrl = process.env.ANTHROPIC_BASE_URL

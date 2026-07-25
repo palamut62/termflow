@@ -7,6 +7,18 @@ const ACTIVE_INTERVAL_MS = 16 // PRD §11.6 IPC batching for the focused termina
 const DEFAULT_SCROLLBACK_LINES = 10000 // PRD §10.9.1
 const MAX_RECORDING_MS = 30 * 60 * 1000 // recording buffer cap: 30 minutes
 const MAX_RECORDING_BYTES = 50 * 1024 * 1024 // recording buffer cap: 50MB
+/**
+ * Upper bound on how long a startup command waits for the client to report the
+ * real terminal size. Only reached when the caller could not measure its pane
+ * (headless/background terminals); the measured path starts immediately.
+ */
+const STARTUP_FALLBACK_MS = 800
+
+/** Dev-only perf tracing; compiled out of the user's way in production. */
+const PERF = process.env.NODE_ENV !== 'production'
+function perfLog(message: string): void {
+  if (PERF) console.debug(message)
+}
 
 // Error/activity detection patterns (PRD §10.9.5)
 const ERROR_RE = /\b(error|exception|failed|fatal|traceback|npm ERR|ModuleNotFound|SyntaxError|TypeError|Permission denied)\b/i
@@ -40,6 +52,11 @@ interface ManagedPty {
   cwd: string
   startupTimer: NodeJS.Timeout | null
   startupPending: boolean
+  /** Last size actually pushed to ConPTY — used to skip no-op rewraps. */
+  cols: number
+  rows: number
+  /** Perf instrumentation: has the first byte been seen yet? */
+  sawFirstData: boolean
   // Recording
   recording: boolean
   recordingStart: number
@@ -84,11 +101,16 @@ export class PtyCore {
       this.kill(id)
     }
 
+    const t0 = Date.now()
     const resolved = resolveShell(input)
+    // The renderer measures its pane BEFORE calling create, so the PTY can be
+    // spawned at the final size and never needs a startup resize/rewrap.
+    const cols = input.cols && input.cols > 0 ? Math.floor(input.cols) : 120
+    const rows = input.rows && input.rows > 0 ? Math.floor(input.rows) : 30
     const proc = pty.spawn(resolved.shell, resolved.args, {
       name: 'xterm-256color',
-      cols: input.cols ?? 120,
-      rows: input.rows ?? 30,
+      cols,
+      rows,
       cwd: resolved.cwd,
       env: resolved.env,
       useConpty: true
@@ -111,6 +133,9 @@ export class PtyCore {
       cwd: resolved.cwd,
       startupTimer: null,
       startupPending: !!input.startupCommand,
+      cols,
+      rows,
+      sawFirstData: false,
       recording: false,
       recordingStart: 0,
       recordedChunks: [],
@@ -118,7 +143,13 @@ export class PtyCore {
     }
     this.terminals.set(id, managed)
 
-    proc.onData((data) => this.onData(managed, data))
+    proc.onData((data) => {
+      if (!managed.sawFirstData) {
+        managed.sawFirstData = true
+        perfLog(`[perf] pty ${id} spawn->first-byte ${Date.now() - t0}ms (${cols}x${rows})`)
+      }
+      this.onData(managed, data)
+    })
     proc.onExit(({ exitCode }) => {
       managed.exited = true
       managed.exitCode = exitCode
@@ -129,13 +160,22 @@ export class PtyCore {
 
     // Wait for the client to report the real xterm dimensions before starting
     // full-screen TUIs. Drawing at the 120x30 spawn default and then shrinking
-    // corrupts ConPTY's wrapped buffer (broken Claude/Codex borders). The
-    // fallback keeps headless/background terminals from waiting forever.
+    // corrupts ConPTY's wrapped buffer (broken Claude/Codex borders).
+    //
+    // When the caller already told us the real cell size (the renderer measures
+    // its pane before calling create), the PTY is ALREADY at its final size:
+    // there is nothing to wait for and no rewrap can happen, so the command
+    // goes in immediately. Otherwise we still wait for the first resize, with a
+    // short fallback so headless/background terminals never hang.
     if (input.startupCommand) {
-      managed.startupTimer = setTimeout(() => {
-        managed.startupTimer = null
+      if (input.cols && input.rows) {
         this.startStartupCommand(managed)
-      }, 5000)
+      } else {
+        managed.startupTimer = setTimeout(() => {
+          managed.startupTimer = null
+          this.startStartupCommand(managed)
+        }, STARTUP_FALLBACK_MS)
+      }
     }
 
     return { pid: proc.pid }
@@ -257,8 +297,16 @@ export class PtyCore {
   resize(id: string, cols: number, rows: number): void {
     const t = this.terminals.get(id)
     if (t && !t.exited && cols > 0 && rows > 0) {
+      // A ConPTY resize rewraps the buffer lossily; a no-op resize would do so
+      // for nothing (and corrupt TUI frames), so identical sizes are dropped.
+      if (t.cols === cols && t.rows === rows) {
+        this.startStartupCommand(t)
+        return
+      }
       try {
         t.proc.resize(cols, rows)
+        t.cols = cols
+        t.rows = rows
         this.startStartupCommand(t)
       } catch {
         /* pty may have exited between checks */

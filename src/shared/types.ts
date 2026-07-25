@@ -13,7 +13,9 @@ export type ShellKind =
   | 'ssh'
   | 'custom'
 
-export type TerminalStatus = 'running' | 'stopped' | 'error' | 'exited'
+/** `starting` is the transient optimistic state between the pane appearing on
+ *  screen and the PTY spawn returning; it is never persisted as such. */
+export type TerminalStatus = 'starting' | 'running' | 'stopped' | 'error' | 'exited'
 export type NodeStatus = 'idle' | 'running' | 'waiting' | 'error' | 'completed' | 'stopped'
 
 // ---- Pane Tree (Split-Pane feature) ----
@@ -333,6 +335,13 @@ export interface AppSettings {
    * (tmux-style, default) or as its own window tab.
    */
   newTerminalTarget: 'pane' | 'window'
+  /**
+   * Opt-in shell integration (OSC 133 semantic prompts). When enabled TermFlow
+   * injects a session-only startup script into the shells that support it, so
+   * command boundaries, exit codes and durations become known. Default: false —
+   * with it off the PTY spawn path is byte-for-byte the legacy one.
+   */
+  shellIntegration: boolean
 }
 
 export interface CustomAgentDef {
@@ -397,7 +406,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalBell: true,
   infoPanelDefaultOpen: false,
   prefixKey: 'ctrl+a',
-  newTerminalTarget: 'pane'
+  newTerminalTarget: 'pane',
+  shellIntegration: false
 }
 
 export interface WorkspaceLayout {
@@ -420,6 +430,8 @@ export interface CreateTerminalInput {
   startupCommand?: string
   cols?: number
   rows?: number
+  /** Inject the session-only OSC 133 shell-integration script (opt-in). */
+  shellIntegration?: boolean
 }
 
 // IPC channel names

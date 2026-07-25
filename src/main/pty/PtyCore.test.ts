@@ -66,6 +66,28 @@ describe('PtyCore lifecycle', () => {
     expect(info.total).toBe(14)
   })
 
+  // Startup-command timing: full-screen TUIs (claude/codex) must never draw
+  // their first frame at one size and then be rewrapped by ConPTY.
+  it('types the startup command immediately when the caller already measured the pane', () => {
+    const core = new PtyCore(() => undefined)
+    core.create('t1', { ...input, kind: 'claude', startupCommand: 'claude', cols: 100, rows: 40 })
+    expect(registry[0].writes).toEqual(['claude\r'])
+    // The PTY already spawned at the final size, so the client's first resize
+    // report is a no-op and no rewrap happens.
+    core.resize('t1', 100, 40)
+    expect(registry[0].resizes).toEqual([])
+  })
+
+  it('waits for the first size report when the pane could not be measured', () => {
+    const core = new PtyCore(() => undefined)
+    core.create('t1', { ...input, kind: 'claude', startupCommand: 'claude' })
+    expect(registry[0].writes).toEqual([])
+    core.resize('t1', 90, 30)
+    expect(registry[0].resizes).toEqual([[90, 30]])
+    expect(registry[0].writes).toEqual(['claude\r'])
+    core.kill('t1')
+  })
+
   it('restarts and removes terminal processes', () => {
     const core = new PtyCore(() => undefined)
     core.create('t1', input)

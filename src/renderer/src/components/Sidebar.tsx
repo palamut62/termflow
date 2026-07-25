@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Search, Plus, Folder, Bot, TerminalSquare, Trash2, X, Github, Download, Upload, Copy, LayoutTemplate, Save } from 'lucide-react'
 import { useAppStore } from '../store/appStore'
 import { getActiveTerminalId } from '../paneUtils'
 import ConfirmModal from './ConfirmModal'
 import PromptModal, { type PromptField } from './PromptModal'
-import TemplatesModal from './TemplatesModal'
+// Rarely-opened heavy modal: code-split out of the startup bundle.
+const TemplatesModal = lazy(() => import('./TemplatesModal'))
 
 const XIcon = ({ size = 13 }: { size?: number }): React.JSX.Element => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -253,7 +254,7 @@ export default function Sidebar({ onNewWorkspace }: Props): React.JSX.Element {
           onClose={() => setConfirm(null)}
         />
       )}
-      {showTemplates && <TemplatesModal onClose={() => setShowTemplates(false)} />}
+      {showTemplates && <Suspense fallback={null}><TemplatesModal onClose={() => setShowTemplates(false)} /></Suspense>}
       {templatePrompt && (
         <PromptModal
           title="Save as template"

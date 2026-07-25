@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import {
   Plus,
   Bot,
@@ -21,10 +21,11 @@ import {
 import { useAppStore } from '../store/appStore'
 import { PROFILES } from '../profiles'
 import CustomCommandModal from './CustomCommandModal'
-import GlobalSearchModal from './GlobalSearchModal'
 import DeveloperWorkbench from './DeveloperWorkbench'
-import PluginManagerModal from './PluginManagerModal'
-import ProviderManagerModal from './ProviderManagerModal'
+// Rarely-opened heavy modals: code-split out of the startup bundle.
+const GlobalSearchModal = lazy(() => import('./GlobalSearchModal'))
+const PluginManagerModal = lazy(() => import('./PluginManagerModal'))
+const ProviderManagerModal = lazy(() => import('./ProviderManagerModal'))
 import ConfirmModal from './ConfirmModal'
 import ProfileModal from './ProfileModal'
 import type { AiProviderProfile, ShellKind } from '../../../shared/types'
@@ -353,10 +354,10 @@ export default function Toolbar({ onOpenSettings, onOpenPalette, onOpenHelp, onO
           }}
         />
       )}
-      {globalSearchModal && <GlobalSearchModal onClose={() => setGlobalSearchModal(false)} />}
+      {globalSearchModal && <Suspense fallback={null}><GlobalSearchModal onClose={() => setGlobalSearchModal(false)} /></Suspense>}
       {workbench && <DeveloperWorkbench onClose={() => setWorkbench(false)} />}
-      {plugins && <PluginManagerModal onClose={() => setPlugins(false)} />}
-      {providerManagerId !== null && <ProviderManagerModal initialProviderId={providerManagerId} onClose={() => setProviderManagerId(null)} />}
+      {plugins && <Suspense fallback={null}><PluginManagerModal onClose={() => setPlugins(false)} /></Suspense>}
+      {providerManagerId !== null && <Suspense fallback={null}><ProviderManagerModal initialProviderId={providerManagerId} onClose={() => setProviderManagerId(null)} /></Suspense>}
       {pendingProfileDelete && (
         <ConfirmModal
           title="Delete profile?"

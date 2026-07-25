@@ -5,12 +5,21 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { registerWriter } from '../terminalRegistry'
+import { reportTerminalSize } from '../terminalStartup'
 import { useAppStore } from '../store/appStore'
 import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
 import { getLeafTerminalIds } from '../paneUtils'
 import { isPrefixEvent } from '../prefixKeys'
 import { applyMotion, clampPos, resolveCopyModeKey, selectionRange, type CopyBuffer, type CopyPos } from '../copyMode'
+import {
+  OSC_SEMANTIC_PROMPT,
+  OSC_VSCODE,
+  ShellIntegrationTracker,
+  registerCommandOutputReader,
+  type CommandRecord
+} from '../shellIntegration'
+import { notifyLongCommandDone } from '../store/notifications'
 
 // Short two-tone chime for the terminal bell (\x07). Web Audio, no asset —
 // throttled so a burst of BELs doesn't stack into noise.
@@ -90,6 +99,25 @@ function applyHighlights(
   }
 }
 
+/** How many exit-code decorations are kept alive per terminal. */
+const MAX_COMMAND_MARKS = 200
+
+/** Read the text of a finished command's output straight from the xterm buffer. */
+function commandOutputText(term: Terminal, record: CommandRecord): string | null {
+  const first = record.startLine
+  // The `D` sequence lands on the next prompt line, so the output stops before it.
+  const last = (record.endLine >= 0 ? record.endLine : term.buffer.active.length) - 1
+  if (first < 0 || last < first) return null
+  const buffer = term.buffer.active
+  const lines: string[] = []
+  for (let row = first; row <= Math.min(last, buffer.length - 1); row++) {
+    lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
+  }
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
+  const text = lines.join('\n')
+  return text.trim() ? text : null
+}
+
 /** Read-only view of the live xterm buffer for the pure copy-mode motions. */
 function bufferView(term: Terminal): CopyBuffer {
   const buf = term.buffer.active
@@ -156,6 +184,10 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const lastTotalRef = useRef(0)
   const lastPtySizeRef = useRef({ cols: 0, rows: 0 })
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Shell integration (OSC 133/633). Populated only when the opt-in setting is
+  // on; jumping between prompts goes through this ref so the key handler that
+  // xterm holds stays stable.
+  const jumpToCommandRef = useRef<((step: -1 | 1) => void) | null>(null)
   // Single resize channel, populated by the main effect. Other effects call
   // through this ref so every resize goes through the same atomic path.
   const scheduleResizeRef = useRef<(() => void) | null>(null)
@@ -331,6 +363,15 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // (Ctrl+A twice still reaches the shell: App sends the raw byte itself.)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
+      // Ctrl+Alt+Up/Down: jump between command prompts. Deliberately NOT
+      // prefix + n/p — those are already bound to window navigation.
+      if (event.ctrlKey && event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        if (jumpToCommandRef.current) {
+          event.preventDefault()
+          jumpToCommandRef.current(event.key === 'ArrowUp' ? -1 : 1)
+          return false
+        }
+      }
       const st = useAppStore.getState()
       // Copy mode swallows every key: nothing reaches the PTY, and its own
       // bindings (Ctrl+B page-up included) beat the prefix.
@@ -347,26 +388,115 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     termRef.current = term
     fitRef.current = fit
 
-    try {
-      // First measurement: move xterm AND the PTY to the real cell size in the
-      // same tick (no settle wait). The PTY spawns at a 120x30 default, and TUI
-      // apps that draw their first frames at that width leave permanently-
-      // wrapped garbage in the ring buffer otherwise.
-      const dims = fit.proposeDimensions()
-      if (dims && Number.isFinite(dims.cols) && Number.isFinite(dims.rows)) {
+    // ---- Shell integration (OSC 133 / VS Code OSC 633), opt-in ----
+    // The handlers are pure bookkeeping (no writes, no layout reads on the hot
+    // path), so the 16ms batching / passive throttling path is untouched. When
+    // the setting is off nothing is registered at all.
+    const shellIntegrationSubs: { dispose: () => void }[] = []
+    const commandMarks: IDecoration[] = []
+    if (useAppStore.getState().settings.shellIntegration) {
+      const tracker = new ShellIntegrationTracker()
+
+      const markCommand = (record: CommandRecord): void => {
+        const buffer = term.buffer.active
+        const cursorLine = buffer.baseY + buffer.cursorY
+        const line = record.startLine >= 0 ? record.startLine : record.promptLine
+        const offset = line - cursorLine
+        if (offset > 0 || cursorLine - line > term.buffer.active.length) return
+        const marker = term.registerMarker(offset)
+        if (!marker) return
+        const failed = record.exitCode !== undefined && record.exitCode !== 0
+        const deco = term.registerDecoration({ marker, x: 0, width: 1, layer: 'top' })
+        if (!deco) return
+        deco.onRender((el) => {
+          el.classList.add('tf-cmd-mark', failed ? 'tf-cmd-mark-fail' : 'tf-cmd-mark-ok')
+          const seconds = record.durationMs !== undefined ? ` · ${(record.durationMs / 1000).toFixed(1)}s` : ''
+          el.title = `${record.commandText ?? 'command'} — exit ${record.exitCode ?? '?'}${seconds}`
+        })
+        commandMarks.push(deco)
+        while (commandMarks.length > MAX_COMMAND_MARKS) {
+          try { commandMarks.shift()?.dispose() } catch { /* already disposed */ }
+        }
+      }
+
+      const handleOsc = (code: number) => (payload: string): boolean => {
+        const buffer = term.buffer.active
+        const event = tracker.handle(code, payload, buffer.baseY + buffer.cursorY)
+        if (event?.type === 'commandFinish') {
+          markCommand(event.record)
+          // Real command boundaries replace the old process-exit heuristic for
+          // the "long command finished" notification.
+          const settings = useAppStore.getState().settings
+          const duration = event.record.durationMs ?? 0
+          if (duration >= settings.longCommandThresholdMs) {
+            const name = useAppStore.getState().terminals[terminalId]?.name ?? 'Terminal'
+            notifyLongCommandDone(terminalId, event.record.commandText ?? name, event.record.exitCode ?? 0, duration)
+          }
+        }
+        return true // consumed: never let the payload reach the screen
+      }
+
+      shellIntegrationSubs.push(term.parser.registerOscHandler(OSC_SEMANTIC_PROMPT, handleOsc(OSC_SEMANTIC_PROMPT)))
+      shellIntegrationSubs.push(term.parser.registerOscHandler(OSC_VSCODE, handleOsc(OSC_VSCODE)))
+
+      jumpToCommandRef.current = (step) => {
+        const lines = tracker.commands.map((c) => c.promptLine).filter((l) => l >= 0)
+        if (!lines.length) return
+        const viewport = term.buffer.active.viewportY
+        const target =
+          step < 0
+            ? [...lines].reverse().find((l) => l < viewport) ?? lines[0]
+            : lines.find((l) => l > viewport) ?? lines[lines.length - 1]
+        term.scrollToLine(Math.max(0, target))
+      }
+
+      shellIntegrationSubs.push({
+        dispose: registerCommandOutputReader(terminalId, {
+          lastOutput: () => {
+            const record = tracker.lastFinished()
+            return record ? commandOutputText(term, record) : null
+          }
+        })
+      })
+    }
+
+    // First measurement: move xterm AND the PTY to the real cell size in the
+    // same tick (no settle wait). The PTY spawns at a 120x30 default, and TUI
+    // apps that draw their first frames at that width leave permanently-
+    // wrapped garbage in the ring buffer otherwise.
+    //
+    // The measurement is also reported to terminalStartup, so a pane that is
+    // still waiting for its PTY can have it spawned at exactly this size — then
+    // the pty.resize below is a no-op on the main side and ConPTY never rewraps.
+    let disposed = false
+    let firstMeasureDone = false
+    const measureNow = (): boolean => {
+      try {
+        const dims = fit.proposeDimensions()
+        if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return false
         const cols = Math.max(2, Math.floor(dims.cols))
         const rows = Math.max(1, Math.floor(dims.rows))
-        term.resize(cols, rows)
+        firstMeasureDone = true
+        reportTerminalSize(terminalId, cols, rows)
+        if (cols !== term.cols || rows !== term.rows) term.resize(cols, rows)
         window.termflow.pty.resize(terminalId, cols, rows)
         lastPtySizeRef.current = { cols, rows }
+        return true
+      } catch {
+        return false // not laid out yet
       }
-    } catch {
-      /* not visible yet */
+    }
+    // A brand-new pane's flexbox box is frequently still zero-sized in this
+    // tick. Retry on the very next frame instead of falling into the 250ms
+    // settle debounce — that delay is what made `claude` panes feel sluggish.
+    if (!measureNow()) {
+      requestAnimationFrame(() => {
+        if (!disposed && !firstMeasureDone) measureNow()
+      })
     }
 
     // Rehydrate from the main-process ring buffer, queueing any live chunks that
     // arrive before the buffer is applied so output never interleaves. (Bug #3)
-    let disposed = false
     let ready = false
     const queue: string[] = []
     const unregister = registerWriter(terminalId, (data) => {
@@ -431,19 +561,30 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     // settled resize = one rewrap (no mangled banners/borders in claude & co).
     // (PRD §11.7)
     let resizeSettleTimer: ReturnType<typeof setTimeout> | null = null
+    const applyResize = (): void => {
+      if (disposed) return
+      const dims = fit.proposeDimensions()
+      if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return
+      const cols = Math.max(2, Math.floor(dims.cols))
+      const rows = Math.max(1, Math.floor(dims.rows))
+      firstMeasureDone = true
+      reportTerminalSize(terminalId, cols, rows)
+      if (cols === term.cols && rows === term.rows) return
+      term.resize(cols, rows) // xterm view
+      window.termflow.pty.resize(terminalId, cols, rows) // PTY, same tick
+      lastPtySizeRef.current = { cols, rows }
+    }
     const scheduleTerminalResize = (): void => {
+      // The very first measurement is not a "resize" — nothing has been drawn
+      // yet, so waiting 250ms only delays the pane's first frame (and, for
+      // agent panes, its startup command). Later changes stay debounced so a
+      // drag still produces exactly ONE ConPTY rewrap.
+      if (!firstMeasureDone) {
+        applyResize()
+        return
+      }
       if (resizeSettleTimer) clearTimeout(resizeSettleTimer)
-      resizeSettleTimer = setTimeout(() => {
-        if (disposed) return
-        const dims = fit.proposeDimensions()
-        if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return
-        const cols = Math.max(2, Math.floor(dims.cols))
-        const rows = Math.max(1, Math.floor(dims.rows))
-        if (cols === term.cols && rows === term.rows) return
-        term.resize(cols, rows) // xterm view
-        window.termflow.pty.resize(terminalId, cols, rows) // PTY, same tick
-        lastPtySizeRef.current = { cols, rows }
-      }, 250)
+      resizeSettleTimer = setTimeout(applyResize, 250)
     }
     scheduleResizeRef.current = scheduleTerminalResize
     // The container's canvas already fills its box via CSS, so no early fit is
@@ -461,6 +602,13 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       dataSub.dispose()
       keySub.dispose()
       bellSub.dispose()
+      jumpToCommandRef.current = null
+      for (const sub of shellIntegrationSubs) {
+        try { sub.dispose() } catch { /* already disposed */ }
+      }
+      for (const deco of commandMarks) {
+        try { deco.dispose() } catch { /* already disposed */ }
+      }
       unregister()
       // Component unmounts when its window is deselected -> switch main to
       // buffer-only mode so the process keeps running without streaming.
