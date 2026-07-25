@@ -99,6 +99,18 @@ export interface WindowDef {
 
 export type RenderMode = 'active' | 'passive' | 'buffer'
 
+// ---- Persistent PTY daemon (detach/attach) ----
+export type PtyBackendKind = 'daemon' | 'in-process'
+
+export interface PtyBackendStatus {
+  /** 'daemon': terminals survive app restarts. 'in-process': they do not. */
+  kind: PtyBackendKind
+  /** Why the daemon is not in use (only set when kind === 'in-process'). */
+  reason?: string
+  /** PTY ids the daemon already had running when the app attached. */
+  attached?: string[]
+}
+
 export interface ProcStats {
   cpu: number
   memory: number
@@ -420,6 +432,9 @@ export const IPC = {
   PTY_ACTIVITY: 'pty:activity', // main -> renderer: error/activity signal
   PTY_AWAITING: 'pty:awaiting', // main -> renderer: process output looks like it's waiting on a y/n confirmation
   PTY_CWD: 'pty:cwd', // main -> renderer: OSC 7 cwd change detected in a terminal's output
+  PTY_BACKEND_STATUS: 'pty:backendStatus', // renderer -> main: is the persistent daemon in use?
+  PTY_BACKEND_CHANGED: 'pty:backendChanged', // main -> renderer: backend switched (e.g. fell back in-process)
+  PTY_DAEMON_SHUTDOWN: 'pty:daemonShutdown', // renderer -> main: kill the daemon and every detached session
   PROC_STATS: 'proc:stats', // renderer -> main: get cpu/mem for pids
   GIT_FETCH: 'git:fetch', // renderer -> main: run `git fetch` for a cwd
   GIT_WORKBENCH: 'git:workbench',

@@ -12,7 +12,13 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts'), pluginHost: resolve(__dirname, 'src/main/plugins/pluginHost.ts') }
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          pluginHost: resolve(__dirname, 'src/main/plugins/pluginHost.ts'),
+          // Detached PTY daemon — launched with Electron's own node
+          // (ELECTRON_RUN_AS_NODE=1) so node-pty keeps the same ABI.
+          ptyDaemon: resolve(__dirname, 'src/main/pty/daemon/daemonEntry.ts')
+        }
       }
     }
   },

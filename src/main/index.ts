@@ -10,10 +10,10 @@ const APP_ICON = app.isPackaged
   : join(__dirname, '../../resources/icon.ico')
 import { getSettings, initDatabase, flushPersist } from './db/database'
 import { registerIpc } from './ipc/registerIpc'
-import type { PtyManager } from './pty/PtyManager'
+import type { PtyController } from './pty/backend'
 
 let mainWindow: BrowserWindow | null = null
-let ptyManager: PtyManager | null = null
+let ptyController: PtyController | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let recoveryFile = ''
@@ -171,7 +171,7 @@ app.whenReady().then(() => {
   const settings = getSettings()
   configureUpdater(settings.updateChannel)
   if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: settings.startAtLogin, path: process.execPath })
-  ptyManager = registerIpc(() => mainWindow)
+  ptyController = registerIpc(() => mainWindow)
   createTray()
   createWindow()
   if (app.isPackaged && settings.autoUpdate) setTimeout(() => { void autoUpdater.checkForUpdates().catch(() => undefined) }, 5000)
@@ -189,5 +189,6 @@ app.on('before-quit', () => {
   isQuitting = true
   if (recoveryFile) { try { writeFileSync(recoveryFile, JSON.stringify({ cleanExit: true, endedAt: new Date().toISOString() }), 'utf-8') } catch { /* ignore shutdown write failure */ } }
   flushPersist() // write any debounced store mutations before the process dies
-  ptyManager?.killAll()
+  // Detached daemon sessions stay alive on purpose; only in-process shells die.
+  ptyController?.shutdown()
 })

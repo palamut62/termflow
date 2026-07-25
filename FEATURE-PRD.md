@@ -1,10 +1,23 @@
 # TermFlow — Developer-Odaklı Özellik Geliştirme PRD'si
 
-> **Amaç:** Bu doküman, başka bir AI kodlama aracına (Claude Code, Codex, Cursor vb.) doğrudan verilebilecek şekilde hazırlanmıştır. Her özellik; gerekçe, kabul kriterleri, dokunulacak dosyalar ve teknik yaklaşım içerir. Öncelik sırasına göre dizilmiştir.
+> **⚠️ Ürün pivotu notu:** Bu PRD, TermFlow'un eski "multi-agent canvas" (React Flow tabanlı serbest
+> konumlu kart canvas'ı + agent orkestrasyonu) döneminde yazılmıştır. Ürün o zamandan beri kökten
+> değişti: agent takımları, agent bağlantı/routing, flow şablonları, agent metrikleri ve agent
+> aktivite paneli tamamen kaldırıldı; `claude`/`codex`/`gemini` gibi CLI'lar artık sıradan başlangıç
+> profilidir. React Flow canvas'ı da kaldırıldı (`@xyflow/react` bağımlılığı yok); yerine tmux
+> modeli geldi: workspace = session, window = sekme, pane = ikili bölme ağacı, prefix-key (Ctrl+A/
+> Ctrl+B) komutları ve vi tarzı copy mode. Güncel ürün tanımı için `README.md`'ye bakın.
 >
-> **Mevcut sürüm:** v0.1.0 · **Stack:** Electron 33 + React 18 + TS + xterm.js 5 + node-pty + React Flow + Zustand + better-sqlite3
+> Aşağıdaki maddelerin çoğu (split-pane/sekmeler, snippet kütüphanesi, workspace export/import,
+> broadcast, SSH profilleri, plugin SDK) o tarihten bu yana zaten farklı bir biçimde (canvas değil,
+> tmux modeli üzerinden) hayata geçmiş durumda — bkz. `README.md` Features bölümü. **"Madde 5:
+> Agent-to-Agent Mesaj Yönlendirme"** ürünün yeni yönüyle çelişiyor ve kapsam dışı bırakıldı;
+> uygulanmadı ve uygulanması planlanmıyor. Bu dosya artık aktif bir yol haritası değil, tarihsel bir
+> kayıttır.
 >
-> **Mimari hatırlatma:** `src/main` (PTY + SQLite + IPC), `src/preload` (contextBridge `window.termflow`), `src/renderer` (React SPA). Yeni IPC kanalı = `src/shared/types.ts` içindeki `IPC` sabitine ekle → `registerIpc.ts` handler → `preload/index.ts` expose → `preload/index.d.ts` tip.
+> **Mevcut sürüm:** v0.1.0 · **Stack:** Electron 39 + React 18 + TS + xterm.js 5 + node-pty + Zustand + atomik JSON store (bkz. `README.md`; aşağıdaki madde metinlerindeki React Flow/SQLite referansları eski döneme aittir)
+>
+> **Mimari hatırlatma:** `src/main` (PTY + JSON store + IPC), `src/preload` (contextBridge `window.termflow`), `src/renderer` (React SPA). Yeni IPC kanalı = `src/shared/types.ts` içindeki `IPC` sabitine ekle → `registerIpc.ts` handler → `preload/index.ts` expose → `preload/index.d.ts` tip.
 
 ---
 
@@ -31,6 +44,10 @@
 ## P0 — Hemen Değer Katan Özellikler
 
 ### 1. Split-Pane & Sekmeli Terminal Grupları
+
+**Durum:** Bu madde, o zamanki "canvas node'u bölme" tasarımından farklı bir mimariyle (tam tmux
+modeli: session/window/pane) hayata geçti. Güncel davranış için `README.md` → "tmux-Style Sessions,
+Windows, and Panes" bölümüne bakın; aşağıdaki orijinal metin tarihsel referanstır.
 
 **Gerekçe:** Tek terminal = tek node bugün. Geliştiriciler tek bir mantıksal işi (ör. "frontend": dev server + test watcher + shell) tek kart içinde bölünmüş panellerde görmek ister. Canvas'ı node enflasyonundan korur.
 
@@ -111,7 +128,15 @@
 
 ## P1 — Diferansiyasyon Yaratan Özellikler
 
-### 5. Agent-to-Agent Mesaj Yönlendirme (Edge'leri Çalıştırılabilir Yapmak)
+### 5. ~~Agent-to-Agent Mesaj Yönlendirme (Edge'leri Çalıştırılabilir Yapmak)~~ — KAPSAM DIŞI
+
+**Durum:** Bu madde ürünün tmux-modeline pivotu ile birlikte kapsam dışı bırakıldı. Agent node'lar,
+tipli bağlantılar (edge'ler) ve agent-to-agent routing artık ürün vizyonunda yok; `claude`/`codex`
+gibi CLI'lar sıradan terminal profilidir ve aralarında otomatik mesaj yönlendirme yapılmayacak.
+Aşağıdaki orijinal madde metni yalnızca tarihsel referans için bırakılmıştır, uygulanmadı.
+
+<details>
+<summary>Orijinal madde metni (artık geçersiz)</summary>
 
 **Gerekçe:** TermFlow'un "n8n meets tmux" vaadinin kalbi. Bugün edge'ler görsel. Bunları **çalıştırılabilir** yapmak ürünü benzersiz kılar: Planner agent çıktısı → Coder agent input'u.
 
@@ -129,6 +154,8 @@
 - `src/shared/types.ts` — `AgentConnection`'a `transform?`, `triggerPattern?` alanları.
 
 **Teknik yaklaşım:** MVP olarak marker-tabanlı. Çıktıda regex eşleşince `sourceNode`'un giden edge'lerini bul, her hedefe `ptyWrite`. Performans için yalnız routing kuralı olan terminallerde tarama aç.
+
+</details>
 
 ---
 

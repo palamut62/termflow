@@ -14,6 +14,7 @@ import { useAppStore } from '../store/appStore'
 import { TERMINAL_THEMES } from '../themes'
 import type { EnvEntry, HighlightRule, SshProfile } from '../../../shared/types'
 import PromptModal, { type PromptField } from './PromptModal'
+import CredentialVaultSection from './CredentialVaultSection'
 import { useModalClose } from '../hooks/useModalClose'
 
 interface Props {
@@ -410,8 +411,10 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
 
         {activeTab === 'developer' && (
           <>
+            <CredentialVaultSection activeWorkspaceId={activeWorkspaceId} />
+
             <div className="field">
-              <label>Workspace Environment</label>
+              <label>Workspace Environment (plain, per workspace)</label>
               <div className="path-pick">
                 <input value={envKey} onChange={(e) => setEnvKey(e.target.value)} placeholder="KEY" />
                 <input value={envValue} onChange={(e) => setEnvValue(e.target.value)} placeholder="value" />

@@ -19,6 +19,10 @@ extraResources:
       - 'icon.png'
 asarUnpack:
   - '**/node_modules/@lydell/node-pty*/**'
+  # The detached PTY daemon is spawned with `process.execPath` +
+  # ELECTRON_RUN_AS_NODE, so it must be readable as a plain file on disk.
+  - 'out/main/ptyDaemon.js'
+  - 'out/main/chunks/**'
 win:
   icon: build/icon.ico
   target:

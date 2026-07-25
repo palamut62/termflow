@@ -8,6 +8,7 @@ import {
   type RenderMode,
   type AppSettings,
   type ProcStats,
+  type PtyBackendStatus,
   type Snippet,
   type HighlightRule,
   type SshProfile,
@@ -79,6 +80,15 @@ const api = {
       const h = (_e: unknown, payload: { id: string; cwd: string }): void => cb(payload.id, payload.cwd)
       ipcRenderer.on(IPC.PTY_CWD, h)
       return () => ipcRenderer.removeListener(IPC.PTY_CWD, h)
+    },
+    // Persistent-session backend: 'daemon' means terminals survive app restarts,
+    // 'in-process' means we fell back and they die with the app.
+    backendStatus: (): Promise<PtyBackendStatus> => ipcRenderer.invoke(IPC.PTY_BACKEND_STATUS),
+    shutdownDaemon: (): Promise<PtyBackendStatus> => ipcRenderer.invoke(IPC.PTY_DAEMON_SHUTDOWN),
+    onBackendChanged: (cb: (status: PtyBackendStatus) => void): (() => void) => {
+      const h = (_e: unknown, payload: PtyBackendStatus): void => cb(payload)
+      ipcRenderer.on(IPC.PTY_BACKEND_CHANGED, h)
+      return () => ipcRenderer.removeListener(IPC.PTY_BACKEND_CHANGED, h)
     }
   },
   proc: {

@@ -41,7 +41,7 @@ export default function ProviderManagerModal({ onClose, initialProviderId }: { o
     <div className="modal-overlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
       <div className="modal provider-modal" onMouseDown={(event) => event.stopPropagation()}>
         <h3>AI Provider Profiles</h3>
-        <p className="help-intro">Configure any CLI-backed provider. Store API keys separately under Settings &gt; Developer &gt; Workspace Environment using the API key variable shown here.</p>
+        <p className="help-intro">Configure any CLI-backed provider. Store API keys separately under Settings &gt; Developer &gt; Workspace Environment / Credentials using the API key variable shown here.</p>
         <div className="provider-list">
           {profiles.map((profile) => (
             <section className="provider-card" key={profile.id} ref={profile.id === initialProviderId ? focusRef : undefined}>
