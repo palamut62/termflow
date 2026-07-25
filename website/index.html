@@ -67,7 +67,7 @@
           </a>
           <a class="btn btn--ghost btn--lg" href="#showcase">See it in action</a>
         </div>
-        <p class="hero__meta"><span id="dl-size">~91 MB</span> · v0.4.1 · Windows installer</p>
+        <p class="hero__meta"><span id="dl-size">~91 MB</span> · v0.4.2 · Windows installer</p>
       </div>
 
       <div class="hero__visual reveal">
@@ -281,7 +281,21 @@
       </div>
       <div class="timeline reveal">
         <div class="rel">
-          <div class="rel__tag"><span class="badge badge--new">v0.4.1</span><time>Latest</time></div>
+          <div class="rel__tag"><span class="badge badge--new">v0.4.2</span><time>Latest</time></div>
+          <ul>
+            <li><span class="tg tg-perf">perf</span> Terminals launch ~15× faster — startup command at 20&nbsp;ms instead of 457&nbsp;ms</li>
+            <li><span class="tg tg-perf">perf</span> Shell discovery no longer blocks the main thread (190&nbsp;ms → 0&nbsp;ms)</li>
+            <li><span class="tg tg-perf">perf</span> Panes spawn at their final size — no ConPTY rewrap, so <code>claude</code>, <code>codex</code> &amp; <code>opencode</code> draw cleanly from the first frame</li>
+            <li><span class="tg tg-perf">perf</span> Optimistic render + async persistence; smaller bundle via code splitting</li>
+            <li><span class="tg tg-feat">feat</span> Shell integration (OSC 133/633) — command boundaries, exit status, cwd tracking</li>
+            <li><span class="tg tg-feat">feat</span> Copy Last Command Output from the command palette</li>
+            <li><span class="tg tg-fix">fix</span> Single compact window header — no more duplicated tab rows</li>
+            <li><span class="tg tg-fix">fix</span> Flat tmux-style pane names (<code>CMD 1.2</code>) instead of “CMD 1 split split”</li>
+            <li><span class="tg tg-fix">fix</span> Hardened IPC — path traversal, symlink escape &amp; prototype pollution fixes</li>
+          </ul>
+        </div>
+        <div class="rel">
+          <div class="rel__tag"><span class="badge">v0.4.1</span><time>Previous</time></div>
           <ul>
             <li><span class="tg tg-feat">feat</span> Persistent PTY daemon — terminals survive closing the app</li>
             <li><span class="tg tg-feat">feat</span> True detach &amp; attach with scrollback restored</li>
@@ -327,7 +341,7 @@
             </div>
             <h3>Installer (.exe)</h3>
             <p>Guided setup, desktop shortcut &amp; auto-update ready.</p>
-            <span class="dcard__file">TermFlow-0.4.1-x64.exe · <span class="dl-size">~91 MB</span></span>
+            <span class="dcard__file">TermFlow-0.4.2-x64.exe · <span class="dl-size">~91 MB</span></span>
           </a>
         </div>
         <ol class="steps">
