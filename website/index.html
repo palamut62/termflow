@@ -58,7 +58,7 @@
         <span class="pill"><span class="pill__dot"></span> Windows 10 / 11 · x64 · Free</span>
         <h1 class="hero__title">A <span class="grad">tmux-style</span> terminal multiplexer for Windows</h1>
         <p class="hero__sub">
-          Workspaces, windows and split panes over real <strong>ConPTY</strong> terminals, driven by a familiar <strong>prefix key</strong>. A persistent PTY daemon keeps your terminals running after you close the app — reopen and attach right back with your scrollback intact.
+          All your terminals tiled on <strong>one screen</strong>: new terminals open as panes in a tmux-style tiled layout over real <strong>ConPTY</strong> processes, driven by a familiar <strong>prefix key</strong>. A persistent PTY daemon keeps them running after you close the app — reopen and attach right back with your scrollback intact.
         </p>
         <div class="hero__cta">
           <a class="btn btn--primary btn--lg" href="#download" id="hero-download">
@@ -103,8 +103,8 @@
           <div class="card__icon icon-blue">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 4h16v4H4V4Zm0 6h7v10H4V10Zm9 0h7v10h-7V10Z"/></svg>
           </div>
-          <h3>Windows &amp; split panes</h3>
-          <p>Split vertically or horizontally into a binary pane tree. A tab strip on top: click to switch, double-click to rename, drag to reorder, middle-click or × to close, + for a new window.</p>
+          <h3>Tiled panes by default</h3>
+          <p>New terminals join the current window as tiled panes — everything on one screen, tmux style. Split further with <code>%</code> and <code>"</code>, or gather every window into one tiled layout with prefix + <code>t</code>. Tabs stay available as a secondary mode.</p>
         </article>
         <article class="card reveal" data-module="02">
           <div class="card__icon icon-orange">
@@ -140,6 +140,7 @@
           <li><code>,</code> rename window · <code>d</code> detach · <code>x</code> close</li>
           <li><code>%</code> split vertically · <code>"</code> split horizontally</li>
           <li><code>h j k l</code> or arrows to move between panes · <code>o</code> next pane · <code>z</code> zoom</li>
+          <li><code>t</code> tile all windows into one screen</li>
           <li><code>[</code> copy mode · <code>?</code> in-app key reference</li>
         </ul>
       </div>
@@ -197,11 +198,11 @@
         <p>Captured on Windows 11. Click any shot to view it full size.</p>
       </div>
       <div class="gallery">
-        <figure class="gallery__item gallery__item--wide reveal"><img src="./assets/shot-05.png" alt="A CLI tool running in a TermFlow pane" loading="lazy" /><figcaption>A CLI running in a pane</figcaption></figure>
-        <figure class="gallery__item reveal"><img src="./assets/shot-02.png" alt="A single terminal running natively on Windows" loading="lazy" /><figcaption>Native Windows PTYs</figcaption></figure>
-        <figure class="gallery__item reveal"><img src="./assets/shot-07.png" alt="Two terminals side by side in TermFlow" loading="lazy" /><figcaption>Panes, side by side</figcaption></figure>
-        <figure class="gallery__item reveal"><img src="./assets/shot-04.png" alt="Split panes inside a TermFlow window" loading="lazy" /><figcaption>Split panes</figcaption></figure>
-        <figure class="gallery__item reveal"><img src="./assets/shot-08.png" alt="A TermFlow workspace with several windows" loading="lazy" /><figcaption>A full workspace</figcaption></figure>
+        <figure class="gallery__item gallery__item--wide reveal"><img src="./assets/shot-05.png" alt="Five terminals tiled on one screen in TermFlow" loading="lazy" /><figcaption>Five panes, one tiled screen</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-02.png" alt="Long-running commands across tiled panes" loading="lazy" /><figcaption>Long-running jobs, side by side</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-07.png" alt="Build output, git log and ping in tiled panes" loading="lazy" /><figcaption>Build, git &amp; network at a glance</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-04.png" alt="Tiled split panes inside a TermFlow window" loading="lazy" /><figcaption>Tiled split panes</figcaption></figure>
+        <figure class="gallery__item reveal"><img src="./assets/shot-08.png" alt="A full TermFlow workspace with live terminals" loading="lazy" /><figcaption>A full workspace</figcaption></figure>
       </div>
     </section>
 
@@ -218,6 +219,7 @@
           <ul>
             <li>Real ConPTY processes rendered with xterm.js</li>
             <li>PowerShell, CMD, WSL, Git Bash and custom profiles</li>
+            <li>Tiled-by-default: new terminals open as panes on one screen</li>
             <li>Vertical &amp; horizontal splits in a binary pane tree</li>
             <li>Pane zoom to focus one terminal full-window</li>
           </ul>
@@ -254,7 +256,7 @@
           <ul>
             <li>Categorized settings and themes</li>
             <li>Session restore after a crash or restart</li>
-            <li>Automatic updates</li>
+            <li>Automatic updates — one-click check from the status bar</li>
             <li>In-app key reference on prefix + <code>?</code></li>
           </ul>
         </div>
@@ -287,6 +289,8 @@
             <li><span class="tg tg-feat">feat</span> Prefix key (<code>Ctrl+A</code>, or <code>Ctrl+B</code>) for every command</li>
             <li><span class="tg tg-feat">feat</span> vi-style copy mode with search, selection &amp; yank</li>
             <li><span class="tg tg-feat">feat</span> Tab strip — click, rename, drag-reorder, close</li>
+            <li><span class="tg tg-feat">feat</span> Tiled-by-default panes + prefix <code>t</code> to tile all windows</li>
+            <li><span class="tg tg-feat">feat</span> Version &amp; update check in the status bar</li>
           </ul>
         </div>
         <div class="rel">
