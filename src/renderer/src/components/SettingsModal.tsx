@@ -231,6 +231,10 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
                 <input type="checkbox" checked={settings.infoPanelDefaultOpen} style={{ width: 'auto' }} onChange={(e) => update({ infoPanelDefaultOpen: e.target.checked })} />
                 Open info panel (process/context) by default on new windows
               </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={settings.shellIntegration} style={{ width: 'auto' }} onChange={(e) => update({ shellIntegration: e.target.checked })} />
+                Shell integration (exit-code marks, command duration) — PowerShell / pwsh / Git Bash, applies to new terminals
+              </label>
             </div>
 
             <div className="field">
