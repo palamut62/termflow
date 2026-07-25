@@ -12,6 +12,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.0',
+    date: '2026-07-25',
+    changes: [
+      'TermFlow is now a pure tmux-style terminal multiplexer: agent orchestration (teams, tasks, routing, flow templates, metrics) has been removed entirely.',
+      'Claude Code, Codex and other CLIs remain available as ordinary launch profiles, on equal footing with PowerShell, CMD, WSL and Git Bash.',
+      'The React Flow canvas is gone. Workspaces are sessions, windows are tabs and panes are a binary split tree, exactly like tmux.',
+      'tmux prefix key (Ctrl+A or Ctrl+B, configurable): c new window, n/p next/previous, 0-9 jump, , rename, d detach, x close, % and " split, h/j/k/l navigate panes, o cycle, z zoom, [ copy mode, ? help. Pressing the prefix twice sends it to the terminal.',
+      'Copy mode: vi-style scrollback navigation, word and line motions, half/full page scrolling, selection with Space or v, copy with Enter or y, and / ? n N search.',
+      'Persistent PTY daemon: terminals now survive quitting TermFlow and are re-attached with their scrollback on the next launch. The status bar warns when the daemon is unavailable.',
+      'Credential vault management is back under Settings > Developer; secrets stay encrypted by the OS keychain and are never shown in the UI.',
+      'Old workspaces migrate automatically: every canvas card becomes a window tab, terminals and pane layouts are preserved.'
+    ]
+  },
+  {
     version: '0.3.3',
     date: '2026-07-22',
     changes: [
