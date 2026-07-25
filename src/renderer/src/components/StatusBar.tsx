@@ -1,5 +1,6 @@
-import { GitBranch, TerminalSquare, Unplug } from 'lucide-react'
-import { useMemo } from 'react'
+import { GitBranch, TerminalSquare, TriangleAlert, Unplug } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import type { PtyBackendStatus } from '../../../shared/types'
 import { getLeafTerminalIds } from '../paneUtils'
 import { useAppStore } from '../store/appStore'
 import { prefixLabel } from '../prefixKeys'
@@ -14,6 +15,13 @@ export default function StatusBar(): React.JSX.Element {
   const prefixKey = useAppStore((s) => s.settings.prefixKey)
   const copyModePaneId = useAppStore((s) => s.copyModePaneId)
   const ws = workspaces.find((w) => w.id === activeWorkspaceId)
+  // Whether terminals survive an app restart depends on the PTY backend; when
+  // the persistent daemon is unavailable the user must know before relying on it.
+  const [backend, setBackend] = useState<PtyBackendStatus | null>(null)
+  useEffect(() => {
+    window.termflow.pty.backendStatus().then(setBackend).catch(() => setBackend(null))
+    return window.termflow.pty.onBackendChanged(setBackend)
+  }, [])
   const running = Object.values(terminals).filter((t) => t.status === 'running').length
   const detachedCount = useMemo(() => {
     const attached = new Set(
@@ -56,6 +64,15 @@ export default function StatusBar(): React.JSX.Element {
           style={{ fontWeight: 700, color: 'var(--accent)' }}
         >
           COPY
+        </span>
+      )}
+      {backend?.kind === 'in-process' && (
+        <span
+          className="sb-item"
+          title={`Persistent session daemon unavailable${backend.reason ? ` (${backend.reason})` : ''} — terminals will close when TermFlow quits.`}
+          style={{ color: 'var(--warning)' }}
+        >
+          <TriangleAlert size={12} /> no detach
         </span>
       )}
       <span className="sb-item" style={{ marginLeft: 'auto' }}>
