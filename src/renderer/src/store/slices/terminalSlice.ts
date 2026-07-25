@@ -386,8 +386,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
 
     set((s) => ({
       terminals: { ...s.terminals, [newTermId]: session },
-      // Splitting breaks the zoom (tmux behaviour).
+      // Splitting breaks the zoom (tmux behaviour) and leaves copy mode.
       zoomedPaneId: null,
+      copyModePaneId: null,
       nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, panes: newPane, activePaneId: newTermId } : n)
     }))
     get().persist()
@@ -404,8 +405,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     }
 
     const newPane = closePane(node.panes, terminalId)
-    // Closing a pane breaks the zoom (tmux behaviour).
-    set({ zoomedPaneId: null })
+    // Closing a pane breaks the zoom (tmux behaviour) and leaves copy mode.
+    set({ zoomedPaneId: null, copyModePaneId: null })
     const terminals = { ...st.terminals }
     if (mode === 'terminate') delete terminals[terminalId]
 
@@ -446,7 +447,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   },
 
   setActivePane: (nodeId, terminalId) => {
-    set((s) => ({ nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, activePaneId: terminalId } : n) }))
+    // Moving to another pane leaves copy mode (tmux behaviour).
+    set((s) => ({
+      copyModePaneId: s.copyModePaneId === terminalId ? s.copyModePaneId : null,
+      nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, activePaneId: terminalId } : n)
+    }))
     get().persist()
   },
 

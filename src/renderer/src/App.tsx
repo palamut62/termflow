@@ -397,8 +397,11 @@ export default function App(): React.JSX.Element {
         if (win) window.dispatchEvent(new CustomEvent('termflow:rename-window', { detail: { nodeId: win.nodeId } }))
         return true
       }
-      // Copy mode lands in a later phase; the binding is reserved already.
-      if (key === '[') return true
+      if (key === '[') {
+        // Copy mode never breaks the zoom (tmux behaviour).
+        if (win?.termId) s.setCopyModePane(win.termId)
+        return true
+      }
       if (key === 'd') {
         if (win) void s.closeNode(win.nodeId, 'detach')
         return true
@@ -414,6 +417,13 @@ export default function App(): React.JSX.Element {
     const onKeyCapture = (e: KeyboardEvent): void => {
       const s = useAppStore.getState()
       if (modalOpenRef.current) {
+        if (s.prefixPending) setPending(false)
+        return
+      }
+
+      // Copy mode owns the keyboard: its own keys (Ctrl+B page-up among them)
+      // win over the prefix while it is active.
+      if (s.copyModePaneId) {
         if (s.prefixPending) setPending(false)
         return
       }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal, type IDecoration } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -10,6 +10,7 @@ import { captureCommandInput } from '../commandHistory'
 import { getTheme } from '../themes'
 import { getLeafTerminalIds } from '../paneUtils'
 import { isPrefixEvent } from '../prefixKeys'
+import { applyMotion, clampPos, resolveCopyModeKey, selectionRange, type CopyBuffer, type CopyPos } from '../copyMode'
 
 // Short two-tone chime for the terminal bell (\x07). Web Audio, no asset —
 // throttled so a burst of BELs doesn't stack into noise.
@@ -89,6 +90,36 @@ function applyHighlights(
   }
 }
 
+/** Read-only view of the live xterm buffer for the pure copy-mode motions. */
+function bufferView(term: Terminal): CopyBuffer {
+  const buf = term.buffer.active
+  return {
+    lineCount: Math.max(1, buf.length),
+    lineText: (row) => buf.getLine(row)?.translateToString(true) ?? ''
+  }
+}
+
+/**
+ * Paint the copy-mode cursor / selection and keep the cursor on screen.
+ * xterm has no independent "copy cursor", so the cursor is drawn as a
+ * one-cell selection; a real selection replaces it once an anchor is set.
+ */
+function paintCopyView(term: Terminal, cursor: CopyPos, anchor: CopyPos | null): void {
+  if (anchor) {
+    const [start, end] = selectionRange(anchor, cursor)
+    // `select()` cannot span rows, so multi-row selections fall back to
+    // whole-line selection (tmux line-wise copy).
+    if (start.row === end.row) term.select(start.col, start.row, end.col - start.col + 1)
+    else term.selectLines(start.row, end.row)
+  } else {
+    term.select(cursor.col, cursor.row, 1)
+  }
+  const top = term.buffer.active.viewportY
+  const bottom = top + term.rows - 1
+  if (cursor.row < top) term.scrollLines(cursor.row - top)
+  else if (cursor.row > bottom) term.scrollLines(cursor.row - bottom)
+}
+
 /**
  * A single xterm.js instance bound to a PTY. Handles input forwarding (only
  * while active — PRD FR-012), buffer rehydration on mount with live chunks
@@ -112,10 +143,13 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   const transparency = useAppStore((s) => s.settings.transparency)
   const highlightRules = useAppStore((s) => s.highlightRules)
 
+  const copyMode = useAppStore((s) => s.copyModePaneId === terminalId)
+
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
   const [searchRegex, setSearchRegex] = useState(false)
+  const searchBackwardRef = useRef(false)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const existingDecorsRef = useRef<IDecoration[]>([])
@@ -138,6 +172,126 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
   useEffect(() => {
     activeRef.current = active
   }, [active])
+
+  // ---- Copy mode (tmux `prefix [`) ----
+  // Cursor/anchor live in refs: they change per keystroke and must not
+  // re-render the terminal host.
+  const copyCursorRef = useRef<CopyPos>({ row: 0, col: 0 })
+  const copyAnchorRef = useRef<CopyPos | null>(null)
+  const handleCopyKeyRef = useRef<((e: KeyboardEvent) => void) | null>(null)
+
+  const runSearch = useCallback(
+    (backward: boolean, query: string) => {
+      if (!query) return
+      const opts = {
+        caseSensitive: searchCaseSensitive,
+        regex: searchRegex,
+        decorations: {
+          matchBackground: '#2f80ff44',
+          matchOverviewRuler: '#2f80ff',
+          activeMatchBackground: '#2f80ff88',
+          activeMatchColorOverviewRuler: '#2f80ff'
+        }
+      }
+      const addon = searchAddonRef.current
+      if (backward) addon?.findPrevious(query, opts)
+      else addon?.findNext(query, opts)
+    },
+    [searchCaseSensitive, searchRegex]
+  )
+
+  const exitCopyMode = useCallback(() => {
+    const term = termRef.current
+    copyAnchorRef.current = null
+    term?.clearSelection()
+    term?.scrollToBottom()
+    useAppStore.getState().setCopyModePane(null)
+    term?.focus()
+  }, [])
+
+  const handleCopyKey = useCallback(
+    (event: KeyboardEvent) => {
+      const term = termRef.current
+      if (!term) return
+      const cmd = resolveCopyModeKey(event)
+      if (!cmd) return
+      event.preventDefault()
+      const buf = bufferView(term)
+
+      switch (cmd.type) {
+        case 'move':
+          copyCursorRef.current = applyMotion(buf, copyCursorRef.current, cmd.motion)
+          break
+        case 'scroll': {
+          const half = Math.max(1, Math.floor(term.rows / 2))
+          const delta =
+            cmd.amount === 'halfUp' ? -half : cmd.amount === 'halfDown' ? half : cmd.amount === 'pageUp' ? -term.rows : term.rows
+          copyCursorRef.current = clampPos(buf, {
+            row: copyCursorRef.current.row + delta,
+            col: copyCursorRef.current.col
+          })
+          break
+        }
+        case 'beginSelection':
+          copyAnchorRef.current = { ...copyCursorRef.current }
+          break
+        case 'copySelection': {
+          if (copyAnchorRef.current) {
+            const text = term.getSelection()
+            if (text) void navigator.clipboard.writeText(text)
+          }
+          exitCopyMode()
+          return
+        }
+        case 'cancel':
+          // Escape drops the selection first, and only then copy mode itself.
+          if (copyAnchorRef.current) {
+            copyAnchorRef.current = null
+            break
+          }
+          exitCopyMode()
+          return
+        case 'exit':
+          exitCopyMode()
+          return
+        case 'search':
+          searchBackwardRef.current = cmd.direction === 'backward'
+          setSearchVisible(true)
+          return
+        case 'findNext':
+          runSearch(searchBackwardRef.current, searchQuery)
+          return
+        case 'findPrevious':
+          runSearch(!searchBackwardRef.current, searchQuery)
+          return
+      }
+
+      paintCopyView(term, copyCursorRef.current, copyAnchorRef.current)
+    },
+    [exitCopyMode, runSearch, searchQuery]
+  )
+
+  useEffect(() => {
+    handleCopyKeyRef.current = handleCopyKey
+  }, [handleCopyKey])
+
+  // Entering copy mode snaps to the live cursor at the bottom of the buffer;
+  // leaving it clears the painted selection.
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    if (copyMode) {
+      term.scrollToBottom()
+      const buf = term.buffer.active
+      copyAnchorRef.current = null
+      copyCursorRef.current = clampPos(bufferView(term), { row: buf.baseY + buf.cursorY, col: buf.cursorX })
+      paintCopyView(term, copyCursorRef.current, null)
+      term.focus()
+    } else {
+      copyAnchorRef.current = null
+      term.clearSelection()
+    }
+  }, [copyMode])
 
   useEffect(() => {
     const host = hostRef.current
@@ -178,6 +332,12 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
       const st = useAppStore.getState()
+      // Copy mode swallows every key: nothing reaches the PTY, and its own
+      // bindings (Ctrl+B page-up included) beat the prefix.
+      if (st.copyModePaneId === terminalId) {
+        handleCopyKeyRef.current?.(event)
+        return false
+      }
       if (st.prefixPending) return false
       return !isPrefixEvent(event, st.settings.prefixKey)
     })
@@ -421,16 +581,13 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                searchAddonRef.current?.findNext(searchQuery, {
-                  caseSensitive: searchCaseSensitive,
-                  regex: searchRegex,
-                  decorations: {
-                    matchBackground: '#2f80ff44',
-                    matchOverviewRuler: '#2f80ff',
-                    activeMatchBackground: '#2f80ff88',
-                    activeMatchColorOverviewRuler: '#2f80ff'
-                  }
-                })
+                // In copy mode the bar is the `/` `?` prompt: search once,
+                // then hand the keyboard back to the copy-mode cursor.
+                runSearch(copyMode ? searchBackwardRef.current : false, searchQuery)
+                if (copyMode) {
+                  setSearchVisible(false)
+                  termRef.current?.focus()
+                }
               }
             }}
             placeholder="Find..."

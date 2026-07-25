@@ -12,6 +12,7 @@ export default function StatusBar(): React.JSX.Element {
   const workspaces = useAppStore((s) => s.workspaces)
   const prefixPending = useAppStore((s) => s.prefixPending)
   const prefixKey = useAppStore((s) => s.settings.prefixKey)
+  const copyModePaneId = useAppStore((s) => s.copyModePaneId)
   const ws = workspaces.find((w) => w.id === activeWorkspaceId)
   const running = Object.values(terminals).filter((t) => t.status === 'running').length
   const detachedCount = useMemo(() => {
@@ -46,6 +47,15 @@ export default function StatusBar(): React.JSX.Element {
           style={{ fontWeight: 700, color: 'var(--warning)' }}
         >
           PREFIX
+        </span>
+      )}
+      {copyModePaneId && (
+        <span
+          className="sb-item"
+          title="Copy mode — hjkl/arrows move, Space or v selects, Enter or y copies, q or Escape exits"
+          style={{ fontWeight: 700, color: 'var(--accent)' }}
+        >
+          COPY
         </span>
       )}
       <span className="sb-item" style={{ marginLeft: 'auto' }}>

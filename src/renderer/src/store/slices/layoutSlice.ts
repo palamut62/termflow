@@ -14,7 +14,10 @@ export interface LayoutSlice {
   zoomedPaneId: string | null
   /** True while the tmux prefix was pressed and we wait for the command key. */
   prefixPending: boolean
+  /** Pane currently in copy mode (tmux `prefix [`). Runtime only — never persisted. */
+  copyModePaneId: string | null
 
+  setCopyModePane: (terminalId: string | null) => void
   setZoomedPane: (terminalId: string | null) => void
   toggleZoomedPane: (terminalId: string) => void
   setPrefixPending: (pending: boolean) => void
@@ -36,6 +39,9 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
   developerCenterOpen: false,
   zoomedPaneId: null,
   prefixPending: false,
+  copyModePaneId: null,
+
+  setCopyModePane: (terminalId) => set({ copyModePaneId: terminalId }),
 
   setZoomedPane: (terminalId) => set({ zoomedPaneId: terminalId }),
 
@@ -46,13 +52,15 @@ export const createLayoutSlice: StateCreator<AppState, [], [], LayoutSlice> = (s
 
   setActiveNode: (nodeId) => {
     if (!nodeId) {
-      set({ activeNodeId: null, zoomedPaneId: null })
+      set({ activeNodeId: null, zoomedPaneId: null, copyModePaneId: null })
       return
     }
     set((s) => ({
       activeNodeId: nodeId,
       // Switching windows drops the zoom, like tmux.
       zoomedPaneId: null,
+      // ...and leaves copy mode.
+      copyModePaneId: null,
       // Selecting a window clears its "unseen error" marker, like before.
       nodes: s.nodes.map((n) => (n.id === nodeId && n.status === 'error' ? { ...n, status: 'idle' as const } : n))
     }))
