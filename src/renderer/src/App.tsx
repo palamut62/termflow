@@ -119,10 +119,13 @@ export default function App(): React.JSX.Element {
   // that owns it and focus its pane. (feature: global search)
   useEffect(() => {
     const handler = (e: Event): void => {
-      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail?.nodeId
+      const detail = (e as CustomEvent<{ nodeId: string; terminalId?: string }>).detail
+      const nodeId = detail?.nodeId
       if (!nodeId) return
       const s = useAppStore.getState()
-      if (s.nodes.some((n) => n.id === nodeId)) s.setActiveNode(nodeId)
+      if (!s.nodes.some((n) => n.id === nodeId)) return
+      s.setActiveNode(nodeId)
+      if (detail.terminalId) s.setActivePane(nodeId, detail.terminalId)
     }
     window.addEventListener('termflow:focus-node', handler)
     return () => window.removeEventListener('termflow:focus-node', handler)

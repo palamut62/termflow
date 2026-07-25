@@ -38,12 +38,13 @@ export class DaemonPtyManager {
   private reconnecting = false
   private scrollback: number | null = null
   private passiveIntervalMs: number | null = null
+  private daemonPid: number | null = null
 
   private constructor(
     connection: DaemonConnection,
     private readonly getSender: () => WebContents | null,
     private readonly options: LaunchOptions,
-    private readonly onLost: (reason: string) => void
+    private readonly onLost: (reason: string, daemonPid: number | null) => void
   ) {
     this.socket = connection.socket
     this.token = connection.token
@@ -54,18 +55,20 @@ export class DaemonPtyManager {
   static async attach(
     getSender: () => WebContents | null,
     options: LaunchOptions,
-    onLost: (reason: string) => void
+    onLost: (reason: string, daemonPid: number | null) => void
   ): Promise<{ manager: DaemonPtyManager; terminals: DaemonTerminalInfo[] }> {
     const connection = await connectOrStartDaemon(options)
     const manager = new DaemonPtyManager(connection, getSender, options, onLost)
     const hello = (await manager.request({ type: 'hello' })) as {
       version?: number
+      pid?: number
       terminals?: DaemonTerminalInfo[]
     }
     if (hello?.version !== DAEMON_PROTOCOL_VERSION) {
       manager.dispose()
       throw new Error('pty daemon protocol mismatch')
     }
+    manager.daemonPid = typeof hello.pid === 'number' ? hello.pid : null
     return { manager, terminals: Array.isArray(hello.terminals) ? hello.terminals : [] }
   }
 
@@ -157,7 +160,7 @@ export class DaemonPtyManager {
       }
     }
     this.reconnecting = false
-    if (!this.closed) this.onLost('pty daemon connection lost')
+    if (!this.closed) this.onLost('pty daemon connection lost', this.daemonPid)
   }
 
   private send(request: DaemonRequest, rid: number): void {

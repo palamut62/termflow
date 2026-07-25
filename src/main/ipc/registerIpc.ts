@@ -162,9 +162,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): PtyControlle
       const { manager, terminals } = await DaemonPtyManager.attach(
         getSender,
         { userDataDir: app.getPath('userData'), daemonEntry: join(__dirname, 'ptyDaemon.js') },
-        (reason) => {
+        (reason, daemonPid) => {
           // Connection lost for good — degrade instead of retrying forever.
-          if (daemon) useFallback(reason)
+          if (daemon) {
+            if (daemonPid && daemonPid > 0) {
+              void execFileAsync('taskkill', ['/PID', String(daemonPid), '/T', '/F']).catch(() => undefined)
+            }
+            useFallback(reason)
+          }
         }
       )
       daemon = manager

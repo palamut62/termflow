@@ -12,6 +12,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.1',
+    date: '2026-07-25',
+    changes: [
+      'Daemon failure cleanup now terminates the detached process tree so PTY shells cannot remain orphaned.',
+      'PtyCore lifecycle and scrollback behavior now have regression coverage.',
+      'Electron smoke coverage now exercises workspace creation, terminal creation and pane splitting.'
+    ]
+  },
+  {
     version: '0.4.0',
     date: '2026-07-25',
     changes: [

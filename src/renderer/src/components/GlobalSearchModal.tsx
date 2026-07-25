@@ -53,8 +53,10 @@ export default function GlobalSearchModal({ onClose }: Props): React.JSX.Element
     }
   }
 
-  const jumpTo = (nodeId: string): void => {
-    window.dispatchEvent(new CustomEvent('termflow:focus-node', { detail: { nodeId } }))
+  const jumpTo = (result: ResultRow): void => {
+    window.dispatchEvent(new CustomEvent('termflow:focus-node', {
+      detail: { nodeId: result.nodeId, terminalId: result.termId }
+    }))
     onClose()
   }
 
@@ -84,7 +86,7 @@ export default function GlobalSearchModal({ onClose }: Props): React.JSX.Element
               key={`${r.termId}-${r.lineIndex}-${i}`}
               className="menu-item"
               style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2, cursor: 'pointer' }}
-              onClick={() => jumpTo(r.nodeId)}
+              onClick={() => jumpTo(r)}
             >
               <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>{r.nodeTitle}</span>
               <span style={{ fontSize: 12, fontFamily: 'var(--mono, monospace)', color: 'var(--text)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>

@@ -156,6 +156,16 @@ export class PtyCore {
       const removed = managed.buffer.shift()!
       managed.bufferLines -= this.countNewlines(removed)
     }
+    // A single node-pty chunk can contain many lines, so chunk-count based
+    // eviction alone cannot enforce the scrollback limit. Compact oversized
+    // chunks and retain only the newest configured number of lines.
+    if (managed.bufferLines > this.maxLines) {
+      const joined = managed.buffer.join('')
+      const parts = joined.split('\n')
+      const keep = parts.slice(-(this.maxLines + 1))
+      managed.buffer = [keep.join('\n')]
+      managed.bufferLines = this.countNewlines(managed.buffer[0])
+    }
 
     // Recording (bounded by duration and total size to keep memory flat)
     if (managed.recording) {

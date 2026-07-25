@@ -35,14 +35,14 @@ The installer is hosted on **GitHub Releases** — no file-size limits. `main.js
 already points at the `latest/download/...` URL:
 ```js
 const DOWNLOADS = {
-  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.4.0-x64.exe'
+  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.4.1-x64.exe'
 }
 ```
 Publish a release with the matching asset name:
 ```bash
-gh release create v0.4.0 \
-  dist/TermFlow-0.4.0-x64.exe \
-  --repo palamut62/termflow --title "TermFlow v0.4.0" --notes "Latest release"
+gh release create v0.4.1 \
+  dist/TermFlow-0.4.1-x64.exe \
+  --repo palamut62/termflow --title "TermFlow v0.4.1" --notes "Latest release"
 ```
 Because the URL uses `latest/download/...`, every new release is picked up
 automatically — you only need to touch `main.js` when the file name changes

@@ -1,15 +1,15 @@
-<h1 align="center">TermFlow</h1>
+﻿<h1 align="center">TermFlow</h1>
 <p align="center">A tmux-inspired terminal multiplexer for Windows with persistent PTY sessions, tiled panes, and developer tooling.</p>
 
 <p align="center">
-  <a href="https://termflow.vercel.app">Website</a> ·
-  <a href="#getting-started">Docs</a> ·
-  <a href="https://github.com/palamut62/termflow/releases/latest">Download</a> ·
+  <a href="https://termflow.vercel.app">Website</a> Â·
+  <a href="#getting-started">Docs</a> Â·
+  <a href="https://github.com/palamut62/termflow/releases/latest">Download</a> Â·
   <a href="https://github.com/palamut62/termflow/issues">Issues</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/palamut62/termflow/releases/tag/v0.4.0"><img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-2563EB"></a>
+  <a href="https://github.com/palamut62/termflow/releases/tag/v0.4.1"><img alt="Version 0.4.1" src="https://img.shields.io/badge/version-0.4.1-2563EB"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22C55E"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0EA5E9?logo=windows11&logoColor=white">
   <img alt="Electron 39" src="https://img.shields.io/badge/Electron-39-191970?logo=electron&logoColor=white">
@@ -100,7 +100,7 @@ Each pane runs through `@lydell/node-pty` and Windows ConPTY. In packaged builds
 - **Crash recovery** - recover a persisted session after an unclean shutdown or start clean.
 - **Stable and beta updates** - GitHub Releases updater with progress and restart-to-install.
 - **One-click update check** - the status bar shows the current version and update state.
-- **Themes and transparency** - Latte, Frappé, Macchiato, Mocha, Matcha, Kanagawa, Ayu, and Rosé Pine palettes.
+- **Themes and transparency** - Latte, FrappÃ©, Macchiato, Mocha, Matcha, Kanagawa, Ayu, and RosÃ© Pine palettes.
 - **Atomic local storage** - settings and workspace metadata use a JSON store with rolling backup and corrupt-file recovery.
 
 ## Keyboard Workflow
@@ -163,32 +163,32 @@ flowchart LR
 
 ```text
 .
-├── src/
-│   ├── main/
-│   │   ├── db/                    # Atomic JSON persistence
-│   │   ├── ipc/                   # IPC handlers and backend selection
-│   │   └── pty/
-│   │       ├── PtyCore.ts         # Shared PTY lifecycle and buffering
-│   │       ├── PtyManager.ts      # In-process fallback backend
-│   │       └── daemon/            # Detached daemon, client, and launcher
-│   ├── preload/                   # Typed contextBridge API
-│   ├── renderer/src/
-│   │   ├── canvas/
-│   │   │   ├── WindowTabs.tsx     # Window tab strip
-│   │   │   └── WindowView.tsx     # Split-pane tree
-│   │   ├── components/            # Settings, workbench, help, status, etc.
-│   │   ├── store/                 # Zustand store and slices
-│   │   ├── copyMode.ts            # Vi-style scrollback navigation
-│   │   ├── paneUtils.ts           # Pane split/close/resize operations
-│   │   └── prefixKeys.ts          # tmux prefix handling
-│   └── shared/
-│       ├── ptyDaemonProtocol.ts    # Versioned daemon wire protocol
-│       └── types.ts                # Shared models and IPC channels
-├── e2e/                            # Electron Playwright tests
-├── scripts/                        # Packaging and plugin tools
-├── website/                        # Static product and download site
-├── electron-builder.yml
-└── package.json
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ main/
+â”‚   â”‚   â”œâ”€â”€ db/                    # Atomic JSON persistence
+â”‚   â”‚   â”œâ”€â”€ ipc/                   # IPC handlers and backend selection
+â”‚   â”‚   â””â”€â”€ pty/
+â”‚   â”‚       â”œâ”€â”€ PtyCore.ts         # Shared PTY lifecycle and buffering
+â”‚   â”‚       â”œâ”€â”€ PtyManager.ts      # In-process fallback backend
+â”‚   â”‚       â””â”€â”€ daemon/            # Detached daemon, client, and launcher
+â”‚   â”œâ”€â”€ preload/                   # Typed contextBridge API
+â”‚   â”œâ”€â”€ renderer/src/
+â”‚   â”‚   â”œâ”€â”€ canvas/
+â”‚   â”‚   â”‚   â”œâ”€â”€ WindowTabs.tsx     # Window tab strip
+â”‚   â”‚   â”‚   â””â”€â”€ WindowView.tsx     # Split-pane tree
+â”‚   â”‚   â”œâ”€â”€ components/            # Settings, workbench, help, status, etc.
+â”‚   â”‚   â”œâ”€â”€ store/                 # Zustand store and slices
+â”‚   â”‚   â”œâ”€â”€ copyMode.ts            # Vi-style scrollback navigation
+â”‚   â”‚   â”œâ”€â”€ paneUtils.ts           # Pane split/close/resize operations
+â”‚   â”‚   â””â”€â”€ prefixKeys.ts          # tmux prefix handling
+â”‚   â””â”€â”€ shared/
+â”‚       â”œâ”€â”€ ptyDaemonProtocol.ts    # Versioned daemon wire protocol
+â”‚       â””â”€â”€ types.ts                # Shared models and IPC channels
+â”œâ”€â”€ e2e/                            # Electron Playwright tests
+â”œâ”€â”€ scripts/                        # Packaging and plugin tools
+â”œâ”€â”€ website/                        # Static product and download site
+â”œâ”€â”€ electron-builder.yml
+â””â”€â”€ package.json
 ```
 
 ## Getting Started
@@ -197,8 +197,8 @@ flowchart LR
 
 Download the current installer from [GitHub Releases](https://github.com/palamut62/termflow/releases/latest):
 
-- `TermFlow-0.4.0-x64.exe` - Windows installer
-- `TermFlow-0.4.0-x64.zip` - portable package
+- `TermFlow-0.4.1-x64.exe` - Windows installer
+- `TermFlow-0.4.1-x64.zip` - portable package
 
 TermFlow currently targets Windows 10/11 x64. The installer is not code-signed, so Windows may display a SmartScreen warning.
 
@@ -281,7 +281,7 @@ Add `.termflow.json` to a workspace root to expose project actions:
 }
 ```
 
-AI CLI entries are launch profiles only; TermFlow v0.4.0 does not provide agent teams, routing, or workflow orchestration.
+AI CLI entries are launch profiles only; TermFlow v0.4.1 does not provide agent teams, routing, or workflow orchestration.
 
 ## Testing
 
@@ -305,9 +305,9 @@ npm run package:verify
 
 The verified Windows package produces:
 
-- `dist/TermFlow-0.4.0-x64.exe`
-- `dist/TermFlow-0.4.0-x64.zip`
-- `dist/TermFlow-0.4.0-x64.exe.blockmap`
+- `dist/TermFlow-0.4.1-x64.exe`
+- `dist/TermFlow-0.4.1-x64.zip`
+- `dist/TermFlow-0.4.1-x64.exe.blockmap`
 - `dist/latest.yml`
 
 The daemon entry is unpacked from ASAR so it can run independently. Release the installer, ZIP, blockmap, and updater metadata together through GitHub Releases. The static product site lives in `website/` and is deployed separately to [termflow.vercel.app](https://termflow.vercel.app).
@@ -362,7 +362,7 @@ Report vulnerabilities privately through [GitHub Security Advisories](https://gi
 
 ### Is TermFlow an AI agent orchestrator?
 
-No. Since v0.4.0, TermFlow is a focused terminal multiplexer. Claude Code, Codex, Gemini, and similar tools run as ordinary CLI launch profiles.
+No. Since v0.4.1, TermFlow is a focused terminal multiplexer. Claude Code, Codex, Gemini, and similar tools run as ordinary CLI launch profiles.
 
 ### Do terminals survive closing TermFlow?
 
@@ -376,7 +376,7 @@ Not yet. The current packaged application targets Windows 10/11 x64 and uses Win
 
 TermFlow adapts the session/window/pane and prefix-key model to native Windows PTYs with a graphical interface, system tray, Windows credential protection, Git-aware developer tools, and a Windows installer.
 
-### Is v0.4.0 production-ready?
+### Is v0.4.1 production-ready?
 
 TermFlow is actively developed. The core terminal, persistence, pane, and updater workflows are implemented and tested, but the installer is not yet code-signed and breaking changes may still occur.
 
@@ -391,3 +391,4 @@ TermFlow is distributed under the [MIT License](LICENSE).
 - [Electron](https://www.electronjs.org/) - desktop application platform
 - [@lydell/node-pty](https://github.com/microsoft/node-pty) - native pseudo-terminal bindings
 - [Zustand](https://zustand-demo.pmnd.rs/) - application state management
+
