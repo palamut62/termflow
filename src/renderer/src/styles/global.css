@@ -163,6 +163,14 @@ input {
 :root[data-theme='light'] .tb-btn:hover {
   background: rgba(0, 0, 0, 0.06);
 }
+.tb-btn.danger:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+.tb-btn.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
 .tb-btn.primary {
   background: transparent;
   color: var(--text-secondary);

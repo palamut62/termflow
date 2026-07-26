@@ -249,6 +249,16 @@ export default function Toolbar({ onOpenSettings, onOpenPalette, onOpenHelp, onO
         <Search size={15} />
       </button>
 
+      <button
+        className={`tb-btn danger ${disabled ? 'disabled' : ''}`}
+        title="Close all terminals"
+        aria-label="Close all terminals"
+        disabled={disabled}
+        onClick={() => { if (disabled) return; window.dispatchEvent(new CustomEvent('termflow:close-all-terminals')) }}
+      >
+        <Trash2 size={15} />
+      </button>
+
       <div className="tb-group" ref={moreRef} style={{ position: 'relative' }}>
         <button className="tb-btn" title="More" aria-label="More actions" onClick={() => setMoreMenu((v) => !v)}>
           <MoreHorizontal size={15} />
