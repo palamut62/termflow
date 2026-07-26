@@ -25,7 +25,10 @@ if (isE2E) app.setPath('userData', join(app.getPath('temp'), `termflow-e2e-${pro
 function configureUpdater(channel: 'stable' | 'beta'): void {
   autoUpdater.channel = channel === 'beta' ? 'beta' : 'latest'
   autoUpdater.allowPrerelease = channel === 'beta'
-  autoUpdater.autoDownload = true
+  // Opting out of automatic updates still allows the launch-time *check* — it
+  // just stops the download, so the status bar can report a new version without
+  // pulling it in the background.
+  autoUpdater.autoDownload = getSettings().autoUpdate
 }
 function publishUpdateStatus(status: string, detail?: string): void { mainWindow?.webContents.send(IPC.UPDATE_STATUS, { status, detail }) }
 
@@ -178,7 +181,15 @@ app.whenReady().then(() => {
   ptyController = registerIpc(() => mainWindow)
   createTray()
   createWindow()
-  if (app.isPackaged && settings.autoUpdate) setTimeout(() => { void autoUpdater.checkForUpdates().catch(() => undefined) }, 5000)
+  // One version check per app launch, whatever the autoUpdate setting says, so
+  // the status-bar version chip always shows a fresh verdict. 5s in: the window
+  // and its renderer are up, so the 'checking' -> result statuses are received.
+  if (app.isPackaged) {
+    setTimeout(() => {
+      publishUpdateStatus('checking')
+      void autoUpdater.checkForUpdates().catch(() => undefined)
+    }, 5000)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

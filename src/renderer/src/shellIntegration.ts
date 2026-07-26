@@ -270,12 +270,53 @@ export class ShellIntegrationTracker {
 // TerminalView owns the xterm instance, so it registers a reader here that the
 // command palette can call without importing anything xterm-related.
 
+/** A finished (or running) command as the blocks UI sees it. */
+export interface CommandBlock {
+  id: number
+  command: string
+  exitCode?: number
+  durationMs?: number
+  startedAt: number
+  running: boolean
+}
+
+/** Project a record onto the view model — no xterm, no React. */
+export function toCommandBlock(record: CommandRecord): CommandBlock {
+  return {
+    id: record.id,
+    command: record.commandText ?? '',
+    exitCode: record.exitCode,
+    durationMs: record.durationMs,
+    startedAt: record.startedAt,
+    running: record.running
+  }
+}
+
+/**
+ * Commands worth listing: the shell has to have told us what ran. Newest first,
+ * because that is the order the panel shows them in.
+ */
+export function commandBlocksOf(records: readonly CommandRecord[]): CommandBlock[] {
+  return records
+    .filter((record) => (record.commandText ?? '').trim().length > 0)
+    .map(toCommandBlock)
+    .reverse()
+}
+
 export interface CommandOutputReader {
   /** Text of the last finished command's output, or null when unavailable. */
   lastOutput: () => string | null
+  /** Every listable command, newest first. */
+  blocks: () => CommandBlock[]
+  /** Output text of one block, or null when it is no longer in the buffer. */
+  outputFor: (blockId: number) => string | null
+  /** Scroll the terminal to where that command was run. */
+  scrollToBlock: (blockId: number) => void
 }
 
 const readers = new Map<string, CommandOutputReader>()
+// Listeners are keyed by terminal: a panel only ever watches the pane it shows.
+const blockListeners = new Map<string, Set<() => void>>()
 
 export function registerCommandOutputReader(terminalId: string, reader: CommandOutputReader): () => void {
   readers.set(terminalId, reader)
@@ -289,5 +330,50 @@ export function readLastCommandOutput(terminalId: string): string | null {
     return readers.get(terminalId)?.lastOutput() ?? null
   } catch {
     return null
+  }
+}
+
+export function getCommandBlocks(terminalId: string): CommandBlock[] {
+  try {
+    return readers.get(terminalId)?.blocks() ?? []
+  } catch {
+    return []
+  }
+}
+
+export function getCommandOutput(terminalId: string, blockId: number): string | null {
+  try {
+    return readers.get(terminalId)?.outputFor(blockId) ?? null
+  } catch {
+    return null
+  }
+}
+
+export function scrollToCommandBlock(terminalId: string, blockId: number): void {
+  try {
+    readers.get(terminalId)?.scrollToBlock(blockId)
+  } catch {
+    /* the terminal went away between render and click */
+  }
+}
+
+/** Subscribe to "a command finished in this terminal". Returns an unsubscribe. */
+export function onCommandBlocksChanged(terminalId: string, cb: () => void): () => void {
+  const set = blockListeners.get(terminalId) ?? new Set<() => void>()
+  set.add(cb)
+  blockListeners.set(terminalId, set)
+  return () => {
+    const current = blockListeners.get(terminalId)
+    if (!current) return
+    current.delete(cb)
+    if (!current.size) blockListeners.delete(terminalId)
+  }
+}
+
+export function notifyCommandBlocksChanged(terminalId: string): void {
+  const set = blockListeners.get(terminalId)
+  if (!set) return
+  for (const cb of [...set]) {
+    try { cb() } catch { /* a bad listener must not break the others */ }
   }
 }

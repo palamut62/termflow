@@ -8,7 +8,7 @@
    (The old Vercel Blob URL is no longer used.)
    ============================================================ */
 const DOWNLOADS = {
-  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.4.2-x64.exe'
+  installer: 'https://github.com/palamut62/termflow/releases/latest/download/TermFlow-0.4.3-x64.exe'
 }
 
 // Wire download buttons

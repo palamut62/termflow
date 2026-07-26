@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Terminal, type IDecoration } from '@xterm/xterm'
+import { Plus } from 'lucide-react'
+import { Terminal, type IDecoration, type ILink } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
@@ -17,9 +18,22 @@ import {
   OSC_VSCODE,
   ShellIntegrationTracker,
   registerCommandOutputReader,
+  commandBlocksOf,
+  notifyCommandBlocksChanged,
   type CommandRecord
 } from '../shellIntegration'
 import { notifyLongCommandDone } from '../store/notifications'
+import { findPathMatches, resolvePath } from '../filePathLinks'
+
+// Existence answers for path candidates seen in output. Terminal scrollback
+// re-renders the same lines constantly, so without this every repaint would
+// fire an IPC round-trip per candidate.
+const pathExistsCache = new Map<string, boolean>()
+const PATH_CACHE_MAX = 500
+function cacheExists(path: string, exists: boolean): void {
+  if (pathExistsCache.size >= PATH_CACHE_MAX) pathExistsCache.clear()
+  pathExistsCache.set(path, exists)
+}
 
 // Short two-tone chime for the terminal bell (\x07). Web Audio, no asset —
 // throttled so a burst of BELs doesn't stack into noise.
@@ -50,10 +64,22 @@ interface Props {
   active: boolean
 }
 
-function formatDroppedPaths(files: FileList): string {
-  return Array.from(files)
-    .map((file) => JSON.stringify(window.termflow.system.getPathForFile(file)))
+/**
+ * Render paths as ONE line, space separated, so several files land next to each
+ * other on the current prompt instead of stacking. Quotes are added only when a
+ * path actually needs them — JSON.stringify would also double every Windows
+ * backslash, which cmd/PowerShell take literally.
+ */
+function formatPaths(paths: string[]): string {
+  return paths
+    .filter(Boolean)
+    .map((path) => path.replace(/[\r\n]+/g, ' ').trim())
+    .map((path) => (/[\s"'`$&|<>^()]/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path))
     .join(' ')
+}
+
+function formatDroppedPaths(files: FileList): string {
+  return formatPaths(Array.from(files).map((file) => window.termflow.system.getPathForFile(file)))
 }
 
 /**
@@ -173,6 +199,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
 
   const copyMode = useAppStore((s) => s.copyModePaneId === terminalId)
 
+  const [attachHover, setAttachHover] = useState(false)
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
@@ -352,6 +379,46 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.loadAddon(new WebLinksAddon())
+    // File paths in output become links that open the configured editor at the
+    // reported line. URLs stay with WebLinksAddon.
+    const pathLinks = term.registerLinkProvider({
+      provideLinks: (bufferLineNumber, callback) => {
+        const buf = term.buffer.active
+        const raw = buf.getLine(buf.viewportY + bufferLineNumber - 1)?.translateToString(true)
+        if (!raw) {
+          callback(undefined)
+          return
+        }
+        const matches = findPathMatches(raw)
+        if (matches.length === 0) {
+          callback(undefined)
+          return
+        }
+        const cwd = useAppStore.getState().terminals[terminalId]?.cwd ?? ''
+        void (async () => {
+          const links: ILink[] = []
+          for (const m of matches) {
+            const resolved = resolvePath(cwd, m.path)
+            let exists = pathExistsCache.get(resolved)
+            if (exists === undefined) {
+              exists = await window.termflow.dialog.checkFile(resolved)
+              cacheExists(resolved, exists)
+            }
+            if (!exists) continue
+            links.push({
+              text: m.text,
+              range: {
+                start: { x: m.start + 1, y: bufferLineNumber },
+                end: { x: m.end, y: bufferLineNumber }
+              },
+              activate: () => void window.termflow.editor.open(resolved, m.line, m.col)
+            })
+          }
+          if (disposed) return
+          callback(links.length > 0 ? links : undefined)
+        })()
+      }
+    })
     const searchAddon = new SearchAddon()
     term.loadAddon(searchAddon)
     term.loadAddon(new Unicode11Addon())
@@ -424,6 +491,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
         const event = tracker.handle(code, payload, buffer.baseY + buffer.cursorY)
         if (event?.type === 'commandFinish') {
           markCommand(event.record)
+          // Only on a real command boundary — the blocks panel must never be a
+          // cost on the output hot path.
+          notifyCommandBlocksChanged(terminalId)
           // Real command boundaries replace the old process-exit heuristic for
           // the "long command finished" notification.
           const settings = useAppStore.getState().settings
@@ -455,6 +525,15 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
           lastOutput: () => {
             const record = tracker.lastFinished()
             return record ? commandOutputText(term, record) : null
+          },
+          blocks: () => commandBlocksOf(tracker.commands),
+          outputFor: (blockId) => {
+            const record = tracker.commands.find((c) => c.id === blockId)
+            return record ? commandOutputText(term, record) : null
+          },
+          scrollToBlock: (blockId) => {
+            const record = tracker.commands.find((c) => c.id === blockId)
+            if (record && record.promptLine >= 0) term.scrollToLine(Math.max(0, record.promptLine))
           }
         })
       })
@@ -602,6 +681,7 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       dataSub.dispose()
       keySub.dispose()
       bellSub.dispose()
+      pathLinks.dispose()
       jumpToCommandRef.current = null
       for (const sub of shellIntegrationSubs) {
         try { sub.dispose() } catch { /* already disposed */ }
@@ -679,6 +759,22 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     if (node.panes && node.activePaneId !== terminalId) st.setActivePane(node.id, terminalId)
   }
 
+  // "+" button: pick files and type their quoted paths at the cursor, exactly
+  // like dropping them onto the pane. Handy for agent CLIs (claude, codex) that
+  // take file paths as part of a prompt.
+  const attachFiles = async (): Promise<void> => {
+    activateOnClick()
+    const paths = await window.termflow.dialog.openFiles()
+    const text = formatPaths(paths)
+    if (!text) {
+      termRef.current?.focus()
+      return
+    }
+    // Trailing space so the next word (or another attach) stays separated.
+    window.termflow.pty.write(terminalId, `${text} `)
+    termRef.current?.focus()
+  }
+
   const acceptFileDrop = (event: React.DragEvent<HTMLDivElement>): void => {
     event.preventDefault()
     event.stopPropagation()
@@ -700,6 +796,45 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
       onDrop={acceptFileDrop}
     >
       <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
+      {!searchVisible && (
+      <button
+        onClick={() => void attachFiles()}
+        onMouseEnter={() => setAttachHover(true)}
+        onMouseLeave={() => setAttachHover(false)}
+        title="Attach files — inserts their paths at the cursor"
+        aria-label="Attach files"
+        style={{
+          position: 'absolute',
+          // Fixed top-right corner: every CLI puts its input somewhere else,
+          // so a corner anchor is the one spot that never lands on top of the
+          // prompt. The search bar owns this corner while it is open.
+          // Boxed and fully opaque — it has to read as a button, not a glyph
+          // that happens to be in the output.
+          top: 4,
+          right: 10,
+          height: 22,
+          width: 22,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: attachHover ? 'var(--accent, #2f80ff)' : 'var(--bg-elevated, #1e2530)',
+          border: `1px solid ${attachHover ? 'var(--accent, #2f80ff)' : 'var(--border, #3a4050)'}`,
+          borderRadius: 4,
+          color: attachHover ? '#fff' : 'var(--text, #e8eaf0)',
+          cursor: 'pointer',
+          lineHeight: 0,
+          padding: 0,
+          opacity: 1,
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+          transition: 'background 120ms, color 120ms, border-color 120ms',
+          zIndex: 9
+        }}
+      >
+        {/* SVG icon, not the "+" glyph: font metrics leave the character
+            optically off-centre in the box. */}
+        <Plus size={15} strokeWidth={2.5} />
+      </button>
+      )}
       {searchVisible && (
         <div
           style={{

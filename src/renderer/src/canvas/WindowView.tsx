@@ -11,8 +11,9 @@ import {
   AlertTriangle,
   GitBranch,
   Copy,
-  SplitSquareHorizontal,
-  SplitSquareVertical,
+  Columns2,
+  Rows2,
+  Blocks,
   MoreHorizontal
 } from 'lucide-react'
 import TerminalView from '../components/TerminalView'
@@ -173,6 +174,7 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
   const splitNode = useAppStore((s) => s.splitNode)
   const closePaneInNode = useAppStore((s) => s.closePaneInNode)
   const setActivePane = useAppStore((s) => s.setActivePane)
+  const setActiveNode = useAppStore((s) => s.setActiveNode)
   const addToBroadcastGroup = useAppStore((s) => s.addToBroadcastGroup)
   const removeFromBroadcastGroup = useAppStore((s) => s.removeFromBroadcastGroup)
   const startRecording = useAppStore((s) => s.startRecording)
@@ -301,7 +303,10 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
               // sessions whose pane name *is* the window title strip down to
               // nothing, so fall back to the full name rather than an empty chip.
               const stripped = full.startsWith(node.title) ? full.slice(node.title.length).replace(/^[.\s]+/, '') : full
-              const short = stripped || full
+              // A purely numeric leftover ("CMD 1.2" -> "2") repeats the index
+              // badge next to it, which read as "2 2". Drop it and let the badge
+              // speak; anything with real text still shows.
+              const short = /^[\d.]+$/.test(stripped) ? '' : stripped || full
               const isActive = (node.activePaneId ?? getLeafTerminalIds(node.panes!)[0]) === tid
               return (
                 <div
@@ -345,11 +350,27 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
                 style={{ position: 'absolute', top: '100%', right: 0, zIndex: 20, minWidth: 210 }}
                 onClick={(e) => e.stopPropagation()}
               >
+                {/* Icon = the divider you get: a vertical line splits side by
+                    side, a horizontal line stacks. The lucide "split-square-*"
+                    icons draw the opposite line to their name, which is exactly
+                    what made these two look swapped. */}
                 <div className="menu-item" onClick={() => { void splitNode(id, 'vertical'); setShowMoreMenu(false) }}>
-                  <SplitSquareVertical size={13} /> Split pane vertically
+                  <Columns2 size={13} /> Split pane right (side by side)
                 </div>
                 <div className="menu-item" onClick={() => { void splitNode(id, 'horizontal'); setShowMoreMenu(false) }}>
-                  <SplitSquareHorizontal size={13} /> Split pane horizontally
+                  <Rows2 size={13} /> Split pane down (stacked)
+                </div>
+                <div className="menu-sep" />
+                <div
+                  className="menu-item"
+                  onClick={() => {
+                    // The panel reads the active window, so make this one active first.
+                    setActiveNode(id)
+                    window.dispatchEvent(new CustomEvent('termflow:command-blocks'))
+                    setShowMoreMenu(false)
+                  }}
+                >
+                  <Blocks size={13} /> Command blocks
                 </div>
                 <div className="menu-sep" />
                 {termId && (

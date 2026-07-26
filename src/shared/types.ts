@@ -342,6 +342,11 @@ export interface AppSettings {
    * with it off the PTY spawn path is byte-for-byte the legacy one.
    */
   shellIntegration: boolean
+  /**
+   * Command used to open a file path clicked in terminal output. Supports the
+   * `{path}`, `{line}` and `{col}` placeholders. Empty -> OS default handler.
+   */
+  editorCommand: string
 }
 
 export interface CustomAgentDef {
@@ -407,7 +412,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   infoPanelDefaultOpen: false,
   prefixKey: 'ctrl+a',
   newTerminalTarget: 'pane',
-  shellIntegration: false
+  shellIntegration: false,
+  editorCommand: 'code -g "{path}:{line}:{col}"'
 }
 
 export interface WorkspaceLayout {
@@ -488,7 +494,10 @@ export const IPC = {
   WINDOW_FOCUS: 'window:focus', // renderer -> main: restore/focus the main window (notification click)
   // dialog
   DIALOG_OPEN_DIR: 'dialog:openDir',
+  DIALOG_OPEN_FILES: 'dialog:openFiles',
   DIALOG_CHECK_FILE: 'dialog:checkFile',
+  // editor
+  EDITOR_OPEN: 'editor:open', // renderer -> main: open a file (optionally at line/col) in the configured editor
   // workspaces
   WS_LIST: 'ws:list',
   WS_CREATE: 'ws:create',

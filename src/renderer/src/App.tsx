@@ -9,6 +9,8 @@ import WorkspaceModal from './components/WorkspaceModal'
 const SettingsModal = lazy(() => import('./components/SettingsModal'))
 const DeveloperCenter = lazy(() => import('./components/DeveloperCenter'))
 const ProviderManagerModal = lazy(() => import('./components/ProviderManagerModal'))
+const HistoryPickerModal = lazy(() => import('./components/HistoryPickerModal'))
+const CommandBlocksPanel = lazy(() => import('./components/CommandBlocksPanel'))
 import SnippetModal from './components/SnippetModal'
 import ProjectManifestPanel from './components/ProjectManifestPanel'
 import DetachedSessionsPanel from './components/DetachedSessionsPanel'
@@ -50,6 +52,8 @@ export default function App(): React.JSX.Element {
   const [showTerminalLauncher, setShowTerminalLauncher] = useState(false)
   const [showProviderManager, setShowProviderManager] = useState(false)
   const [showRecovery, setShowRecovery] = useState(false)
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false)
+  const [showCommandBlocks, setShowCommandBlocks] = useState(false)
   const [pluginCommands, setPluginCommands] = useState<TermFlowPluginManifest[]>([])
   const [confirm, setConfirm] = useState<{
     title: string
@@ -217,7 +221,7 @@ export default function App(): React.JSX.Element {
       { id: 'toggle-broadcast', title: 'Toggle Broadcast Mode', run: () => s().toggleBroadcast() },
       {
         id: 'split-h',
-        title: 'Split Active Window Horizontally',
+        title: 'Split Active Window Down (stacked)',
         run: () => {
           const a = s().activeNodeId
           if (a) s().splitNode(a, 'horizontal')
@@ -225,7 +229,7 @@ export default function App(): React.JSX.Element {
       },
       {
         id: 'split-v',
-        title: 'Split Active Window Vertically',
+        title: 'Split Active Window Right (side by side)',
         run: () => {
           const a = s().activeNodeId
           if (a) s().splitNode(a, 'vertical')
@@ -275,6 +279,8 @@ export default function App(): React.JSX.Element {
           if (text) void navigator.clipboard.writeText(text)
         }
       },
+      { id: 'command-history', title: 'Command History (Ctrl+Shift+R)', run: () => setShowHistoryPicker(true) },
+      { id: 'command-blocks', title: 'Command Blocks', run: () => setShowCommandBlocks(true) },
       { id: 'new-snippet', title: 'Create New Snippet', run: () => setShowSnippetModal(true) },
       { id: 'settings', title: 'Open Settings', run: () => setShowSettings(true) },
       { id: 'new-ws', title: 'Create Workspace', run: () => setShowWsModal(true) }
@@ -295,6 +301,10 @@ export default function App(): React.JSX.Element {
       } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault()
         if (s.activeNodeId) s.splitNode(s.activeNodeId, 'horizontal')
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'r') {
+        // Shift only: plain Ctrl+R must stay with the shell's reverse search.
+        e.preventDefault()
+        setShowHistoryPicker((v) => !v)
       } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         s.toggleBroadcast()
@@ -317,10 +327,17 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // The ⋯ menu (per window) asks App to open the command-blocks panel.
+  useEffect(() => {
+    const open = (): void => setShowCommandBlocks(true)
+    window.addEventListener('termflow:command-blocks', open)
+    return () => window.removeEventListener('termflow:command-blocks', open)
+  }, [])
+
   // Any open modal owns the keyboard: the prefix stays disabled while one is up.
   const anyModalOpen =
     showWsModal || showSettings || showPalette || showSnippetModal || showHelp ||
-    showTerminalLauncher || showProviderManager || showRecovery || !!confirm || !!prompt
+    showTerminalLauncher || showProviderManager || showRecovery || showHistoryPicker || showCommandBlocks || !!confirm || !!prompt
   const modalOpenRef = useRef(anyModalOpen)
   modalOpenRef.current = anyModalOpen
 
@@ -530,6 +547,8 @@ export default function App(): React.JSX.Element {
       {showProviderManager && <Suspense fallback={null}><ProviderManagerModal onClose={() => setShowProviderManager(false)} /></Suspense>}
       {showRecovery && <RecoveryModal onRestore={() => { void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} onDiscard={() => { useAppStore.getState().nodes.slice().forEach((node) => useAppStore.getState().closeNode(node.id, 'terminate')); void window.termflow.recovery.acknowledge(); setShowRecovery(false) }} />}
       {showSnippetModal && <SnippetModal onClose={() => setShowSnippetModal(false)} />}
+      {showHistoryPicker && <Suspense fallback={null}><HistoryPickerModal open={showHistoryPicker} onClose={() => setShowHistoryPicker(false)} /></Suspense>}
+      {showCommandBlocks && <Suspense fallback={null}><CommandBlocksPanel open={showCommandBlocks} onClose={() => setShowCommandBlocks(false)} /></Suspense>}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
       {confirm && (
         <ConfirmModal

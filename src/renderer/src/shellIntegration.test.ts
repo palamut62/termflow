@@ -7,7 +7,13 @@ import {
   decodeVsCodeValue,
   parsePayload,
   readLastCommandOutput,
-  registerCommandOutputReader
+  registerCommandOutputReader,
+  commandBlocksOf,
+  getCommandBlocks,
+  getCommandOutput,
+  onCommandBlocksChanged,
+  notifyCommandBlocksChanged,
+  type CommandOutputReader
 } from './shellIntegration'
 
 /** Deterministic clock: every read advances by 10ms. */
@@ -260,9 +266,20 @@ describe('ShellIntegrationTracker history bound', () => {
   })
 })
 
+// Fill the parts of the reader a test does not care about.
+function makeReader(partial: Partial<CommandOutputReader>): CommandOutputReader {
+  return {
+    lastOutput: () => null,
+    blocks: () => [],
+    outputFor: () => null,
+    scrollToBlock: () => undefined,
+    ...partial
+  }
+}
+
 describe('command output reader registry', () => {
   it('registers, reads and unregisters', () => {
-    const off = registerCommandOutputReader('t1', { lastOutput: () => 'hello' })
+    const off = registerCommandOutputReader('t1', makeReader({ lastOutput: () => 'hello' }))
     expect(readLastCommandOutput('t1')).toBe('hello')
     off()
     expect(readLastCommandOutput('t1')).toBeNull()
@@ -270,12 +287,83 @@ describe('command output reader registry', () => {
 
   it('returns null for unknown terminals and swallows reader errors', () => {
     expect(readLastCommandOutput('nope')).toBeNull()
-    const off = registerCommandOutputReader('t2', {
+    const off = registerCommandOutputReader('t2', makeReader({
       lastOutput: () => {
         throw new Error('boom')
       }
-    })
+    }))
     expect(readLastCommandOutput('t2')).toBeNull()
     off()
+  })
+})
+
+describe('command blocks view model', () => {
+  function trackerWith(commands: Array<{ text?: string; exit?: number }>): ShellIntegrationTracker {
+    const t = new ShellIntegrationTracker({ now: () => 1000 })
+    commands.forEach((c, i) => {
+      const line = i * 3
+      t.handle(OSC_SEMANTIC_PROMPT, 'A', line)
+      if (c.text !== undefined) t.handle(OSC_VSCODE, `E;${c.text}`, line)
+      t.handle(OSC_SEMANTIC_PROMPT, 'C', line + 1)
+      t.handle(OSC_SEMANTIC_PROMPT, `D;${c.exit ?? 0}`, line + 2)
+    })
+    return t
+  }
+
+  it('lists only commands whose text is known, newest first', () => {
+    const t = trackerWith([{ text: 'git status', exit: 0 }, { text: 'ls', exit: 2 }])
+    const blocks = commandBlocksOf(t.commands)
+    expect(blocks.map((b) => b.command)).toEqual(['ls', 'git status'])
+    expect(blocks[0].exitCode).toBe(2)
+  })
+
+  it('drops commands the shell never named', () => {
+    const t = trackerWith([{ exit: 0 }, { text: 'echo hi', exit: 0 }])
+    expect(commandBlocksOf(t.commands).map((b) => b.command)).toEqual(['echo hi'])
+  })
+
+  it('carries id, running flag and duration onto the block', () => {
+    const t = trackerWith([{ text: 'sleep 1', exit: 0 }])
+    const [block] = commandBlocksOf(t.commands)
+    expect(block.id).toBeGreaterThan(0)
+    expect(block.running).toBe(false)
+    expect(block.durationMs).toBe(0)
+  })
+
+  it('registry accessors read the active reader', () => {
+    const blocks = [{ id: 1, command: 'ls', startedAt: 0, running: false }]
+    const off = registerCommandOutputReader('tb', makeReader({
+      blocks: () => blocks,
+      outputFor: (id) => (id === 1 ? 'out' : null),
+      scrollToBlock: () => undefined
+    }))
+    expect(getCommandBlocks('tb')).toBe(blocks)
+    expect(getCommandOutput('tb', 1)).toBe('out')
+    expect(getCommandOutput('tb', 9)).toBeNull()
+    off()
+    expect(getCommandBlocks('tb')).toEqual([])
+  })
+
+  it('accessors swallow reader errors', () => {
+    const off = registerCommandOutputReader('te', makeReader({
+      blocks: () => { throw new Error('x') },
+      outputFor: () => { throw new Error('x') }
+    }))
+    expect(getCommandBlocks('te')).toEqual([])
+    expect(getCommandOutput('te', 1)).toBeNull()
+    off()
+  })
+
+  it('notifies only the subscribed terminal and stops after unsubscribe', () => {
+    let a = 0
+    let b = 0
+    const offA = onCommandBlocksChanged('ta', () => { a += 1 })
+    onCommandBlocksChanged('tbb', () => { b += 1 })
+    notifyCommandBlocksChanged('ta')
+    expect(a).toBe(1)
+    expect(b).toBe(0)
+    offA()
+    notifyCommandBlocksChanged('ta')
+    expect(a).toBe(1)
   })
 })

@@ -108,7 +108,12 @@ const api = {
   },
   dialog: {
     openDir: (): Promise<string | null> => ipcRenderer.invoke(IPC.DIALOG_OPEN_DIR),
+    openFiles: (): Promise<string[]> => ipcRenderer.invoke(IPC.DIALOG_OPEN_FILES),
     checkFile: (path: string): Promise<boolean> => ipcRenderer.invoke(IPC.DIALOG_CHECK_FILE, path)
+  },
+  editor: {
+    open: (path: string, line?: number, col?: number): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.EDITOR_OPEN, path, line, col)
   },
   files: {
     list: (workspaceId: string, path?: string): Promise<WorkspaceFileEntry[]> => ipcRenderer.invoke(IPC.FS_LIST, workspaceId, path),

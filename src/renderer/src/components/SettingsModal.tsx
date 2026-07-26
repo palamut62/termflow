@@ -332,6 +332,21 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
             </div>
 
             <div className="field">
+              <label>Editor command</label>
+              <input
+                type="text"
+                value={settings.editorCommand}
+                placeholder='code -g "{path}:{line}:{col}"'
+                onChange={(e) => update({ editorCommand: e.target.value })}
+              />
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Runs when you click a file path in terminal output. Placeholders:{' '}
+                <code>{'{path}'}</code>, <code>{'{line}'}</code>, <code>{'{col}'}</code>.
+                Leave empty to use the system default application.
+              </p>
+            </div>
+
+            <div className="field">
               <label>Terminal Theme</label>
               <select value={settings.terminalTheme} onChange={(e) => update({ terminalTheme: e.target.value })}>
                 {TERMINAL_THEMES.map((t) => (<option key={t.name} value={t.name}>{t.name}</option>))}
