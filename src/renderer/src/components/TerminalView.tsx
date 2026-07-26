@@ -808,31 +808,30 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
           // Fixed top-right corner: every CLI puts its input somewhere else,
           // so a corner anchor is the one spot that never lands on top of the
           // prompt. The search bar owns this corner while it is open.
-          // Boxed and fully opaque — it has to read as a button, not a glyph
-          // that happens to be in the output.
+          // Small and faded so it stays out of the way; it only firms up on
+          // hover, tinted with the theme accent rather than a fixed blue.
           top: 4,
           right: 10,
-          height: 22,
-          width: 22,
+          height: 18,
+          width: 18,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: attachHover ? 'var(--accent, #2f80ff)' : 'var(--bg-elevated, #1e2530)',
-          border: `1px solid ${attachHover ? 'var(--accent, #2f80ff)' : 'var(--border, #3a4050)'}`,
+          background: attachHover ? 'var(--accent-soft)' : 'transparent',
+          border: `1px solid ${attachHover ? 'var(--accent)' : 'var(--border-soft)'}`,
           borderRadius: 4,
-          color: attachHover ? '#fff' : 'var(--text, #e8eaf0)',
+          color: attachHover ? 'var(--text-primary)' : 'var(--text-muted)',
           cursor: 'pointer',
           lineHeight: 0,
           padding: 0,
-          opacity: 1,
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
-          transition: 'background 120ms, color 120ms, border-color 120ms',
+          opacity: attachHover ? 1 : 0.55,
+          transition: 'background 120ms, color 120ms, border-color 120ms, opacity 120ms',
           zIndex: 9
         }}
       >
         {/* SVG icon, not the "+" glyph: font metrics leave the character
             optically off-centre in the box. */}
-        <Plus size={15} strokeWidth={2.5} />
+        <Plus size={12} strokeWidth={2.25} />
       </button>
       )}
       {searchVisible && (
