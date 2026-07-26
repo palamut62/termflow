@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { registerWriter } from '../terminalRegistry'
+import { pulseActivity } from '../terminalActivity'
 import { reportTerminalSize } from '../terminalStartup'
 import { useAppStore } from '../store/appStore'
 import { captureCommandInput } from '../commandHistory'
@@ -579,6 +580,9 @@ export default function TerminalView({ terminalId, active }: Props): React.JSX.E
     let ready = false
     const queue: string[] = []
     const unregister = registerWriter(terminalId, (data) => {
+      // Output arriving means the agent/shell in this pane is actively doing
+      // something — feed the activity badge regardless of the buffer-ready gate.
+      pulseActivity(terminalId)
       if (ready) {
         term.write(data, () => {
           lastTotalRef.current += data.length

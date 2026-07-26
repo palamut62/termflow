@@ -77,6 +77,22 @@ export function notifyError(terminalId: string, terminalName: string): void {
   fire(`${terminalName}: error detected`, 'An error pattern was detected in the terminal output.', terminalId)
 }
 
+// A long agent turn finished. Unlike notifyLongCommandDone (which keys off
+// shell-integration command boundaries), CLI agents like claude run as one
+// long-lived process, so their per-turn work is invisible to shell integration.
+// This fires off the output-activity tracker instead. We only raise it when the
+// app isn't focused — if you're already looking at TermFlow the in-app amber
+// activity dot is enough, and a desktop toast would just be noise. Gated on the
+// same notifyOnLongCommand setting (it is the "a long task finished" toggle).
+export function notifyAgentTurnDone(terminalId: string, terminalName: string): void {
+  const s = store?.getState().settings
+  if (!s?.notificationsEnabled || !s.notifyOnLongCommand) return
+  // Skip when TermFlow has focus — the user is already here and can see the dot.
+  if (typeof document !== 'undefined' && document.hasFocus()) return
+  ensurePermission()
+  fire(`${terminalName} finished`, 'The agent finished its turn and is waiting for you.', terminalId)
+}
+
 // Generic output-pattern notification: the terminal's output matched the
 // "waiting for input" pattern. Settings key is still notifyOnAgentWaiting for
 // backwards compatibility with stored settings.

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { registerThemeStore } from './storeShared'
-import { registerNotificationStore } from './notifications'
+import { registerNotificationStore, notifyAgentTurnDone } from './notifications'
+import { onAttentionRaised } from '../terminalActivity'
 import { createLayoutSlice, type LayoutSlice } from './slices/layoutSlice'
 import { createTerminalSlice, type TerminalSlice } from './slices/terminalSlice'
 import { createDevResourcesSlice, type DevResourcesSlice } from './slices/devResourcesSlice'
@@ -20,3 +21,11 @@ export const useAppStore = create<AppState>()((...a) => ({
 // circular import back into this module.
 registerThemeStore(useAppStore)
 registerNotificationStore(useAppStore)
+
+// When a long agent turn finishes (detected from output activity, not shell
+// integration), raise a desktop notification — but only if the app is unfocused,
+// which notifyAgentTurnDone enforces.
+onAttentionRaised((terminalId) => {
+  const name = useAppStore.getState().terminals[terminalId]?.name || 'Terminal'
+  notifyAgentTurnDone(terminalId, name)
+})

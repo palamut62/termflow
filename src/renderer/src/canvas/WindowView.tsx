@@ -19,6 +19,7 @@ import {
 import TerminalView from '../components/TerminalView'
 import CloseModal from '../components/CloseModal'
 import WindowTabs from './WindowTabs'
+import { ActivityBadge } from '../components/ActivityBadge'
 import { useAppStore } from '../store/appStore'
 import { profileFor } from '../profiles'
 import type { PaneNode, SplitPane } from '../../../shared/types'
@@ -242,6 +243,9 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
         {/* The window name is owned by the tab strip; repeating it as a title
             here is what made the two chrome rows look duplicated. */}
         <WindowTabs />
+        {/* When this window is a single pane there is no per-pane tab to carry
+            the activity dot, so surface it here next to the chrome. */}
+        {termId && (!node.panes || countLeaves(node.panes) <= 1) && <ActivityBadge terminalId={termId} active showElapsed />}
         {hasError && <AlertTriangle size={14} color="var(--danger)" />}
         {recording && <span className="rec-dot" title="Recording in progress" />}
         {zoomActive && (
@@ -318,6 +322,7 @@ function WindowViewInner({ id }: { id: string }): React.JSX.Element {
                   onClick={() => setActivePane(id, tid)}
                   onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closePaneInNode(id, tid) } }}
                 >
+                  <ActivityBadge terminalId={tid} active={isActive} size={6} />
                   <span className="pane-idx">{i + 1}</span>
                   {short && <span className="pane-name">{short}</span>}
                   <button
