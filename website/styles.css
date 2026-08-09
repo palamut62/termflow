@@ -209,6 +209,18 @@ em{color:var(--text);font-style:normal;font-weight:600}
 .feat-col li{position:relative;padding-left:18px;font-size:.92rem;color:var(--text-2)}
 .feat-col li::before{content:"›";position:absolute;left:0;color:var(--muted);font-weight:700}
 
+/* ===== TermFlow Lite ===== */
+.lite{
+  max-width:var(--maxw);margin:0 auto;padding:76px 24px;
+  display:grid;grid-template-columns:1.12fr .88fr;gap:48px;align-items:center;
+}
+.lite__media{position:relative;border:1px solid var(--border-soft);border-radius:var(--radius);overflow:hidden;background:var(--bg-2);box-shadow:var(--shadow)}
+.lite__media::after{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.025)}
+.lite__media img{width:100%;aspect-ratio:16/10;object-fit:cover}
+.lite__copy h2{font-size:clamp(1.7rem,3.2vw,2.5rem);font-weight:800;letter-spacing:-.025em;line-height:1.12;margin-bottom:16px}
+.lite__copy>p{color:var(--text-2);font-size:1.04rem;margin-bottom:22px}
+.lite__actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}
+
 /* ===== changelog ===== */
 .changelog{max-width:960px;margin:0 auto;padding:70px 24px}
 .timeline{display:grid;gap:18px}
@@ -282,7 +294,7 @@ em{color:var(--text);font-style:normal;font-weight:600}
   .hero{grid-template-columns:1fr;padding-top:44px;gap:40px}
   .hero__sub{max-width:none}
   .stats{grid-template-columns:repeat(2,1fr)}
-  .pillar-grid,.feat-cols,.split{grid-template-columns:1fr}
+  .pillar-grid,.feat-cols,.split,.lite{grid-template-columns:1fr}
   .split--rev .split__media{order:0}
   .gallery{grid-template-columns:repeat(2,1fr)}
   .gallery__item--wide{grid-column:span 2;grid-row:auto}
@@ -295,6 +307,7 @@ em{color:var(--text);font-style:normal;font-weight:600}
   .gallery{grid-template-columns:1fr}
   .gallery__item--wide{grid-column:auto}
   .hero__cta .btn{flex:1;justify-content:center}
+  .lite__actions .btn{width:100%;justify-content:center}
   .hero__visual{padding:14px 0 12px}
   .workspace-status{font-size:10px;padding:8px 9px}.workspace-status--top{right:0}.workspace-status--bottom{left:0}
   .window__controls i{width:38px}
